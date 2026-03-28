@@ -1,0 +1,224 @@
+import "dotenv/config";
+import "./instrumentation/register";
+import { randomUUID } from "crypto";
+import express, { Request, Response, NextFunction } from "express";
+import * as Sentry from "@sentry/node";
+import cors from "cors";
+import helmet from "helmet";
+import hpp from "hpp";
+import morgan from "morgan";
+import compression from "compression";
+import cookieParser from "cookie-parser";
+import mongoSanitize from "express-mongo-sanitize";
+import rateLimit from "express-rate-limit";
+import { RedisStore } from "rate-limit-redis";
+import mongoose from "mongoose";
+
+import connectDB from "./config/db";
+import logger from "./utils/logger";
+import errorHandler from "./middleware/errorHandler";
+import AppError from "./utils/AppError";
+import { redisConnection } from "./config/redis";
+
+import authRoutes from "./routes/authRoutes";
+import productRoutes from "./routes/productRoutes";
+import cartRoutes from "./routes/cartRoutes";
+import orderRoutes from "./routes/orderRoutes";
+import reviewRoutes from "./routes/reviewRoutes";
+import wishlistRoutes from "./routes/wishlistRoutes";
+import couponRoutes from "./routes/couponRoutes";
+import adminRoutes from "./routes/adminRoutes";
+import categoryRoutes from "./routes/categoryRoutes";
+import storefrontRoutes from "./routes/storefrontRoutes";
+import { startEmailWorker, closeEmailWorker, emailQueue } from "./queues/emailQueue";
+import { requestContext } from "./utils/requestContext";
+import { botHeuristics } from "./middleware/botHeuristics";
+const app = express();
+
+if (process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true") {
+  app.set("trust proxy", 1);
+}
+
+connectDB();
+startEmailWorker();
+
+const corsOrigins = (process.env.FRONTEND_URLS || process.env.FRONTEND_URL || "http://localhost:3000")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) {
+        return callback(null, true);
+      }
+      if (corsOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      callback(null, false);
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Request-Id", "Idempotency-Key"],
+    maxAge: 86400,
+  }),
+);
+
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    ...(process.env.NODE_ENV === "production"
+      ? {
+          strictTransportSecurity: {
+            maxAge: 31536000,
+            includeSubDomains: true,
+            preload: false,
+          },
+        }
+      : {}),
+  }),
+);
+
+const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS || "900000", 10);
+const max = parseInt(process.env.RATE_LIMIT_MAX || "1000", 10);
+
+const limiter = rateLimit({
+  windowMs,
+  max,
+  message: {
+    status: "error",
+    message: "Too many requests, please try again later.",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: new RedisStore({
+    prefix: "rl:api:",
+    sendCommand: (...args: string[]) =>
+      redisConnection.call(args[0], ...(args.slice(1) as string[])) as Promise<
+        string | number | boolean | (string | number | boolean)[]
+      >,
+  }),
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: {
+    status: "error",
+    message: "Too many authentication attempts, please try again after 15 minutes.",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: new RedisStore({
+    prefix: "rl:auth:",
+    sendCommand: (...args: string[]) =>
+      redisConnection.call(args[0], ...(args.slice(1) as string[])) as Promise<
+        string | number | boolean | (string | number | boolean)[]
+      >,
+  }),
+});
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const id = (req.headers["x-request-id"] as string) || randomUUID();
+  res.setHeader("x-request-id", id);
+  req.requestId = id;
+  const ip = req.ip || req.socket.remoteAddress || "unknown";
+  requestContext.run({ requestId: id, ip }, () => next());
+});
+
+const jsonLimit = process.env.JSON_BODY_LIMIT || "512kb";
+app.use(express.json({ limit: jsonLimit }));
+app.use(express.urlencoded({ extended: true, limit: jsonLimit }));
+app.use(cookieParser());
+app.use(hpp());
+app.use(botHeuristics);
+app.use(mongoSanitize());
+app.use(compression());
+
+if (process.env.NODE_ENV === "development") {
+  app.use(morgan("dev"));
+}
+
+app.get("/api/health", async (_req: Request, res: Response) => {
+  const mongoOk = mongoose.connection.readyState === 1;
+  let redisOk = false;
+  try {
+    const pong = await redisConnection.ping();
+    redisOk = pong === "PONG";
+  } catch {
+    redisOk = false;
+  }
+  const ok = mongoOk && redisOk;
+  res.status(ok ? 200 : 503).json({
+    status: ok ? "ok" : "degraded",
+    message: ok ? "The House of Rani API is running" : "Dependency check failed",
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV,
+    checks: { mongodb: mongoOk, redis: redisOk },
+  });
+});
+
+app.use("/api", limiter);
+
+app.use("/api/auth", authLimiter, authRoutes);
+app.use("/api/products", productRoutes);
+app.use("/api/cart", cartRoutes);
+app.use("/api/orders", orderRoutes);
+app.use("/api/reviews", reviewRoutes);
+app.use("/api/wishlist", wishlistRoutes);
+app.use("/api/coupons", couponRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/categories", categoryRoutes);
+app.use("/api/storefront", storefrontRoutes);
+
+app.all("*", (req, _res, next) => {
+  next(new AppError(`Can't find ${req.originalUrl} on this server.`, 404));
+});
+
+if (process.env.SENTRY_DSN?.trim()) {
+  Sentry.setupExpressErrorHandler(app);
+}
+app.use(errorHandler);
+
+const PORT = parseInt(process.env.PORT || "5000", 10);
+const server = app.listen(PORT, () => {
+  logger.info(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+});
+
+const shutdown = async (signal: string) => {
+  logger.info(`${signal} received. Shutting down gracefully...`);
+  server.close(async () => {
+    try {
+      if (process.env.SENTRY_DSN?.trim()) {
+        await Sentry.close(2000);
+      }
+      await closeEmailWorker();
+      await emailQueue.close();
+      await mongoose.connection.close();
+      await redisConnection.quit();
+      logger.info("Connections closed.");
+    } catch (e) {
+      logger.error(`Shutdown error: ${(e as Error).message}`);
+    } finally {
+      process.exit(0);
+    }
+  });
+  setTimeout(() => {
+    logger.error("Forced shutdown after timeout");
+    process.exit(1);
+  }, 10000).unref();
+};
+
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
+
+process.on("unhandledRejection", (err: Error) => {
+  logger.error(`UNHANDLED REJECTION: ${err.message}`);
+  if (process.env.SENTRY_DSN?.trim()) {
+    Sentry.captureException(err);
+  }
+  server.close(() => process.exit(1));
+});
+
+export default app;

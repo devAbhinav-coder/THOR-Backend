@@ -1,0 +1,70 @@
+import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
+import { RedisStore } from 'rate-limit-redis';
+import { redisConnection } from '../config/redis';
+import {
+  signupStart,
+  signupVerify,
+  login,
+  refresh,
+  forgotPassword,
+  resetPassword,
+  googleAuth,
+  logout,
+  getMe,
+  updateMe,
+  updatePassword,
+  addAddress,
+  removeAddress,
+  deleteMe,
+} from '../controllers/authController';
+import { protect } from '../middleware/auth';
+import { validate } from '../middleware/validate';
+import { uploadAvatar, processAvatar } from '../middleware/upload';
+import {
+  signupStartSchema,
+  signupVerifySchema,
+  loginSchema,
+  updateProfileSchema,
+  addAddressSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  googleAuthSchema,
+} from '../validation/schemas';
+
+const router = Router();
+
+const otpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  message: { status: 'error', message: 'Too many code requests. Try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: new RedisStore({
+    prefix: 'rl:otp:',
+    sendCommand: (...args: string[]) =>
+      redisConnection.call(args[0], ...(args.slice(1) as string[])) as Promise<
+        string | number | boolean | (string | number | boolean)[]
+      >,
+  }),
+});
+
+router.post('/signup/start', otpLimiter, validate(signupStartSchema), signupStart);
+router.post('/signup/verify', otpLimiter, validate(signupVerifySchema), signupVerify);
+router.post('/login', validate(loginSchema), login);
+router.post('/refresh', refresh);
+router.post('/forgot-password', otpLimiter, validate(forgotPasswordSchema), forgotPassword);
+router.post('/reset-password', otpLimiter, validate(resetPasswordSchema), resetPassword);
+router.post('/google', validate(googleAuthSchema), googleAuth);
+router.post('/logout', logout);
+
+router.use(protect);
+
+router.get('/me', getMe);
+router.patch('/update-me', uploadAvatar, processAvatar, validate(updateProfileSchema), updateMe);
+router.patch('/update-password', updatePassword);
+router.delete('/delete-me', deleteMe);
+router.post('/addresses', validate(addAddressSchema), addAddress);
+router.delete('/addresses/:addressId', removeAddress);
+
+export default router;

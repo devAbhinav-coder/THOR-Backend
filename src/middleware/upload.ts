@@ -1,0 +1,199 @@
+import multer from 'multer';
+import { Request, Response, NextFunction } from 'express';
+import streamifier from 'streamifier';
+import { cloudinaryInstance } from '../services/cloudinary';
+import AppError from '../utils/AppError';
+
+const memoryStorage = multer.memoryStorage();
+
+const imageFileFilter = (_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  if (file.mimetype.startsWith('image/')) {
+    cb(null, true);
+  } else {
+    cb(new AppError('Only image files are allowed.', 400) as unknown as null, false);
+  }
+};
+
+export const uploadProductImages = multer({
+  storage: memoryStorage,
+  fileFilter: imageFileFilter,
+  limits: { fileSize: 5 * 1024 * 1024, files: 5 },
+}).array('images', 5);
+
+export const uploadAvatar = multer({
+  storage: memoryStorage,
+  fileFilter: imageFileFilter,
+  limits: { fileSize: 2 * 1024 * 1024, files: 1 },
+}).single('avatar');
+
+export const uploadReviewImages = multer({
+  storage: memoryStorage,
+  fileFilter: imageFileFilter,
+  limits: { fileSize: 3 * 1024 * 1024, files: 3 },
+}).array('images', 3);
+
+export const uploadStorefrontAssets = multer({
+  storage: memoryStorage,
+  fileFilter: imageFileFilter,
+  limits: { fileSize: 5 * 1024 * 1024, files: 20 },
+}).any();
+
+interface CloudinaryUploadResult {
+  secure_url: string;
+  public_id: string;
+}
+
+const uploadToCloudinary = (
+  buffer: Buffer,
+  folder: string,
+  transformation?: object
+): Promise<CloudinaryUploadResult> => {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinaryInstance.uploader.upload_stream(
+      {
+        folder,
+        resource_type: 'image',
+        transformation,
+        quality: 'auto',
+        fetch_format: 'auto',
+      },
+      (error, result) => {
+        if (error || !result) {
+          return reject(error || new Error('Upload failed'));
+        }
+        resolve({ secure_url: result.secure_url, public_id: result.public_id });
+      }
+    );
+    streamifier.createReadStream(buffer).pipe(uploadStream);
+  });
+};
+
+export const processProductImages = async (
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const files = req.files as Express.Multer.File[] | undefined;
+    if (!files || files.length === 0) return next();
+
+    const uploadPromises = files.map((file) =>
+      uploadToCloudinary(file.buffer, 'house-of-rani/products', [
+        { width: 800, height: 800, crop: 'limit' },
+      ])
+    );
+
+    const results = await Promise.all(uploadPromises);
+
+    (req as Request & { uploadedImages: { url: string; publicId: string }[] }).uploadedImages =
+      results.map((r) => ({ url: r.secure_url, publicId: r.public_id }));
+
+    next();
+  } catch (err) {
+    next(new AppError('Image upload failed. Please try again.', 500));
+  }
+};
+
+export const processAvatar = async (
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const file = req.file;
+    if (!file) return next();
+
+    const result = await uploadToCloudinary(file.buffer, 'house-of-rani/avatars', [
+      { width: 200, height: 200, crop: 'fill', gravity: 'face' },
+    ]);
+
+    (req.file as Express.Multer.File & { path: string; filename: string }).path = result.secure_url;
+    (req.file as Express.Multer.File & { path: string; filename: string }).filename = result.public_id;
+
+    next();
+  } catch (err) {
+    next(new AppError('Avatar upload failed.', 500));
+  }
+};
+
+export const processCategoryImage = async (
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const file = req.file;
+    if (!file) return next();
+
+    const result = await uploadToCloudinary(file.buffer, 'house-of-rani/categories', [
+      { width: 800, crop: 'limit' },
+    ]);
+
+    (req as any).uploadedImage = result.secure_url;
+    next();
+  } catch (err) {
+    next(new AppError('Category image upload failed.', 500));
+  }
+};
+
+export const processReviewImages = async (
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const files = req.files as Express.Multer.File[] | undefined;
+    if (!files || files.length === 0) return next();
+
+    const uploadPromises = files.map((file) =>
+      uploadToCloudinary(file.buffer, 'house-of-rani/reviews', [
+        { width: 600, height: 600, crop: 'limit' },
+      ])
+    );
+
+    const results = await Promise.all(uploadPromises);
+
+    (req as Request & { uploadedImages: { url: string; publicId: string }[] }).uploadedImages =
+      results.map((r) => ({ url: r.secure_url, publicId: r.public_id }));
+
+    next();
+  } catch (err) {
+    next(new AppError('Review image upload failed.', 500));
+  }
+};
+
+export const processStorefrontAssets = async (
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const files = req.files as Express.Multer.File[] | undefined;
+    if (!files || files.length === 0) return next();
+
+    const uploaded: {
+      hero: Record<string, { url: string; publicId: string }>;
+      promo?: { url: string; publicId: string };
+    } = { hero: {} };
+
+    for (const file of files) {
+      if (file.fieldname.startsWith('heroImage_')) {
+        const index = file.fieldname.replace('heroImage_', '');
+        const result = await uploadToCloudinary(file.buffer, 'house-of-rani/storefront/hero', [
+          { width: 1600, height: 900, crop: 'limit' },
+        ]);
+        uploaded.hero[index] = { url: result.secure_url, publicId: result.public_id };
+      } else if (file.fieldname === 'promoBackground') {
+        const result = await uploadToCloudinary(file.buffer, 'house-of-rani/storefront/promo', [
+          { width: 1600, crop: 'limit' },
+        ]);
+        uploaded.promo = { url: result.secure_url, publicId: result.public_id };
+      }
+    }
+
+    (req as Request & { uploadedStorefrontImages?: typeof uploaded }).uploadedStorefrontImages = uploaded;
+    next();
+  } catch (err) {
+    next(new AppError('Storefront image upload failed.', 500));
+  }
+};
