@@ -57,12 +57,29 @@ const footerSchema = new Schema(
   { _id: false }
 );
 
+const blogBannerSchema = new Schema(
+  {
+    eyebrow: { type: String, trim: true, maxlength: 80, default: 'Journal & Stories' },
+    title: { type: String, trim: true, maxlength: 140, default: 'Discover the Art of Ethnic' },
+    description: { type: String, trim: true, maxlength: 400 },
+    mainImage: { type: String, trim: true },
+    mainImagePublicId: { type: String, trim: true },
+    sideImage: { type: String, trim: true },
+    sideImagePublicId: { type: String, trim: true },
+    buttonText: { type: String, trim: true, maxlength: 40, default: 'Visit Our Blog' },
+    buttonLink: { type: String, trim: true, maxlength: 240, default: '/blog' },
+    isActive: { type: Boolean, default: true },
+  },
+  { _id: false }
+);
+
 const storefrontSettingsSchema = new Schema(
   {
     key: { type: String, unique: true, default: 'default' },
     announcementMessages: [{ type: String, trim: true, maxlength: 180 }],
     heroSlides: [heroSlideSchema],
     promoBanner: promoBannerSchema,
+    blogBanner: blogBannerSchema,
     footer: footerSchema,
   },
   { timestamps: true }

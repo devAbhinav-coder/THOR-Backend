@@ -174,6 +174,8 @@ export const processStorefrontAssets = async (
     const uploaded: {
       hero: Record<string, { url: string; publicId: string }>;
       promo?: { url: string; publicId: string };
+      blogMain?: { url: string; publicId: string };
+      blogSide?: { url: string; publicId: string };
     } = { hero: {} };
 
     for (const file of files) {
@@ -188,6 +190,16 @@ export const processStorefrontAssets = async (
           { width: 1600, crop: 'limit' },
         ]);
         uploaded.promo = { url: result.secure_url, publicId: result.public_id };
+      } else if (file.fieldname === 'blogMainImage') {
+        const result = await uploadToCloudinary(file.buffer, 'house-of-rani/storefront/blog', [
+          { width: 1200, crop: 'limit' },
+        ]);
+        uploaded.blogMain = { url: result.secure_url, publicId: result.public_id };
+      } else if (file.fieldname === 'blogSideImage') {
+        const result = await uploadToCloudinary(file.buffer, 'house-of-rani/storefront/blog', [
+          { width: 800, crop: 'limit' },
+        ]);
+        uploaded.blogSide = { url: result.secure_url, publicId: result.public_id };
       }
     }
 

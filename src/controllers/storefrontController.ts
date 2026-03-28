@@ -89,6 +89,16 @@ const getSettingsDoc = async () => {
     announcementMessages: settings.announcementMessages?.length ? settings.announcementMessages : FALLBACK_SETTINGS.announcementMessages,
     heroSlides: settings.heroSlides?.length ? settings.heroSlides : FALLBACK_SETTINGS.heroSlides,
     promoBanner: settings.promoBanner || FALLBACK_SETTINGS.promoBanner,
+    blogBanner: settings.blogBanner || {
+      eyebrow: 'Journal & Stories',
+      title: 'Discover the Art of Ethnic',
+      description: 'Dive deep into the rich history of Indian textures, get styling tips from experts, and stay updated with our latest collections and pop-up stalls.',
+      mainImage: 'https://images.unsplash.com/photo-1610030469983-98e550d615ef?w=1200&q=80',
+      sideImage: 'https://images.unsplash.com/photo-1583391733958-d25e07fac0ec?w=800&q=80',
+      buttonText: 'Visit Our Blog',
+      buttonLink: '/blog',
+      isActive: true,
+    },
     footer: settings.footer || FALLBACK_SETTINGS.footer,
   };
 };
@@ -109,6 +119,8 @@ export const updateStorefrontSettings = catchAsync(async (req: Request, res: Res
     uploadedStorefrontImages?: {
       hero: Record<string, { url: string; publicId: string }>;
       promo?: { url: string; publicId: string };
+      blogMain?: { url: string; publicId: string };
+      blogSide?: { url: string; publicId: string };
     };
   }).uploadedStorefrontImages;
 
@@ -128,6 +140,16 @@ export const updateStorefrontSettings = catchAsync(async (req: Request, res: Res
     nextPromo.backgroundImagePublicId = uploaded.promo.publicId;
   }
 
+  const nextBlogBanner = { ...(payload.blogBanner || {}) };
+  if (uploaded?.blogMain) {
+    nextBlogBanner.mainImage = uploaded.blogMain.url;
+    nextBlogBanner.mainImagePublicId = uploaded.blogMain.publicId;
+  }
+  if (uploaded?.blogSide) {
+    nextBlogBanner.sideImage = uploaded.blogSide.url;
+    nextBlogBanner.sideImagePublicId = uploaded.blogSide.publicId;
+  }
+
   const usedPublicIds = new Set<string>();
   for (const slide of nextHeroSlides) {
     if (typeof slide.imagePublicId === 'string' && slide.imagePublicId.trim()) {
@@ -136,6 +158,12 @@ export const updateStorefrontSettings = catchAsync(async (req: Request, res: Res
   }
   if (typeof nextPromo.backgroundImagePublicId === 'string' && nextPromo.backgroundImagePublicId.trim()) {
     usedPublicIds.add(nextPromo.backgroundImagePublicId);
+  }
+  if (typeof nextBlogBanner.mainImagePublicId === 'string' && nextBlogBanner.mainImagePublicId.trim()) {
+    usedPublicIds.add(nextBlogBanner.mainImagePublicId);
+  }
+  if (typeof nextBlogBanner.sideImagePublicId === 'string' && nextBlogBanner.sideImagePublicId.trim()) {
+    usedPublicIds.add(nextBlogBanner.sideImagePublicId);
   }
 
   const oldPublicIds: string[] = [];
@@ -147,6 +175,11 @@ export const updateStorefrontSettings = catchAsync(async (req: Request, res: Res
   if (previous?.promoBanner && typeof previous.promoBanner === 'object') {
     const maybePromo = previous.promoBanner as { backgroundImagePublicId?: string };
     if (maybePromo.backgroundImagePublicId) oldPublicIds.push(maybePromo.backgroundImagePublicId);
+  }
+  if (previous?.blogBanner && typeof previous.blogBanner === 'object') {
+    const maybeBlog = previous.blogBanner as { mainImagePublicId?: string; sideImagePublicId?: string };
+    if (maybeBlog.mainImagePublicId) oldPublicIds.push(maybeBlog.mainImagePublicId);
+    if (maybeBlog.sideImagePublicId) oldPublicIds.push(maybeBlog.sideImagePublicId);
   }
 
   const stalePublicIds = oldPublicIds.filter((id) => !usedPublicIds.has(id));
@@ -161,6 +194,7 @@ export const updateStorefrontSettings = catchAsync(async (req: Request, res: Res
       announcementMessages: payload.announcementMessages || [],
       heroSlides: nextHeroSlides,
       promoBanner: nextPromo,
+      blogBanner: nextBlogBanner,
       footer: payload.footer || {},
     },
     { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
