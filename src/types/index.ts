@@ -189,6 +189,35 @@ export interface ICoupon extends Document {
   updatedAt: Date;
 }
 
+export interface IBlogImage {
+  url: string;
+  publicId: string;
+  caption?: string;
+}
+
+export interface IBlog extends Document {
+  _id: Types.ObjectId;
+  title: string;
+  slug: string;
+  content: string;
+  images: IBlogImage[];
+  author: Types.ObjectId;
+  likes: Types.ObjectId[];
+  isPublished: boolean;
+  viewCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface IBlogComment extends Document {
+  _id: Types.ObjectId;
+  blog: Types.ObjectId;
+  user: Types.ObjectId;
+  content: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface AuthRequest extends Request {
   user?: IUser;
 }

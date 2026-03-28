@@ -30,6 +30,7 @@ import couponRoutes from "./routes/couponRoutes";
 import adminRoutes from "./routes/adminRoutes";
 import categoryRoutes from "./routes/categoryRoutes";
 import storefrontRoutes from "./routes/storefrontRoutes";
+import blogRoutes from "./routes/blogRoutes";
 import { startEmailWorker, closeEmailWorker, emailQueue } from "./queues/emailQueue";
 import { requestContext } from "./utils/requestContext";
 import { botHeuristics } from "./middleware/botHeuristics";
@@ -171,6 +172,7 @@ app.use("/api/coupons", couponRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/storefront", storefrontRoutes);
+app.use("/api/blogs", blogRoutes);
 
 app.all("*", (req, _res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server.`, 404));

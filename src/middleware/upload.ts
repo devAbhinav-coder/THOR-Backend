@@ -197,3 +197,35 @@ export const processStorefrontAssets = async (
     next(new AppError('Storefront image upload failed.', 500));
   }
 };
+
+export const uploadBlogImages = multer({
+  storage: memoryStorage,
+  fileFilter: imageFileFilter,
+  limits: { fileSize: 5 * 1024 * 1024, files: 10 },
+}).array('images', 10);
+
+export const processBlogImages = async (
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const files = req.files as Express.Multer.File[] | undefined;
+    if (!files || files.length === 0) return next();
+
+    const uploadPromises = files.map((file) =>
+      uploadToCloudinary(file.buffer, 'house-of-rani/blogs', [
+        { width: 1200, crop: 'limit' },
+      ])
+    );
+
+    const results = await Promise.all(uploadPromises);
+
+    (req as Request & { uploadedImages?: { url: string; publicId: string }[] }).uploadedImages =
+      results.map((r) => ({ url: r.secure_url, publicId: r.public_id }));
+
+    next();
+  } catch (err) {
+    next(new AppError('Blog image upload failed.', 500));
+  }
+};
