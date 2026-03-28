@@ -5,6 +5,12 @@ import AppError from '../utils/AppError';
 import catchAsync from '../utils/catchAsync';
 import APIFeatures from '../utils/apiFeatures';
 import { IProduct } from '../types';
+import { reconcileProductJson, sumVariantStocks } from '../utils/productStock';
+
+function jsonProduct(p: { toJSON: () => Record<string, unknown> }) {
+  const raw = p.toJSON() as Record<string, unknown> & { variants?: { stock?: number }[] };
+  return reconcileProductJson(raw);
+}
 
 export const getAllProducts = catchAsync(async (req: Request, res: Response) => {
   const features = new APIFeatures<IProduct>(
@@ -35,7 +41,7 @@ export const getAllProducts = catchAsync(async (req: Request, res: Response) => 
       hasNextPage: page * limit < totalCount,
       hasPrevPage: page > 1,
     },
-    data: { products },
+    data: { products: products.map((p) => jsonProduct(p)) },
   });
 });
 
@@ -66,7 +72,7 @@ export const getProduct = catchAsync(async (req: Request, res: Response, next: N
 
   res.status(200).json({
     status: 'success',
-    data: { product },
+    data: { product: jsonProduct(product) },
   });
 });
 
@@ -77,7 +83,7 @@ export const getFeaturedProducts = catchAsync(async (_req: Request, res: Respons
 
   res.status(200).json({
     status: 'success',
-    data: { products },
+    data: { products: products.map((p) => jsonProduct(p)) },
   });
 });
 
@@ -99,7 +105,7 @@ export const getProductsByCategory = catchAsync(async (req: Request, res: Respon
     status: 'success',
     results: products.length,
     total: totalCount,
-    data: { products },
+    data: { products: products.map((p) => jsonProduct(p)) },
   });
 });
 
@@ -116,22 +122,27 @@ export const createProduct = catchAsync(async (req: Request, res: Response, next
     alt: `${req.body.name} - Image ${index + 1}`,
   }));
 
+  const variantsParsed =
+    typeof req.body.variants === 'string' ? JSON.parse(req.body.variants) : req.body.variants;
+
   const productData = {
     ...req.body,
     images,
-    variants: typeof req.body.variants === 'string' ? JSON.parse(req.body.variants) : req.body.variants,
+    variants: variantsParsed,
     tags: typeof req.body.tags === 'string' ? JSON.parse(req.body.tags) : req.body.tags,
     price: Number(req.body.price),
     comparePrice: req.body.comparePrice ? Number(req.body.comparePrice) : undefined,
     isFeatured: req.body.isFeatured === 'true' || req.body.isFeatured === true,
     isActive: req.body.isActive !== 'false' && req.body.isActive !== false,
   };
+  delete (productData as Record<string, unknown>).totalStock;
+  (productData as Record<string, unknown>).totalStock = sumVariantStocks(variantsParsed);
 
   const product = await Product.create(productData);
 
   res.status(201).json({
     status: 'success',
-    data: { product },
+    data: { product: jsonProduct(product) },
   });
 });
 
@@ -162,14 +173,23 @@ export const updateProduct = catchAsync(async (req: Request, res: Response, next
     updateData.variants = JSON.parse(req.body.variants);
   }
 
+  delete updateData.totalStock;
+  if (updateData.variants) {
+    updateData.totalStock = sumVariantStocks(updateData.variants as { stock?: number }[]);
+  }
+
   const updatedProduct = await Product.findByIdAndUpdate(req.params.id, updateData, {
     new: true,
     runValidators: true,
   });
 
+  if (!updatedProduct) {
+    return next(new AppError('No product found with that ID.', 404));
+  }
+
   res.status(200).json({
     status: 'success',
-    data: { product: updatedProduct },
+    data: { product: jsonProduct(updatedProduct) },
   });
 });
 
@@ -200,7 +220,7 @@ export const deleteProductImage = catchAsync(async (req: Request, res: Response,
 
   res.status(200).json({
     status: 'success',
-    data: { product },
+    data: { product: jsonProduct(product) },
   });
 });
 

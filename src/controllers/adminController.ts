@@ -8,6 +8,7 @@ import catchAsync from '../utils/catchAsync';
 import { emailTemplates } from '../services/emailService';
 import { enqueueEmail } from '../queues/emailQueue';
 import { incrementVariantStock } from '../services/inventoryService';
+import { refProductId } from '../utils/productStock';
 import { sanitizeMarketingEmailHtml } from '../utils/sanitizeMarketingHtml';
 
 export const getDashboardAnalytics = catchAsync(async (_req: Request, res: Response) => {
@@ -57,7 +58,14 @@ export const getDashboardAnalytics = catchAsync(async (_req: Request, res: Respo
     User.countDocuments({ role: 'user' }),
     User.countDocuments({ role: 'user', createdAt: { $gte: startOfMonth } }),
     Product.countDocuments({ isActive: true }),
-    Product.find({ totalStock: { $lte: 5 }, isActive: true }).select('name totalStock category').limit(10),
+    Product.aggregate([
+      { $match: { isActive: true } },
+      { $addFields: { computedTotal: { $sum: '$variants.stock' } } },
+      { $match: { computedTotal: { $lte: 5 } } },
+      { $sort: { computedTotal: 1 } },
+      { $limit: 10 },
+      { $project: { _id: 1, name: 1, category: 1, totalStock: '$computedTotal' } },
+    ]),
     Order.find().sort('-createdAt').limit(10).populate('user', 'name email'),
     Order.aggregate([
       { $group: { _id: '$status', count: { $sum: 1 } } },
@@ -310,7 +318,7 @@ export const updateOrderStatus = catchAsync(async (req: Request, res: Response, 
       (order.paymentMethod === 'razorpay' && order.paymentStatus === 'paid');
     if (shouldRestock) {
       for (const item of order.items) {
-        await incrementVariantStock(item.product, item.variant.sku, item.quantity);
+        await incrementVariantStock(refProductId(item.product), item.variant.sku, item.quantity);
       }
     }
   }

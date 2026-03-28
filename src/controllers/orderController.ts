@@ -28,22 +28,24 @@ import {
   releasePaymentVerifyLock,
   tryClaimPaymentPlacedNotification,
 } from '../services/checkoutConcurrency';
+import { refProductId } from '../utils/productStock';
 
 const SHIPPING_THRESHOLD = 1000;
 const SHIPPING_CHARGE = 100;
 const TAX_RATE = 0;
 
 function buildOrderItemsFromProducts(
-  cartItems: { product: mongoose.Types.ObjectId; variant: { sku: string }; quantity: number; price: number }[],
+  cartItems: { product: mongoose.Types.ObjectId | { _id: mongoose.Types.ObjectId }; variant: { sku: string }; quantity: number; price: number }[],
   productMap: Map<string, InstanceType<typeof Product>>
 ) {
   return cartItems.map((item) => {
-    const product = productMap.get(String(item.product));
+    const pid = refProductId(item.product);
+    const product = productMap.get(pid);
     if (!product || !product.images?.[0]) {
       throw new AppError('Product data missing for order line.', 400);
     }
     return {
-      product: item.product,
+      product: new mongoose.Types.ObjectId(pid),
       name: product.name,
       image: product.images[0].url,
       variant: item.variant,
@@ -79,12 +81,12 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
     return next(new AppError('Your cart is empty.', 400));
   }
 
-  const productIds = [...new Set(cart.items.map((i) => String(i.product)))];
+  const productIds = [...new Set(cart.items.map((i) => refProductId(i.product)))];
   const products = await Product.find({ _id: { $in: productIds } });
   const productMap = new Map(products.map((p) => [String(p._id), p]));
 
   for (const item of cart.items) {
-    const product = productMap.get(String(item.product));
+    const product = productMap.get(refProductId(item.product));
     if (!product || !product.isActive) {
       return next(new AppError(`Product is no longer available.`, 400));
     }
@@ -183,7 +185,7 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
       codOrder = created[0] as InstanceType<typeof Order>;
 
       for (const item of cart.items) {
-        const ok = await decrementVariantStock(item.product, item.variant.sku, item.quantity, { session });
+        const ok = await decrementVariantStock(refProductId(item.product), item.variant.sku, item.quantity, { session });
         if (!ok) {
           throw new AppError(`Insufficient stock for a cart item. Please refresh and try again.`, 409);
         }
@@ -308,7 +310,7 @@ export const verifyPayment = catchAsync(async (req: AuthRequest, res: Response, 
       }
 
       for (const item of fresh.items) {
-        const ok = await decrementVariantStock(item.product, item.variant.sku, item.quantity, { session });
+        const ok = await decrementVariantStock(refProductId(item.product), item.variant.sku, item.quantity, { session });
         if (!ok) {
           logger.error(
             `verifyPayment: insufficient stock after Razorpay success order=${orderId} sku=${item.variant.sku}`
@@ -462,7 +464,7 @@ export const cancelOrder = catchAsync(async (req: AuthRequest, res: Response, ne
 
   if (shouldRestock) {
     for (const item of order.items) {
-      await incrementVariantStock(item.product, item.variant.sku, item.quantity);
+      await incrementVariantStock(refProductId(item.product), item.variant.sku, item.quantity);
     }
   }
 

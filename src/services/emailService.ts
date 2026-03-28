@@ -1,5 +1,9 @@
+import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 import nodemailer from "nodemailer";
 import logger from "../utils/logger";
+import { htmlToPlainText } from "../utils/emailPlainText";
 
 type EmailPayload = {
   to: string;
@@ -14,10 +18,54 @@ const replyToEmail = process.env.MAIL_REPLY_TO || "no-reply@houseofrani.in";
 const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
 const brandLogo = `${frontendUrl}/logo.jpg`;
 
+function extractMailDomain(fromHeader: string): string {
+  const m = fromHeader.match(/<([^>]+)>/);
+  const addr = (m ? m[1] : fromHeader).trim();
+  const at = addr.lastIndexOf("@");
+  return at >= 0 ? addr.slice(at + 1).toLowerCase() : "localhost";
+}
+
+function buildDkim():
+  | { domainName: string; keySelector: string; privateKey: string }
+  | undefined {
+  const domainName = process.env.DKIM_DOMAIN?.trim();
+  if (!domainName) return undefined;
+
+  const keySelector = process.env.DKIM_SELECTOR?.trim() || "default";
+  const keyPath = process.env.DKIM_PRIVATE_KEY_PATH?.trim();
+  const keyInline = process.env.DKIM_PRIVATE_KEY?.replace(/\\n/g, "\n").trim();
+
+  try {
+    let privateKey: string;
+    if (keyInline) {
+      privateKey = keyInline;
+    } else if (keyPath) {
+      privateKey = fs.readFileSync(path.resolve(keyPath), "utf8");
+    } else {
+      return undefined;
+    }
+    if (!privateKey.includes("BEGIN") || !privateKey.includes("KEY")) {
+      logger.warn("DKIM_PRIVATE_KEY(_PATH) does not look like a PEM key; DKIM disabled.");
+      return undefined;
+    }
+    return { domainName, keySelector, privateKey };
+  } catch (e) {
+    logger.warn(`DKIM could not be loaded: ${(e as Error).message}`);
+    return undefined;
+  }
+}
+
+const smtpPort = Number(process.env.SMTP_PORT || 587);
+const smtpSecure = process.env.SMTP_SECURE === "true";
+const dkimOpts = buildDkim();
+
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT || 587),
-  secure: process.env.SMTP_SECURE === "true",
+  port: smtpPort,
+  secure: smtpSecure,
+  ...(!smtpSecure && process.env.SMTP_REQUIRE_TLS !== "false" ?
+    { requireTLS: true }
+  : {}),
   auth:
     process.env.SMTP_USER ?
       {
@@ -25,6 +73,11 @@ const transporter = nodemailer.createTransport({
         pass: process.env.SMTP_PASS,
       }
     : undefined,
+  ...(dkimOpts ? { dkim: dkimOpts } : {}),
+  tls: {
+    minVersion: "TLSv1.2" as const,
+    rejectUnauthorized: process.env.SMTP_TLS_REJECT_UNAUTHORIZED !== "false",
+  },
 });
 
 const shell = (
@@ -39,35 +92,31 @@ const shell = (
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
           <tr>
             <td style="vertical-align:middle;">
-              <img src="${brandLogo}" alt="The House of Rani" style="height:42px;width:auto;display:block;" />
+              <img src="${brandLogo}" alt="The House of Rani" width="140" height="42" style="height:42px;width:auto;max-width:140px;display:block;border:0;" />
             </td>
             <td style="text-align:right;vertical-align:middle;">
-              <span style="display:inline-block;background:rgba(255,255,255,0.14);padding:6px 10px;border-radius:999px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;">
-                Premium Ethnic Wear
+              <span style="display:inline-block;background:rgba(255,255,255,0.14);padding:6px 10px;border-radius:999px;font-size:11px;letter-spacing:.06em;">
+                The House of Rani
               </span>
             </td>
           </tr>
         </table>
       </div>
       <div style="padding:28px 24px 22px;">
-        <p style="margin:0 0 8px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:#9ca3af;">The House of Rani</p>
+        <p style="margin:0 0 8px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#9ca3af;">Account notification</p>
         <h2 style="margin:0 0 12px;font-size:24px;line-height:1.3;color:#111827;">${title}</h2>
         <div style="font-size:15px;line-height:1.8;color:#374151;">${body}</div>
-        <div style="margin-top:16px;padding:12px 14px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;">
-          <p style="margin:0;font-size:12px;color:#475569;">
-            Curated styles, premium fabrics, reliable delivery - built for a modern shopping experience.
-          </p>
-        </div>
         ${
           ctaText && ctaLink ?
             `
             <div style="margin-top:20px;">
-              <a href="${ctaLink}" style="display:inline-block;background:#e8604c;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-size:14px;font-weight:700;letter-spacing:.01em;">
+              <a href="${ctaLink}" style="display:inline-block;background:#e8604c;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-size:14px;font-weight:600;">
                 ${ctaText}
               </a>
             </div>
-            <p style="margin:10px 0 0;font-size:12px;color:#9ca3af;">
-              Button not working? Copy this link: <a href="${ctaLink}" style="color:#6366f1;text-decoration:none;">${ctaLink}</a>
+            <p style="margin:12px 0 0;font-size:12px;color:#6b7280;">
+              If the button does not work, open this link in your browser:<br/>
+              <a href="${ctaLink}" style="color:#4f46e5;word-break:break-all;">${ctaLink}</a>
             </p>
           `
           : ""
@@ -75,10 +124,10 @@ const shell = (
       </div>
       <div style="padding:16px 24px;border-top:1px solid #e5e7eb;background:#fafafa;">
         <p style="margin:0;font-size:12px;color:#6b7280;">
-          This mailbox is not monitored. Please do not reply to this email.
+          This is an automated message. For help, use the contact options on our website.
         </p>
-        <p style="margin:6px 0 0;font-size:12px;color:#9ca3af;">
-          © ${new Date().getFullYear()} The House of Rani. All rights reserved.
+        <p style="margin:8px 0 0;font-size:12px;color:#9ca3af;">
+          © ${new Date().getFullYear()} The House of Rani
         </p>
       </div>
     </div>
@@ -89,36 +138,36 @@ export const emailTemplates = {
   welcome: (name: string) => ({
     subject: "Welcome to The House of Rani",
     html: shell(
-      `Welcome, ${name}!`,
-      "Your account is ready. Explore our latest sarees, lehengas and festive edits curated just for you.",
-      "Start Shopping",
+      `Welcome, ${name}`,
+      "Your account is ready. You can sign in anytime to browse new arrivals and track your orders.",
+      "Shop collection",
       `${frontendUrl}/shop`,
     ),
   }),
   couponAnnouncement: (code: string, description?: string) => ({
-    subject: `New Offer: ${code}`,
+    subject: `Offer: ${code} — The House of Rani`,
     html: shell(
-      "A new offer is live",
-      `Use coupon <b>${code}</b>${description ? ` - ${description}` : ""} on your next order.`,
-      "Shop & Apply Coupon",
+      "Promotional offer",
+      `You can use code <b>${code}</b>${description ? ` — ${description}` : ""} on your next qualifying order at checkout.`,
+      "Visit store",
       `${frontendUrl}/shop`,
     ),
   }),
   orderPlacedUser: (name: string, orderNumber: string, total: number) => ({
-    subject: `Order placed successfully (${orderNumber})`,
+    subject: `Order confirmation ${orderNumber}`,
     html: shell(
-      "Your order is confirmed",
-      `Hi ${name}, your order <b>${orderNumber}</b> has been placed successfully.<br/>Order total: <b>₹${total.toFixed(2)}</b>.`,
-      "View Order",
+      "Thank you for your order",
+      `Hi ${name},<br/><br/>We have received order <b>${orderNumber}</b>.<br/>Order total: <b>₹${total.toFixed(2)}</b>.`,
+      "View order",
       `${frontendUrl}/dashboard/orders`,
     ),
   }),
   orderStatusUpdate: (name: string, orderNumber: string, status: string) => ({
-    subject: `Order ${orderNumber} is now ${status}`,
+    subject: `Order ${orderNumber} — ${status}`,
     html: shell(
-      "Order status updated",
-      `Hi ${name}, your order <b>${orderNumber}</b> status is now <b>${status}</b>.`,
-      "Track Order",
+      "Order update",
+      `Hi ${name},<br/><br/>Your order <b>${orderNumber}</b> is now <b>${status}</b>.`,
+      "View order",
       `${frontendUrl}/dashboard/orders`,
     ),
   }),
@@ -128,11 +177,11 @@ export const emailTemplates = {
     customerName: string,
     customerEmail: string,
   ) => ({
-    subject: `New order received (${orderNumber})`,
+    subject: `New order ${orderNumber}`,
     html: shell(
-      "A new order has arrived",
+      "New order",
       `Order: <b>${orderNumber}</b><br/>Customer: <b>${customerName}</b> (${customerEmail})<br/>Total: <b>₹${total.toFixed(2)}</b>.`,
-      "Open Admin Orders",
+      "Admin orders",
       `${frontendUrl}/admin/orders`,
     ),
   }),
@@ -146,17 +195,17 @@ export const emailTemplates = {
     html: shell(subject, html, ctaText, ctaLink),
   }),
   otpSignup: (name: string, code: string) => ({
-    subject: "Your verification code — The House of Rani",
+    subject: "Your verification code",
     html: shell(
       "Verify your email",
-      `Hi ${name},<br/><br/>Your one-time verification code is:<br/><br/><b style="font-size:22px;letter-spacing:0.2em;color:#0f172a;">${code}</b><br/><br/>This code expires in <b>10 minutes</b>. If you didn&apos;t request this, you can ignore this email.`,
+      `Hi ${name},<br/><br/>Your verification code is:<br/><br/><b style="font-size:22px;letter-spacing:0.18em;color:#0f172a;">${code}</b><br/><br/>It expires in <b>10 minutes</b>. If you did not request this, you can ignore this email.`,
     ),
   }),
   otpPasswordReset: (name: string, code: string) => ({
-    subject: "Reset your password — The House of Rani",
+    subject: "Password reset code",
     html: shell(
-      "Password reset code",
-      `Hi ${name},<br/><br/>Use this code to reset your password:<br/><br/><b style="font-size:22px;letter-spacing:0.2em;color:#0f172a;">${code}</b><br/><br/>This code expires in <b>10 minutes</b>. If you didn&apos;t request a reset, ignore this email.`,
+      "Reset your password",
+      `Hi ${name},<br/><br/>Use this code to reset your password:<br/><br/><b style="font-size:22px;letter-spacing:0.18em;color:#0f172a;">${code}</b><br/><br/>It expires in <b>10 minutes</b>. If you did not request a reset, ignore this email.`,
     ),
   }),
 };
@@ -166,12 +215,18 @@ export const sendEmailNow = async (payload: EmailPayload): Promise<void> => {
     logger.warn(`SMTP_HOST missing, skipping email to ${payload.to}`);
     return;
   }
+
+  const domain = extractMailDomain(fromEmail);
+  const messageId = `<${crypto.randomBytes(12).toString("hex")}.${Date.now()}@${domain}>`;
+  const text = (payload.text && payload.text.trim()) || htmlToPlainText(payload.html);
+
   await transporter.sendMail({
     from: fromEmail,
     replyTo: replyToEmail,
     to: payload.to,
-    subject: payload.subject,
+    subject: payload.subject.replace(/\s+/g, " ").trim(),
+    text,
     html: payload.html,
-    text: payload.text,
+    messageId,
   });
 };
