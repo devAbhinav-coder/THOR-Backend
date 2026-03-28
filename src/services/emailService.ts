@@ -16,7 +16,13 @@ const fromEmail =
   process.env.MAIL_FROM || "The House of Rani <no-reply@houseofrani.in>";
 const replyToEmail = process.env.MAIL_REPLY_TO || "no-reply@houseofrani.in";
 const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-const brandLogo = `${frontendUrl}/logo.jpg`;
+const isLocalhost = frontendUrl.includes("localhost");
+const brandLogoUrl = isLocalhost ? "cid:brandlogo" : `${frontendUrl}/logo.jpg`;
+
+function getLocalLogoPath() {
+  const p = path.resolve(__dirname, "../../../../frontend/public/logo.jpg");
+  return fs.existsSync(p) ? p : null;
+}
 
 function extractMailDomain(fromHeader: string): string {
   const m = fromHeader.match(/<([^>]+)>/);
@@ -92,7 +98,7 @@ const shell = (
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
           <tr>
             <td style="vertical-align:middle;">
-              <img src="${brandLogo}" alt="The House of Rani" width="140" height="42" style="height:42px;width:auto;max-width:140px;display:block;border:0;" />
+              <img src="${brandLogoUrl}" alt="The House of Rani" width="140" height="42" style="height:42px;width:auto;max-width:140px;display:block;border:0;" />
             </td>
             <td style="text-align:right;vertical-align:middle;">
               <span style="display:inline-block;background:rgba(255,255,255,0.14);padding:6px 10px;border-radius:999px;font-size:11px;letter-spacing:.06em;">
@@ -210,23 +216,33 @@ export const emailTemplates = {
   }),
 };
 
-export const sendEmailNow = async (payload: EmailPayload): Promise<void> => {
+export const sendEmailNow = async (payload: EmailPayload) => {
   if (!process.env.SMTP_HOST) {
     logger.warn(`SMTP_HOST missing, skipping email to ${payload.to}`);
     return;
   }
 
-  const domain = extractMailDomain(fromEmail);
-  const messageId = `<${crypto.randomBytes(12).toString("hex")}.${Date.now()}@${domain}>`;
-  const text = (payload.text && payload.text.trim()) || htmlToPlainText(payload.html);
-
-  await transporter.sendMail({
+  const mailOptions: import('nodemailer/lib/mailer').Options = {
     from: fromEmail,
     replyTo: replyToEmail,
     to: payload.to,
-    subject: payload.subject.replace(/\s+/g, " ").trim(),
-    text,
+    subject: payload.subject,
     html: payload.html,
-    messageId,
-  });
+    text: payload.text || htmlToPlainText(payload.html),
+  };
+
+  if (isLocalhost) {
+    const p = getLocalLogoPath();
+    if (p) {
+      mailOptions.attachments = [{
+        filename: 'logo.jpg',
+        path: p,
+        cid: 'brandlogo'
+      }];
+    }
+  }
+
+  const info = await transporter.sendMail(mailOptions);
+  logger.info(`Email sent: ${info.messageId} to ${payload.to}`);
 };
+

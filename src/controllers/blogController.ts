@@ -26,7 +26,7 @@ const broadcastNewBlog = async (blog: any) => {
         to: user.email,
         subject: emailPayload.subject,
         html: emailPayload.html,
-      }).catch((err) => console.error(`Failed to send to ${user.email}`, err));
+      }).catch((err: unknown) => console.error(`Failed to send to ${user.email}`, err));
     });
 
     await Promise.all(emailPromises);
