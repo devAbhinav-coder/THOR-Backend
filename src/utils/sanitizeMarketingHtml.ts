@@ -31,7 +31,7 @@ export function sanitizeMarketingEmailHtml(html: string): string {
     allowedSchemes: ["http", "https", "mailto"],
     allowedSchemesByTag: {},
     transformTags: {
-      a: (tagName, attribs) => ({
+      a: (tagName: string, attribs: Record<string, string>) => ({
         tagName,
         attribs: {
           ...attribs,
