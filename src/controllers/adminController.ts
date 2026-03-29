@@ -10,6 +10,7 @@ import { enqueueEmail } from '../queues/emailQueue';
 import { incrementVariantStock } from '../services/inventoryService';
 import { refProductId } from '../utils/productStock';
 import { sanitizeMarketingEmailHtml } from '../utils/sanitizeMarketingHtml';
+import { notifyUser } from '../services/notificationService';
 
 export const getDashboardAnalytics = catchAsync(async (_req: Request, res: Response) => {
   const now = new Date();
@@ -338,6 +339,14 @@ export const updateOrderStatus = catchAsync(async (req: Request, res: Response, 
       subject: tpl.subject,
       html: tpl.html,
     });
+    
+    await notifyUser(
+      populated.user._id,
+      'Order Status Update',
+      `Your order ${populated.orderNumber} is now ${populated.status}.`,
+      `/dashboard/orders/${populated._id}`,
+      'order'
+    );
   }
 
   res.status(200).json({ status: 'success', data: { order } });

@@ -29,6 +29,7 @@ import {
   tryClaimPaymentPlacedNotification,
 } from '../services/checkoutConcurrency';
 import { refProductId } from '../utils/productStock';
+import { notifyAdmins } from '../services/notificationService';
 
 const SHIPPING_THRESHOLD = 1000;
 const SHIPPING_CHARGE = 100;
@@ -251,6 +252,13 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
     )
   );
 
+  await notifyAdmins(
+    'New Order Received',
+    `Order ${codOrder.orderNumber} placed by ${req.user?.name || 'Customer'}.`,
+    `/admin/orders/${codOrder._id}`,
+    'order'
+  );
+
   const codBody = { status: 'success' as const, data: { order: codOrder.toJSON() } };
   if (idemKey) {
     await setIdempotentCheckoutResponse(userId, idemKey, 201, codBody);
@@ -390,6 +398,14 @@ export const verifyPayment = catchAsync(async (req: AuthRequest, res: Response, 
         })
       )
     );
+    
+    // In-App Notification
+    await notifyAdmins(
+      'New Order Received',
+      `Order ${updated!.orderNumber} verified by ${req.user?.name || 'Customer'}.`,
+      `/admin/orders/${updated!._id}`,
+      'order'
+    );
   }
 
   res.status(200).json({
@@ -461,6 +477,13 @@ export const cancelOrder = catchAsync(async (req: AuthRequest, res: Response, ne
     timestamp: new Date(),
     note: req.body.reason || 'Cancelled by customer',
   });
+
+  await notifyAdmins(
+    'Order Cancelled',
+    `Order ${order.orderNumber} was cancelled by ${req.user?.name || 'the customer'}.`,
+    `/admin/orders/${order._id}`,
+    'alert'
+  );
 
   if (shouldRestock) {
     for (const item of order.items) {
