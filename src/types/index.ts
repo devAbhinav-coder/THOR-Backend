@@ -44,6 +44,20 @@ export interface IProductVariant {
   price?: number;
 }
 
+export interface IProductCustomField {
+  _id?: Types.ObjectId;
+  label: string;
+  placeholder?: string;
+  fieldType: 'text' | 'textarea' | 'select' | 'image';
+  options?: string[];
+  isRequired: boolean;
+}
+
+export interface IProductDetail {
+  key: string;
+  value: string;
+}
+
 export interface IProduct extends Document {
   _id: Types.ObjectId;
   name: string;
@@ -61,12 +75,21 @@ export interface IProduct extends Document {
   tags: string[];
   isFeatured: boolean;
   isActive: boolean;
+  // Gifting
+  isGiftable: boolean;
+  isCustomizable: boolean;
+  minOrderQty: number;
+  giftOccasions: string[];
+  customFields: IProductCustomField[];
+  productDetails?: IProductDetail[];
   ratings: {
     average: number;
     count: number;
   };
   /** PDP views (incremented client-side, once per session per product) */
   viewCount: number;
+  /** Checkout frequency tracker */
+  soldCount: number;
   seoTitle?: string;
   seoDescription?: string;
   createdAt: Date;
@@ -89,6 +112,7 @@ export interface ICartItem {
   };
   quantity: number;
   price: number;
+  customFieldAnswers?: { label: string; value: string }[] | string; // Gifting (string when receiving from frontend)
 }
 
 export interface ICart extends Document {
@@ -113,6 +137,7 @@ export interface IOrderItem {
   };
   quantity: number;
   price: number;
+  customFieldAnswers?: { label: string; value: string }[]; // Gifting
 }
 
 export interface IOrder extends Document {
@@ -140,6 +165,8 @@ export interface IOrder extends Document {
   trackingUrl?: string;
   shippedAt?: Date;
   deliveredAt?: Date;
+  productType: 'standard' | 'custom';
+  customRequestId?: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -155,6 +182,13 @@ export interface IReview extends Document {
   images?: { url: string; publicId: string }[];
   isVerifiedPurchase: boolean;
   helpfulVotes: Types.ObjectId[];
+  reports?: {
+    user: Types.ObjectId;
+    reason: 'spam' | 'abusive' | 'misleading' | 'other';
+    details?: string;
+    createdAt: Date;
+  }[];
+  reportCount?: number;
   adminReply?: { text: string; createdAt: Date };
   createdAt: Date;
   updatedAt: Date;
@@ -229,3 +263,33 @@ export interface JwtPayload {
 }
 
 export type UserRole = 'user' | 'admin';
+
+export interface IGiftingRequestItem {
+  product: Types.ObjectId;
+  name: string;
+  quantity: number;
+  customFieldAnswers: { fieldId: string; label: string; value: string }[];
+}
+
+export interface IGiftingRequest extends Document {
+  _id: Types.ObjectId;
+  user?: Types.ObjectId;
+  name: string;
+  email: string;
+  phone?: string;
+  occasion: string;
+  items: IGiftingRequestItem[];
+  recipientMessage?: string;
+  customizationNote?: string;
+  packagingPreference: 'standard' | 'premium' | 'custom';
+  customPackagingNote?: string;
+  referenceImages?: { url: string; publicId: string }[];
+  status: 'new' | 'price_quoted' | 'approved_by_user' | 'rejected_by_user' | 'cancelled';
+  proposedPrice?: number;
+  quotedPrice?: number;
+  deliveryTime?: string;
+  adminNote?: string;
+  linkedOrderId?: Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}

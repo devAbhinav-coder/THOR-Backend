@@ -53,7 +53,6 @@ const blogSchema = new Schema<IBlog>(
 );
 
 // Indexing for faster searches
-blogSchema.index({ slug: 1 });
 blogSchema.index({ isPublished: 1, createdAt: -1 });
 
 const Blog = mongoose.model<IBlog>('Blog', blogSchema);

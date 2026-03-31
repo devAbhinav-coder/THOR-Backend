@@ -17,6 +17,7 @@ import {
   revokeRefreshByRawCookie,
 } from '../services/authTokenService';
 import { assertRefreshAllowed } from '../services/refreshRateLimiter';
+import { sendSuccess } from '../utils/response';
 
 const OTP_EXPIRY_MS = 10 * 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
@@ -60,10 +61,7 @@ export const signupStart = catchAsync(async (req: Request, res: Response, next: 
   const tpl = emailTemplates.otpSignup(name, plain);
   await enqueueEmail({ to: emailLower, subject: tpl.subject, html: tpl.html });
 
-  res.status(200).json({
-    status: 'success',
-    message: 'Verification code sent to your email.',
-  });
+  sendSuccess(res, {}, 'Verification code sent to your email.');
 });
 
 /** Step 2: verify OTP and create user. */
@@ -181,7 +179,8 @@ export const forgotPassword = catchAsync(async (req: Request, res: Response) => 
   };
 
   if (!user || user.googleId) {
-    return res.status(200).json(generic);
+    sendSuccess(res, {}, generic.message);
+    return;
   }
 
   const { plain, hash } = await issueOtpCode();
@@ -202,7 +201,8 @@ export const forgotPassword = catchAsync(async (req: Request, res: Response) => 
   const tpl = emailTemplates.otpPasswordReset(user.name, plain);
   await enqueueEmail({ to: emailLower, subject: tpl.subject, html: tpl.html });
 
-  return res.status(200).json(generic);
+  sendSuccess(res, {}, generic.message);
+  return;
 });
 
 export const resetPassword = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
@@ -294,14 +294,11 @@ export const googleAuth = catchAsync(async (req: Request, res: Response, next: N
 export const logout = catchAsync(async (req: Request, res: Response) => {
   await revokeRefreshByRawCookie(req.cookies?.refreshToken as string | undefined);
   clearTokenCookies(res);
-  res.status(200).json({ status: 'success', message: 'Logged out successfully' });
+  sendSuccess(res, {}, 'Logged out successfully');
 });
 
 export const getMe = catchAsync(async (req: AuthRequest, res: Response) => {
-  res.status(200).json({
-    status: 'success',
-    data: { user: req.user },
-  });
+  sendSuccess(res, { user: req.user });
 });
 
 export const updateMe = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -324,10 +321,7 @@ export const updateMe = catchAsync(async (req: AuthRequest, res: Response, next:
     runValidators: true,
   });
 
-  res.status(200).json({
-    status: 'success',
-    data: { user: updatedUser },
-  });
+  sendSuccess(res, { user: updatedUser });
 });
 
 export const updatePassword = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -374,10 +368,7 @@ export const addAddress = catchAsync(async (req: AuthRequest, res: Response) => 
   });
   await user.save();
 
-  res.status(200).json({
-    status: 'success',
-    data: { addresses: user.addresses },
-  });
+  sendSuccess(res, { addresses: user.addresses });
 });
 
 export const removeAddress = catchAsync(async (req: AuthRequest, res: Response) => {
@@ -389,10 +380,7 @@ export const removeAddress = catchAsync(async (req: AuthRequest, res: Response) 
   );
   await user.save();
 
-  res.status(200).json({
-    status: 'success',
-    data: { addresses: user.addresses },
-  });
+  sendSuccess(res, { addresses: user.addresses });
 });
 
 export const deleteMe = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -406,8 +394,5 @@ export const deleteMe = catchAsync(async (req: AuthRequest, res: Response, next:
   await revokeRefreshByRawCookie(req.cookies?.refreshToken as string | undefined);
   clearTokenCookies(res);
 
-  res.status(200).json({
-    status: 'success',
-    message: 'Your account has been deleted successfully.',
-  });
+  sendSuccess(res, {}, 'Your account has been deleted successfully.');
 });

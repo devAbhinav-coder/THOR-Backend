@@ -73,6 +73,32 @@ const blogBannerSchema = new Schema(
   { _id: false }
 );
 
+const giftingHeroBannerSchema = new Schema(
+  {
+    title: { type: String, trim: true, maxlength: 140 },
+    description: { type: String, trim: true, maxlength: 400 },
+    backgroundImage: { type: String, trim: true },
+    backgroundImagePublicId: { type: String, trim: true },
+    ctaText: { type: String, trim: true, maxlength: 40 },
+    ctaLink: { type: String, trim: true, maxlength: 240 },
+    isActive: { type: Boolean, default: true },
+  },
+  { _id: false }
+);
+
+const giftingSecondaryBannerSchema = new Schema(
+  {
+    eyebrow: { type: String, trim: true, maxlength: 80 },
+    title: { type: String, trim: true, maxlength: 140 },
+    image: { type: String, trim: true },
+    imagePublicId: { type: String, trim: true },
+    ctaText: { type: String, trim: true, maxlength: 40 },
+    ctaLink: { type: String, trim: true, maxlength: 240 },
+    isActive: { type: Boolean, default: true },
+  },
+  { _id: false }
+);
+
 const storefrontSettingsSchema = new Schema(
   {
     key: { type: String, unique: true, default: 'default' },
@@ -80,6 +106,8 @@ const storefrontSettingsSchema = new Schema(
     heroSlides: [heroSlideSchema],
     promoBanner: promoBannerSchema,
     blogBanner: blogBannerSchema,
+    giftingHeroBanners: [giftingHeroBannerSchema],
+    giftingSecondaryBanners: [giftingSecondaryBannerSchema],
     footer: footerSchema,
   },
   { timestamps: true }

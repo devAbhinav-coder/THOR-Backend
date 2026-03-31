@@ -4,6 +4,7 @@ import Product from '../models/Product';
 import AppError from '../utils/AppError';
 import catchAsync from '../utils/catchAsync';
 import { AuthRequest } from '../types';
+import { sendSuccess } from '../utils/response';
 
 export const getWishlist = catchAsync(async (req: AuthRequest, res: Response) => {
   const wishlist = await Wishlist.findOne({ user: req.user!._id }).populate({
@@ -12,10 +13,7 @@ export const getWishlist = catchAsync(async (req: AuthRequest, res: Response) =>
     match: { isActive: true },
   });
 
-  res.status(200).json({
-    status: 'success',
-    data: { products: wishlist?.products || [] },
-  });
+  sendSuccess(res, { products: wishlist?.products || [] });
 });
 
 export const toggleWishlist = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -43,9 +41,5 @@ export const toggleWishlist = catchAsync(async (req: AuthRequest, res: Response,
 
   await wishlist.save();
 
-  res.status(200).json({
-    status: 'success',
-    action,
-    data: { wishlistCount: wishlist.products.length },
-  });
+  sendSuccess(res, { wishlistCount: wishlist.products.length, action });
 });

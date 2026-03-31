@@ -2,6 +2,10 @@ import { Request, Response } from 'express';
 import catchAsync from '../utils/catchAsync';
 import StorefrontSettings from '../models/StorefrontSettings';
 import { deleteMultipleImages } from '../services/cloudinary';
+import { deleteCache, getCache, setCache } from '../services/cacheService';
+import { storefrontRepository } from '../repositories/storefrontRepository';
+import { safeJsonParse } from '../utils/safeJson';
+import { sendSuccess } from '../utils/response';
 
 const FALLBACK_SETTINGS = {
   announcementMessages: [
@@ -61,6 +65,26 @@ const FALLBACK_SETTINGS = {
     secondaryButtonLink: '/shop',
     perks: ['Premium fabrics', 'Curated colors', 'Easy to shop'],
   },
+  giftingHeroBanners: [
+    {
+      title: 'Smart gifting made easy',
+      description: 'Premium gifts for every occasion, tailored to your style.',
+      backgroundImage: 'https://images.unsplash.com/photo-1513885535751-8b9238bd345a?w=1600&q=80&auto=format&fit=crop',
+      ctaText: 'Explore gifts',
+      ctaLink: '/gifting',
+      isActive: true,
+    },
+  ],
+  giftingSecondaryBanners: [
+    {
+      eyebrow: 'Gifting made premium',
+      title: 'Curated picks for every celebration',
+      image: 'https://images.unsplash.com/photo-1511988617509-a57c8a288659?w=1600&q=80&auto=format&fit=crop',
+      ctaText: 'Shop now',
+      ctaLink: '/gifting',
+      isActive: true,
+    },
+  ],
   footer: {
     description:
       'Your destination for exquisite Indian ethnic wear. Curated sarees, lehengas, and more.',
@@ -82,10 +106,24 @@ const FALLBACK_SETTINGS = {
   },
 };
 
+type StorefrontPayload = {
+  heroSlides?: Record<string, unknown>[];
+  promoBanner?: Record<string, unknown>;
+  blogBanner?: Record<string, unknown>;
+  giftingHeroBanners?: Record<string, unknown>[];
+  giftingSecondaryBanners?: Record<string, unknown>[];
+  announcementMessages?: string[];
+  footer?: Record<string, unknown>;
+};
+
 const getSettingsDoc = async () => {
-  const settings = await StorefrontSettings.findOne({ key: 'default' }).lean();
+  const cacheKey = 'cache:storefront:settings:default';
+  const cached = await getCache<typeof FALLBACK_SETTINGS>(cacheKey);
+  if (cached) return cached;
+
+  const settings = await storefrontRepository.getDefaultSettingsLean();
   if (!settings) return FALLBACK_SETTINGS;
-  return {
+  const payload = {
     announcementMessages: settings.announcementMessages?.length ? settings.announcementMessages : FALLBACK_SETTINGS.announcementMessages,
     heroSlides: settings.heroSlides?.length ? settings.heroSlides : FALLBACK_SETTINGS.heroSlides,
     promoBanner: settings.promoBanner || FALLBACK_SETTINGS.promoBanner,
@@ -99,28 +137,42 @@ const getSettingsDoc = async () => {
       buttonLink: '/blog',
       isActive: true,
     },
+    giftingHeroBanners: settings.giftingHeroBanners?.length
+      ? settings.giftingHeroBanners
+      : FALLBACK_SETTINGS.giftingHeroBanners,
+    giftingSecondaryBanners: settings.giftingSecondaryBanners?.length
+      ? settings.giftingSecondaryBanners
+      : FALLBACK_SETTINGS.giftingSecondaryBanners,
     footer: settings.footer || FALLBACK_SETTINGS.footer,
   };
+  await setCache(cacheKey, payload, 120);
+  return payload;
 };
 
 export const getStorefrontSettings = catchAsync(async (_req: Request, res: Response) => {
   const settings = await getSettingsDoc();
-  res.status(200).json({ status: 'success', data: { settings } });
+  sendSuccess(res, { settings });
 });
 
 export const getAdminStorefrontSettings = catchAsync(async (_req: Request, res: Response) => {
   const settings = await getSettingsDoc();
-  res.status(200).json({ status: 'success', data: { settings } });
+  sendSuccess(res, { settings });
 });
 
 export const updateStorefrontSettings = catchAsync(async (req: Request, res: Response) => {
-  const payload = typeof req.body.settings === 'string' ? JSON.parse(req.body.settings) : (req.body || {});
+  const payload = safeJsonParse<StorefrontPayload>(
+    req.body.settings,
+    (req.body || {}) as StorefrontPayload,
+    'settings'
+  );
   const uploaded = (req as Request & {
     uploadedStorefrontImages?: {
       hero: Record<string, { url: string; publicId: string }>;
       promo?: { url: string; publicId: string };
       blogMain?: { url: string; publicId: string };
       blogSide?: { url: string; publicId: string };
+      giftingHero: Record<string, { url: string; publicId: string }>;
+      giftingSecondary: Record<string, { url: string; publicId: string }>;
     };
   }).uploadedStorefrontImages;
 
@@ -150,6 +202,22 @@ export const updateStorefrontSettings = catchAsync(async (req: Request, res: Res
     nextBlogBanner.sideImagePublicId = uploaded.blogSide.publicId;
   }
 
+  const nextGiftingHero = (payload.giftingHeroBanners || []).map((banner: Record<string, unknown>, index: number) => {
+    const uploadedHero = uploaded?.giftingHero?.[String(index)];
+    if (uploadedHero) {
+      return { ...banner, backgroundImage: uploadedHero.url, backgroundImagePublicId: uploadedHero.publicId };
+    }
+    return banner;
+  });
+
+  const nextGiftingSecondary = (payload.giftingSecondaryBanners || []).map((banner: Record<string, unknown>, index: number) => {
+    const uploadedSecondary = uploaded?.giftingSecondary?.[String(index)];
+    if (uploadedSecondary) {
+      return { ...banner, image: uploadedSecondary.url, imagePublicId: uploadedSecondary.publicId };
+    }
+    return banner;
+  });
+
   const usedPublicIds = new Set<string>();
   for (const slide of nextHeroSlides) {
     if (typeof slide.imagePublicId === 'string' && slide.imagePublicId.trim()) {
@@ -164,6 +232,16 @@ export const updateStorefrontSettings = catchAsync(async (req: Request, res: Res
   }
   if (typeof nextBlogBanner.sideImagePublicId === 'string' && nextBlogBanner.sideImagePublicId.trim()) {
     usedPublicIds.add(nextBlogBanner.sideImagePublicId);
+  }
+  for (const banner of nextGiftingHero) {
+    if (typeof banner.backgroundImagePublicId === 'string' && banner.backgroundImagePublicId.trim()) {
+      usedPublicIds.add(banner.backgroundImagePublicId);
+    }
+  }
+  for (const banner of nextGiftingSecondary) {
+    if (typeof banner.imagePublicId === 'string' && banner.imagePublicId.trim()) {
+      usedPublicIds.add(banner.imagePublicId);
+    }
   }
 
   const oldPublicIds: string[] = [];
@@ -181,6 +259,16 @@ export const updateStorefrontSettings = catchAsync(async (req: Request, res: Res
     if (maybeBlog.mainImagePublicId) oldPublicIds.push(maybeBlog.mainImagePublicId);
     if (maybeBlog.sideImagePublicId) oldPublicIds.push(maybeBlog.sideImagePublicId);
   }
+  if (previous?.giftingHeroBanners?.length) {
+    for (const banner of previous.giftingHeroBanners as Array<{ backgroundImagePublicId?: string }>) {
+      if (banner.backgroundImagePublicId) oldPublicIds.push(banner.backgroundImagePublicId);
+    }
+  }
+  if (previous?.giftingSecondaryBanners?.length) {
+    for (const banner of previous.giftingSecondaryBanners as Array<{ imagePublicId?: string }>) {
+      if (banner.imagePublicId) oldPublicIds.push(banner.imagePublicId);
+    }
+  }
 
   const stalePublicIds = oldPublicIds.filter((id) => !usedPublicIds.has(id));
   if (stalePublicIds.length > 0) {
@@ -195,13 +283,13 @@ export const updateStorefrontSettings = catchAsync(async (req: Request, res: Res
       heroSlides: nextHeroSlides,
       promoBanner: nextPromo,
       blogBanner: nextBlogBanner,
+      giftingHeroBanners: nextGiftingHero,
+      giftingSecondaryBanners: nextGiftingSecondary,
       footer: payload.footer || {},
     },
     { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
   );
 
-  res.status(200).json({
-    status: 'success',
-    data: { settings: updated },
-  });
+  sendSuccess(res, { settings: updated }, 'Storefront settings updated');
+  await deleteCache('cache:storefront:settings:default');
 });

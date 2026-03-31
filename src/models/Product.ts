@@ -2,6 +2,19 @@ import mongoose, { Schema } from 'mongoose';
 import slugify from 'slugify';
 import { IProduct } from '../types';
 
+const customFieldSchema = new Schema({
+  label: { type: String, required: true, trim: true }, // e.g. "Recipient Name"
+  placeholder: { type: String, trim: true },           // e.g. "Enter name to print on card"
+  fieldType: { type: String, enum: ['text', 'textarea', 'select', 'image'], default: 'text' },
+  options: [{ type: String, trim: true }],             // for select type
+  isRequired: { type: Boolean, default: true },
+}, { _id: true });
+
+const productDetailSchema = new Schema({
+  key: { type: String, required: true, trim: true, maxlength: 120 },
+  value: { type: String, required: true, trim: true, maxlength: 500 },
+}, { _id: false });
+
 const productImageSchema = new Schema({
   url: { type: String, required: true },
   publicId: { type: String, required: true },
@@ -69,11 +82,19 @@ const productSchema = new Schema<IProduct>(
     tags: [{ type: String, lowercase: true, trim: true }],
     isFeatured: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
+    // Gifting
+    isGiftable: { type: Boolean, default: false },
+    isCustomizable: { type: Boolean, default: false },
+    minOrderQty: { type: Number, default: 1, min: 1 },
+    giftOccasions: [{ type: String, trim: true }], // e.g. ["Corporate", "Wedding"]
+    customFields: [customFieldSchema],              // admin-defined user inputs
+    productDetails: [productDetailSchema],
     ratings: {
       average: { type: Number, default: 0, min: 0, max: 5 },
       count: { type: Number, default: 0 },
     },
     viewCount: { type: Number, default: 0, min: 0 },
+    soldCount: { type: Number, default: 0, min: 0 },
     seoTitle: String,
     seoDescription: String,
   },
@@ -113,6 +134,7 @@ productSchema.index({ category: 1, fabric: 1, price: 1 });
 productSchema.index({ isFeatured: 1, isActive: 1 });
 productSchema.index({ 'ratings.average': -1 });
 productSchema.index({ viewCount: -1 });
+productSchema.index({ soldCount: -1 });
 // slug index is already created by unique:true on the field
 
 const Product = mongoose.model<IProduct>('Product', productSchema);

@@ -13,12 +13,13 @@ import mongoSanitize from "express-mongo-sanitize";
 import rateLimit from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
 import mongoose from "mongoose";
+import swaggerUi from "swagger-ui-express";
 
 import connectDB from "./config/db";
 import logger from "./utils/logger";
 import errorHandler from "./middleware/errorHandler";
 import AppError from "./utils/AppError";
-import { redisConnection } from "./config/redis";
+import { redisConnection, redisEnabled } from "./config/redis";
 
 import authRoutes from "./routes/authRoutes";
 import productRoutes from "./routes/productRoutes";
@@ -32,9 +33,14 @@ import categoryRoutes from "./routes/categoryRoutes";
 import storefrontRoutes from "./routes/storefrontRoutes";
 import blogRoutes from "./routes/blogRoutes";
 import notificationRoutes from "./routes/notificationRoutes";
+import giftingRoutes from "./routes/giftingRoutes";
 import { startEmailWorker, closeEmailWorker, emailQueue } from "./queues/emailQueue";
 import { requestContext } from "./utils/requestContext";
 import { botHeuristics } from "./middleware/botHeuristics";
+import { xssSanitize } from "./middleware/xssSanitize";
+import { responseAdapter } from "./middleware/responseAdapter";
+import { paginationGuard } from "./middleware/paginationGuard";
+import { openApiSpec } from "./docs/openapi";
 const app = express();
 
 if (process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true") {
@@ -43,6 +49,15 @@ if (process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true") {
 
 connectDB();
 startEmailWorker();
+
+if (process.env.NODE_ENV === "production" && redisEnabled) {
+  redisConnection
+    .ping()
+    .catch((err: Error) => {
+      logger.error(`Redis ping failed in production: ${err.message}`);
+      process.exit(1);
+    });
+}
 
 const corsOrigins = (process.env.FRONTEND_URLS || process.env.FRONTEND_URL || "http://localhost:3000")
   .split(",")
@@ -83,7 +98,12 @@ app.use(
 );
 
 const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS || "900000", 10);
-const max = parseInt(process.env.RATE_LIMIT_MAX || "1000", 10);
+const configuredMax = parseInt(process.env.RATE_LIMIT_MAX || "1000", 10);
+const max =
+  process.env.NODE_ENV === "production" ? Math.min(Math.max(100, configuredMax), 2000) : configuredMax;
+if (process.env.NODE_ENV === "production" && configuredMax > 2000) {
+  logger.warn(`RATE_LIMIT_MAX=${configuredMax} too high for production; capped to ${max}.`);
+}
 
 const limiter = rateLimit({
   windowMs,
@@ -94,13 +114,17 @@ const limiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  store: new RedisStore({
-    prefix: "rl:api:",
-    sendCommand: (...args: string[]) =>
-      redisConnection.call(args[0], ...(args.slice(1) as string[])) as Promise<
-        string | number | boolean | (string | number | boolean)[]
-      >,
-  }),
+  ...(redisEnabled
+    ? {
+        store: new RedisStore({
+          prefix: "rl:api:",
+          sendCommand: (...args: string[]) =>
+            redisConnection.call(args[0], ...(args.slice(1) as string[])) as Promise<
+              string | number | boolean | (string | number | boolean)[]
+            >,
+        }),
+      }
+    : {}),
 });
 
 const authLimiter = rateLimit({
@@ -112,13 +136,17 @@ const authLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  store: new RedisStore({
-    prefix: "rl:auth:",
-    sendCommand: (...args: string[]) =>
-      redisConnection.call(args[0], ...(args.slice(1) as string[])) as Promise<
-        string | number | boolean | (string | number | boolean)[]
-      >,
-  }),
+  ...(redisEnabled
+    ? {
+        store: new RedisStore({
+          prefix: "rl:auth:",
+          sendCommand: (...args: string[]) =>
+            redisConnection.call(args[0], ...(args.slice(1) as string[])) as Promise<
+              string | number | boolean | (string | number | boolean)[]
+            >,
+        }),
+      }
+    : {}),
 });
 
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -132,15 +160,20 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 const jsonLimit = process.env.JSON_BODY_LIMIT || "512kb";
 app.use(express.json({ limit: jsonLimit }));
 app.use(express.urlencoded({ extended: true, limit: jsonLimit }));
+app.use(responseAdapter);
+app.use(paginationGuard);
 app.use(cookieParser());
 app.use(hpp());
 app.use(botHeuristics);
 app.use(mongoSanitize());
+app.use(xssSanitize);
 app.use(compression());
 
-if (process.env.NODE_ENV === "development") {
-  app.use(morgan("dev"));
-}
+app.use(
+  morgan(process.env.NODE_ENV === "development" ? "dev" : "combined", {
+    stream: { write: (message) => logger.info(message.trim()) },
+  })
+);
 
 app.get("/api/health", async (_req: Request, res: Response) => {
   const mongoOk = mongoose.connection.readyState === 1;
@@ -151,15 +184,16 @@ app.get("/api/health", async (_req: Request, res: Response) => {
   } catch {
     redisOk = false;
   }
-  const ok = mongoOk && redisOk;
+  const ok = mongoOk && (redisEnabled ? redisOk : true);
   res.status(ok ? 200 : 503).json({
     status: ok ? "ok" : "degraded",
     message: ok ? "The House of Rani API is running" : "Dependency check failed",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
-    checks: { mongodb: mongoOk, redis: redisOk },
+    checks: { mongodb: mongoOk, redis: redisEnabled ? redisOk : "disabled" },
   });
 });
+app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(openApiSpec));
 
 app.use("/api", limiter);
 
@@ -175,6 +209,7 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/storefront", storefrontRoutes);
 app.use("/api/blogs", blogRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/gifting", giftingRoutes);
 
 app.all("*", (req, _res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server.`, 404));
@@ -198,7 +233,9 @@ const shutdown = async (signal: string) => {
         await Sentry.close(2000);
       }
       await closeEmailWorker();
-      await emailQueue.close();
+      if (emailQueue) {
+        await emailQueue.close();
+      }
       await mongoose.connection.close();
       await redisConnection.quit();
       logger.info("Connections closed.");

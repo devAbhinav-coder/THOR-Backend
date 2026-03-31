@@ -16,6 +16,9 @@ import { uploadBlogImages, processBlogImages } from '../middleware/upload';
 
 const router = Router();
 
+// Keep admin listing above `/:slug` to prevent route shadowing.
+router.get('/admin/all', protect, restrictTo('admin'), getAdminBlogs);
+
 // Public routes
 router.get('/', getAllBlogs);
 router.get('/:slug', getBlogBySlug);
@@ -28,7 +31,6 @@ router.delete('/:id/comments/:commentId', deleteComment);
 
 // Admin routes
 router.use(restrictTo('admin'));
-router.get('/admin/all', getAdminBlogs); // Use /admin/all to avoid clash with :slug
 router.post('/', uploadBlogImages, processBlogImages, createBlog);
 router.patch('/:id', uploadBlogImages, processBlogImages, updateBlog);
 router.delete('/:id', deleteBlog);

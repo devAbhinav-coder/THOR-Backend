@@ -30,31 +30,10 @@ import {
 } from '../services/checkoutConcurrency';
 import { refProductId } from '../utils/productStock';
 import { notifyAdmins } from '../services/notificationService';
+import { sendPaginated, sendSuccess } from '../utils/response';
+import { orderRepository } from '../repositories/orderRepository';
+import { buildOrderItemsFromProducts, computeOrderTotals, getGiftMinQty } from '../services/orderService';
 
-const SHIPPING_THRESHOLD = 1000;
-const SHIPPING_CHARGE = 100;
-const TAX_RATE = 0;
-
-function buildOrderItemsFromProducts(
-  cartItems: { product: mongoose.Types.ObjectId | { _id: mongoose.Types.ObjectId }; variant: { sku: string }; quantity: number; price: number }[],
-  productMap: Map<string, InstanceType<typeof Product>>
-) {
-  return cartItems.map((item) => {
-    const pid = refProductId(item.product);
-    const product = productMap.get(pid);
-    if (!product || !product.images?.[0]) {
-      throw new AppError('Product data missing for order line.', 400);
-    }
-    return {
-      product: new mongoose.Types.ObjectId(pid),
-      name: product.name,
-      image: product.images[0].url,
-      variant: item.variant,
-      quantity: item.quantity,
-      price: item.price,
-    };
-  });
-}
 
 export const createOrder = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
   const userId = String(req.user!._id);
@@ -77,19 +56,23 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
   try {
   const { shippingAddress, paymentMethod, couponCode, notes } = req.body;
 
-  const cart = await Cart.findOne({ user: req.user!._id }).populate('items.product');
+  const cart = await orderRepository.findCartForCheckout(String(req.user!._id));
   if (!cart || cart.items.length === 0) {
     return next(new AppError('Your cart is empty.', 400));
   }
 
   const productIds = [...new Set(cart.items.map((i) => refProductId(i.product)))];
-  const products = await Product.find({ _id: { $in: productIds } });
+  const products = await orderRepository.findProductsByIds(productIds);
   const productMap = new Map(products.map((p) => [String(p._id), p]));
 
   for (const item of cart.items) {
     const product = productMap.get(refProductId(item.product));
     if (!product || !product.isActive) {
       return next(new AppError(`Product is no longer available.`, 400));
+    }
+    const minQty = getGiftMinQty(product);
+    if (item.quantity < minQty) {
+      return next(new AppError(`Minimum quantity for "${product.name}" is ${minQty}.`, 400));
     }
     const variant = product.variants.find((v) => v.sku === item.variant.sku);
     if (!variant || variant.stock < item.quantity) {
@@ -120,10 +103,7 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
     couponId = cart.coupon as mongoose.Types.ObjectId;
   }
 
-  const subtotalAfterDiscount = cart.subtotal - discount;
-  const shippingCharge = subtotalAfterDiscount >= SHIPPING_THRESHOLD ? 0 : SHIPPING_CHARGE;
-  const tax = Math.round(subtotalAfterDiscount * TAX_RATE * 100) / 100;
-  const total = subtotalAfterDiscount + shippingCharge + tax;
+  const { shippingCharge, tax, total } = computeOrderTotals(cart.subtotal, discount);
 
   let orderItems: ReturnType<typeof buildOrderItemsFromProducts>;
   try {
@@ -147,7 +127,7 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
   };
 
   if (paymentMethod === 'razorpay') {
-    const order = await Order.create(orderPayload);
+    const order = await orderRepository.createOrder(orderPayload);
 
     const razorpayOrder = await createRazorpayOrder({
       amount: total,
@@ -158,7 +138,7 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
     order.razorpayOrderId = razorpayOrder.id;
     await order.save();
 
-    await Cart.findByIdAndDelete(cart._id);
+    await orderRepository.deleteCartById(cart._id);
 
     const razorpayBody = {
       status: 'success' as const,
@@ -175,7 +155,8 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
     if (idemKey) {
       await setIdempotentCheckoutResponse(userId, idemKey, 201, razorpayBody);
     }
-    return res.status(201).json(razorpayBody);
+    sendSuccess(res, razorpayBody.data as Record<string, unknown>, 'Order created', 201);
+    return;
   }
 
   const session = await mongoose.startSession();
@@ -214,7 +195,7 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
         }
       }
 
-      await Cart.deleteOne({ _id: cart._id }, { session });
+      await orderRepository.deleteCartByIdInSession(cart._id, session);
     });
   } finally {
     await session.endSession();
@@ -235,7 +216,7 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
     html: userTemplate.html,
   });
 
-  const admins = await User.find({ role: 'admin', isActive: true }).select('email');
+  const admins = await orderRepository.findActiveAdminEmails();
   const adminTemplate = emailTemplates.adminNewOrder(
     codOrder.orderNumber,
     codOrder.total,
@@ -263,7 +244,7 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
   if (idemKey) {
     await setIdempotentCheckoutResponse(userId, idemKey, 201, codBody);
   }
-  res.status(201).json(codBody);
+  sendSuccess(res, codBody.data as Record<string, unknown>, 'Order created', 201);
   } finally {
     await releaseCheckoutLock(userId);
   }
@@ -284,11 +265,8 @@ export const verifyPayment = catchAsync(async (req: AuthRequest, res: Response, 
   }
 
   if (order.paymentStatus === 'paid') {
-    return res.status(200).json({
-      status: 'success',
-      message: 'Payment already verified',
-      data: { order },
-    });
+    sendSuccess(res, { order }, 'Payment already verified');
+    return;
   }
 
   const payLockOrderId = String(order._id);
@@ -382,7 +360,7 @@ export const verifyPayment = catchAsync(async (req: AuthRequest, res: Response, 
       html: userTemplate.html,
     });
 
-    const admins = await User.find({ role: 'admin', isActive: true }).select('email');
+    const admins = await orderRepository.findActiveAdminEmails();
     const adminTemplate = emailTemplates.adminNewOrder(
       updated!.orderNumber,
       updated!.total,
@@ -408,11 +386,7 @@ export const verifyPayment = catchAsync(async (req: AuthRequest, res: Response, 
     );
   }
 
-  res.status(200).json({
-    status: 'success',
-    message: 'Payment verified successfully',
-    data: { order: updated },
-  });
+  sendSuccess(res, { order: updated }, 'Payment verified successfully');
   } catch (err) {
     if (err instanceof AppError && err.statusCode < 500) {
       securityLog('payment.verify_failed', {
@@ -427,25 +401,63 @@ export const verifyPayment = catchAsync(async (req: AuthRequest, res: Response, 
   }
 });
 
+export const prepareOrderPayment = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const { orderId } = req.params;
+
+  const order = await Order.findOne({ _id: orderId, user: req.user!._id });
+  if (!order) return next(new AppError('Order not found.', 404));
+
+  if (order.paymentStatus === 'paid') {
+    return next(new AppError('Order is already paid.', 400));
+  }
+
+  if (order.paymentMethod !== 'razorpay') {
+    // If user wants to pay online for a COD order (optional, but good for custom)
+    order.paymentMethod = 'razorpay';
+  }
+
+  if (!order.razorpayOrderId) {
+    const razorpayOrder = await createRazorpayOrder({
+      amount: order.total,
+      receipt: order.orderNumber,
+      notes: { orderId: String(order._id) },
+    });
+    order.razorpayOrderId = razorpayOrder.id;
+    await order.save();
+  }
+
+  sendSuccess(res, {
+    order: order.toJSON(),
+    razorpayOrder: {
+      id: order.razorpayOrderId,
+      amount: order.total * 100,
+      currency: 'INR',
+      keyId: process.env.RAZORPAY_KEY_ID,
+    },
+  });
+});
+
 export const getMyOrders = catchAsync(async (req: AuthRequest, res: Response) => {
   const page = parseInt((req.query.page as string) || '1', 10);
   const limit = parseInt((req.query.limit as string) || '10', 10);
   const skip = (page - 1) * limit;
+  const statusStr = req.query.status as string;
+
+  const query: Record<string, unknown> = { user: req.user!._id };
+
+  if (statusStr) {
+    if (statusStr.includes(',')) {
+      query.status = { $in: statusStr.split(',') };
+    } else {
+      query.status = statusStr;
+    }
+  }
 
   const [orders, total] = await Promise.all([
-    Order.find({ user: req.user!._id })
-      .sort('-createdAt')
-      .skip(skip)
-      .limit(limit)
-      .populate('items.product', 'name images'),
-    Order.countDocuments({ user: req.user!._id }),
+    orderRepository.findUserOrders(query, skip, limit),
+    orderRepository.countOrders(query),
   ]);
-
-  res.status(200).json({
-    status: 'success',
-    pagination: { currentPage: page, totalPages: Math.ceil(total / limit), total },
-    data: { orders },
-  });
+  sendPaginated(res, { orders }, { page, limit, total });
 });
 
 export const getOrderById = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -456,7 +468,7 @@ export const getOrderById = catchAsync(async (req: AuthRequest, res: Response, n
 
   if (!order) return next(new AppError('Order not found.', 404));
 
-  res.status(200).json({ status: 'success', data: { order } });
+  sendSuccess(res, { order });
 });
 
 export const cancelOrder = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -493,5 +505,5 @@ export const cancelOrder = catchAsync(async (req: AuthRequest, res: Response, ne
 
   await order.save();
 
-  res.status(200).json({ status: 'success', data: { order } });
+  sendSuccess(res, { order });
 });

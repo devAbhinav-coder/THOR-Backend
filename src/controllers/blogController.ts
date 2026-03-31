@@ -5,40 +5,40 @@ import { deleteMultipleImages } from '../services/cloudinary';
 import AppError from '../utils/AppError';
 import catchAsync from '../utils/catchAsync';
 import APIFeatures from '../utils/apiFeatures';
-import User from '../models/User';
-import { sendEmailNow, emailTemplates } from '../services/emailService';
+import { emailTemplates } from '../services/emailService';
 import { IBlog, AuthRequest } from '../types';
+import logger from '../utils/logger';
+import { sendPaginated, sendSuccess } from '../utils/response';
+import { blogRepository } from '../repositories/blogRepository';
+import { safeJsonParse } from '../utils/safeJson';
+import { enqueueBroadcastByUserFilter } from '../services/broadcastService';
 
-const broadcastNewBlog = async (blog: any) => {
+type BlogBroadcastPayload = { _id: unknown; title: string; slug: string };
+const broadcastNewBlog = async (blog: BlogBroadcastPayload) => {
   try {
-    const users = await User.find({ isActive: true, role: 'user' }); // target regular users
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    
-    const emailPromises = users.map((user: any) => {
-      const emailPayload = emailTemplates.custom(
-        `New Story: ${blog.title} — The House of Rani`,
-        `<p>Hi ${user.name},</p><p>We have just published a new story that you might love: <strong>${blog.title}</strong>.</p><p>Dive into our latest journal entry to stay inspired with the latest trends and updates!</p>`,
-        'Read Story',
-        `${frontendUrl}/blog/${blog.slug}`
-      );
-      
-      return sendEmailNow({
-        to: user.email,
-        subject: emailPayload.subject,
-        html: emailPayload.html,
-      }).catch((err: unknown) => console.error(`Failed to send to ${user.email}`, err));
-    });
-
-    await Promise.all(emailPromises);
-    console.log(`Broadcasted new blog to ${users.length} users.`);
+    const recipients = await enqueueBroadcastByUserFilter(
+      { isActive: true, role: 'user' },
+      (user) => {
+        const tpl = emailTemplates.custom(
+          `New Story: ${blog.title} — The House of Rani`,
+          `<p>Hi ${user.name || 'there'},</p><p>We have just published a new story that you might love: <strong>${blog.title}</strong>.</p><p>Dive into our latest journal entry to stay inspired with the latest trends and updates!</p>`,
+          'Read Story',
+          `${frontendUrl}/blog/${blog.slug}`
+        );
+        return { subject: tpl.subject, html: tpl.html, jobIdPrefix: `blog:${String(blog._id)}` };
+      },
+      400
+    );
+    logger.info('Broadcasted blog notification', { recipients, blogId: String(blog._id) });
   } catch (error) {
-    console.error('Failed to broadcast new blog:', error);
+    logger.error('Failed to broadcast new blog', { error });
   }
 };
 
 export const getAllBlogs = catchAsync(async (req: Request, res: Response) => {
   const features = new APIFeatures<IBlog>(
-    Blog.find({ isPublished: true }).populate('author', 'name avatar'),
+    blogRepository.findPublishedList({ isPublished: true }),
     req.query as Record<string, string>
   )
     .filter()
@@ -49,24 +49,14 @@ export const getAllBlogs = catchAsync(async (req: Request, res: Response) => {
 
   const [blogs, totalCount] = await Promise.all([
     features.query,
-    Blog.countDocuments({ isPublished: true }),
+    Blog.countDocuments(features.getMongoFilter()),
   ]);
 
-  const page = parseInt((req.query.page as string) || '1', 10);
-  const limit = parseInt((req.query.limit as string) || '12', 10);
-
-  res.status(200).json({
-    status: 'success',
-    results: blogs.length,
-    pagination: {
-      currentPage: page,
-      totalPages: Math.ceil(totalCount / limit),
-      totalBlogs: totalCount,
-      hasNextPage: page * limit < totalCount,
-      hasPrevPage: page > 1,
-    },
-    data: { blogs },
-  });
+  sendPaginated(
+    res,
+    { blogs },
+    { page: features.getPage(), limit: features.getLimit(), total: totalCount }
+  );
 });
 
 export const getAdminBlogs = catchAsync(async (req: Request, res: Response) => {
@@ -81,15 +71,14 @@ export const getAdminBlogs = catchAsync(async (req: Request, res: Response) => {
 
   const [blogs, totalCount] = await Promise.all([
     features.query,
-    Blog.countDocuments(),
+    Blog.countDocuments(features.getMongoFilter()),
   ]);
 
-  res.status(200).json({
-    status: 'success',
-    results: blogs.length,
-    total: totalCount,
-    data: { blogs },
-  });
+  sendPaginated(
+    res,
+    { blogs },
+    { page: features.getPage(), limit: features.getLimit(), total: totalCount }
+  );
 });
 
 export const getBlogBySlug = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
@@ -105,10 +94,7 @@ export const getBlogBySlug = catchAsync(async (req: Request, res: Response, next
     .populate('user', 'name avatar')
     .sort('-createdAt');
 
-  res.status(200).json({
-    status: 'success',
-    data: { blog, comments },
-  });
+  sendSuccess(res, { blog, comments });
 });
 
 export const createBlog = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -116,13 +102,7 @@ export const createBlog = catchAsync(async (req: AuthRequest, res: Response, nex
   
   let captions: string[] = [];
   if (req.body.captions) {
-    try {
-      captions = JSON.parse(req.body.captions);
-    } catch {
-      if (Array.isArray(req.body.captions)) {
-        captions = req.body.captions;
-      }
-    }
+    captions = safeJsonParse<string[]>(req.body.captions, Array.isArray(req.body.captions) ? req.body.captions : [], 'captions');
   }
 
   const images = uploadedImages?.map((img, index) => ({
@@ -141,26 +121,27 @@ export const createBlog = catchAsync(async (req: AuthRequest, res: Response, nex
   const blog = await Blog.create(blogData);
 
   if (blog.isPublished) {
-    broadcastNewBlog(blog).catch(console.error);
+    broadcastNewBlog(blog).catch((err: unknown) => logger.error('Blog broadcast failed', { err }));
   }
 
-  res.status(201).json({
-    status: 'success',
-    data: { blog },
-  });
+  sendSuccess(res, { blog }, 'Blog created', 201);
 });
 
 export const updateBlog = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
   const blog = await Blog.findById(req.params.id);
   if (!blog) return next(new AppError('No blog found with that ID.', 404));
 
-  const updateData: Record<string, any> = { ...req.body };
+  const updateData: Record<string, unknown> = { ...req.body };
 
   const uploadedImages = (req as Request & { uploadedImages?: { url: string; publicId: string }[] }).uploadedImages;
   if (uploadedImages && uploadedImages.length > 0) {
     let captions: string[] = [];
     if (req.body.newCaptions) {
-      try { captions = JSON.parse(req.body.newCaptions); } catch { if (Array.isArray(req.body.newCaptions)) captions = req.body.newCaptions; }
+      captions = safeJsonParse<string[]>(
+        req.body.newCaptions,
+        Array.isArray(req.body.newCaptions) ? req.body.newCaptions : [],
+        'newCaptions'
+      );
     }
     const newImages = uploadedImages.map((img, index) => ({
       url: img.url,
@@ -171,15 +152,16 @@ export const updateBlog = catchAsync(async (req: Request, res: Response, next: N
   }
 
   if (req.body.existingImages) {
-      try {
-          const existingImagesParsed = JSON.parse(req.body.existingImages);
-          if (!updateData.images) {
-              updateData.images = existingImagesParsed;
-          } else {
-              updateData.images = [...existingImagesParsed, ...updateData.images.slice(blog.images.length)];
-          }
-      } catch (e) {
-          // ignore error
+      const existingImagesParsed = safeJsonParse<unknown[]>(
+        req.body.existingImages,
+        [],
+        'existingImages'
+      );
+      if (!updateData.images) {
+          updateData.images = existingImagesParsed;
+      } else {
+          const currentImages = Array.isArray(updateData.images) ? updateData.images : [];
+          updateData.images = [...existingImagesParsed, ...currentImages.slice(blog.images.length)];
       }
   }
 
@@ -192,14 +174,13 @@ export const updateBlog = catchAsync(async (req: Request, res: Response, next: N
     runValidators: true,
   });
 
-  if (updateData.isPublished && !blog.isPublished) {
-    broadcastNewBlog(updatedBlog).catch(console.error);
+  if (updateData.isPublished && !blog.isPublished && updatedBlog) {
+    broadcastNewBlog(updatedBlog).catch((err: unknown) =>
+      logger.error('Blog publish broadcast failed', { err })
+    );
   }
 
-  res.status(200).json({
-    status: 'success',
-    data: { blog: updatedBlog },
-  });
+  sendSuccess(res, { blog: updatedBlog }, 'Blog updated');
 });
 
 export const deleteBlog = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
@@ -214,7 +195,7 @@ export const deleteBlog = catchAsync(async (req: Request, res: Response, next: N
   await BlogComment.deleteMany({ blog: blog._id });
   await blog.deleteOne();
 
-  res.status(204).json({ status: 'success', data: null });
+  res.status(204).end();
 });
 
 export const deleteBlogImage = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
@@ -226,10 +207,7 @@ export const deleteBlogImage = catchAsync(async (req: Request, res: Response, ne
   blog.images = blog.images.filter((img) => img.publicId !== publicId);
   await blog.save();
 
-  res.status(200).json({
-    status: 'success',
-    data: { blog },
-  });
+  sendSuccess(res, { blog });
 });
 
 export const likeBlog = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -251,10 +229,7 @@ export const likeBlog = catchAsync(async (req: AuthRequest, res: Response, next:
 
   await blog.save();
 
-  res.status(200).json({
-    status: 'success',
-    data: { likes: blog.likes },
-  });
+  sendSuccess(res, { likes: blog.likes });
 });
 
 export const addComment = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -269,10 +244,7 @@ export const addComment = catchAsync(async (req: AuthRequest, res: Response, nex
 
   await comment.populate('user', 'name avatar');
 
-  res.status(201).json({
-    status: 'success',
-    data: { comment },
-  });
+  sendSuccess(res, { comment }, 'Comment added', 201);
 });
 
 export const deleteComment = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -285,5 +257,5 @@ export const deleteComment = catchAsync(async (req: AuthRequest, res: Response, 
 
   await comment.deleteOne();
 
-  res.status(204).json({ status: 'success', data: null });
+  res.status(204).end();
 });

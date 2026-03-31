@@ -6,6 +6,10 @@ import catchAsync from '../utils/catchAsync';
 import APIFeatures from '../utils/apiFeatures';
 import { IProduct } from '../types';
 import { reconcileProductJson, sumVariantStocks } from '../utils/productStock';
+import { getCache, setCache } from '../services/cacheService';
+import { productRepository } from '../repositories/productRepository';
+import { sendPaginated, sendSuccess } from '../utils/response';
+import { safeJsonParse } from '../utils/safeJson';
 
 function jsonProduct(p: { toJSON: () => Record<string, unknown> }) {
   const raw = p.toJSON() as Record<string, unknown> & { variants?: { stock?: number }[] };
@@ -14,7 +18,7 @@ function jsonProduct(p: { toJSON: () => Record<string, unknown> }) {
 
 export const getAllProducts = catchAsync(async (req: Request, res: Response) => {
   const features = new APIFeatures<IProduct>(
-    Product.find({ isActive: true }),
+    Product.find({ isActive: true, category: { $ne: 'Gifting' } }),
     req.query as Record<string, string>
   )
     .filter()
@@ -25,24 +29,13 @@ export const getAllProducts = catchAsync(async (req: Request, res: Response) => 
 
   const [products, totalCount] = await Promise.all([
     features.query,
-    Product.countDocuments({ isActive: true }),
+    Product.countDocuments(features.getMongoFilter()),
   ]);
-
-  const page = parseInt((req.query.page as string) || '1', 10);
-  const limit = parseInt((req.query.limit as string) || '12', 10);
-
-  res.status(200).json({
-    status: 'success',
-    results: products.length,
-    pagination: {
-      currentPage: page,
-      totalPages: Math.ceil(totalCount / limit),
-      totalProducts: totalCount,
-      hasNextPage: page * limit < totalCount,
-      hasPrevPage: page > 1,
-    },
-    data: { products: products.map((p) => jsonProduct(p)) },
-  });
+  sendPaginated(
+    res,
+    { products: products.map((p) => jsonProduct(p)) },
+    { page: features.getPage(), limit: features.getLimit(), total: totalCount }
+  );
 });
 
 /** Public: increment PDP view count (client dedupes per session). */
@@ -57,10 +50,7 @@ export const recordProductView = catchAsync(async (req: Request, res: Response, 
     return next(new AppError('No product found with that slug.', 404));
   }
 
-  res.status(200).json({
-    status: 'success',
-    data: { viewCount: updated.viewCount },
-  });
+  sendSuccess(res, { viewCount: updated.viewCount });
 });
 
 export const getProduct = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
@@ -70,21 +60,22 @@ export const getProduct = catchAsync(async (req: Request, res: Response, next: N
     return next(new AppError('No product found with that slug.', 404));
   }
 
-  res.status(200).json({
-    status: 'success',
-    data: { product: jsonProduct(product) },
-  });
+  sendSuccess(res, { product: jsonProduct(product) });
 });
 
 export const getFeaturedProducts = catchAsync(async (_req: Request, res: Response) => {
-  const products = await Product.find({ isFeatured: true, isActive: true })
-    .sort('-createdAt')
-    .limit(8);
+  const cacheKey = 'cache:products:featured';
+  const cached = await getCache<Record<string, unknown>[]>(cacheKey);
+  if (cached) {
+    sendSuccess(res, { products: cached });
+    return;
+  }
 
-  res.status(200).json({
-    status: 'success',
-    data: { products: products.map((p) => jsonProduct(p)) },
-  });
+  const products = await productRepository.findFeatured();
+  const transformed = products.map((p) => jsonProduct(p));
+  await setCache(cacheKey, transformed, 120);
+
+  sendSuccess(res, { products: transformed });
 });
 
 export const getProductsByCategory = catchAsync(async (req: Request, res: Response) => {
@@ -98,15 +89,13 @@ export const getProductsByCategory = catchAsync(async (req: Request, res: Respon
 
   const [products, totalCount] = await Promise.all([
     features.query,
-    Product.countDocuments({ category: req.params.category, isActive: true }),
+    Product.countDocuments(features.getMongoFilter()),
   ]);
-
-  res.status(200).json({
-    status: 'success',
-    results: products.length,
-    total: totalCount,
-    data: { products: products.map((p) => jsonProduct(p)) },
-  });
+  sendPaginated(
+    res,
+    { products: products.map((p) => jsonProduct(p)) },
+    { page: features.getPage(), limit: features.getLimit(), total: totalCount }
+  );
 });
 
 export const createProduct = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
@@ -122,28 +111,29 @@ export const createProduct = catchAsync(async (req: Request, res: Response, next
     alt: `${req.body.name} - Image ${index + 1}`,
   }));
 
-  const variantsParsed =
-    typeof req.body.variants === 'string' ? JSON.parse(req.body.variants) : req.body.variants;
+  const variantsParsed = safeJsonParse(req.body.variants, req.body.variants, 'variants');
 
   const productData = {
     ...req.body,
     images,
     variants: variantsParsed,
-    tags: typeof req.body.tags === 'string' ? JSON.parse(req.body.tags) : req.body.tags,
+    tags: safeJsonParse(req.body.tags, req.body.tags, 'tags'),
     price: Number(req.body.price),
     comparePrice: req.body.comparePrice ? Number(req.body.comparePrice) : undefined,
     isFeatured: req.body.isFeatured === 'true' || req.body.isFeatured === true,
     isActive: req.body.isActive !== 'false' && req.body.isActive !== false,
+    isGiftable: req.body.isGiftable === 'true' || req.body.isGiftable === true,
+    minOrderQty: req.body.minOrderQty ? Number(req.body.minOrderQty) : 1,
+    giftOccasions: safeJsonParse(req.body.giftOccasions, req.body.giftOccasions || [], 'giftOccasions'),
+    customFields: safeJsonParse(req.body.customFields, req.body.customFields || [], 'customFields'),
+    productDetails: safeJsonParse(req.body.productDetails, req.body.productDetails || [], 'productDetails'),
   };
   delete (productData as Record<string, unknown>).totalStock;
   (productData as Record<string, unknown>).totalStock = sumVariantStocks(variantsParsed);
 
   const product = await Product.create(productData);
 
-  res.status(201).json({
-    status: 'success',
-    data: { product: jsonProduct(product) },
-  });
+  sendSuccess(res, { product: jsonProduct(product) }, 'Product created', 201);
 });
 
 export const updateProduct = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
@@ -170,27 +160,46 @@ export const updateProduct = catchAsync(async (req: Request, res: Response, next
   }
 
   if (req.body.variants && typeof req.body.variants === 'string') {
-    updateData.variants = JSON.parse(req.body.variants);
+    updateData.variants = safeJsonParse(req.body.variants, req.body.variants, 'variants');
+  }
+  if (req.body.tags && typeof req.body.tags === 'string') {
+    updateData.tags = safeJsonParse(req.body.tags, req.body.tags, 'tags');
+  }
+  if (req.body.giftOccasions !== undefined) {
+    updateData.giftOccasions = safeJsonParse(
+      req.body.giftOccasions,
+      req.body.giftOccasions,
+      'giftOccasions'
+    );
+  }
+  if (req.body.customFields !== undefined) {
+    updateData.customFields = safeJsonParse(
+      req.body.customFields,
+      req.body.customFields,
+      'customFields'
+    );
+  }
+  if (req.body.productDetails !== undefined) {
+    updateData.productDetails = safeJsonParse(
+      req.body.productDetails,
+      req.body.productDetails,
+      'productDetails'
+    );
+  }
+  if (req.body.isGiftable !== undefined) {
+    updateData.isGiftable = req.body.isGiftable === 'true' || req.body.isGiftable === true;
+  }
+  if (req.body.minOrderQty !== undefined) {
+    updateData.minOrderQty = Number(req.body.minOrderQty);
   }
 
   delete updateData.totalStock;
-  if (updateData.variants) {
-    updateData.totalStock = sumVariantStocks(updateData.variants as { stock?: number }[]);
-  }
+  
+  // Apply all updates natively to the model via product.set() for Mongoose pre('save') triggers (e.g. slug generation)
+  product.set(updateData);
+  await product.save();
 
-  const updatedProduct = await Product.findByIdAndUpdate(req.params.id, updateData, {
-    new: true,
-    runValidators: true,
-  });
-
-  if (!updatedProduct) {
-    return next(new AppError('No product found with that ID.', 404));
-  }
-
-  res.status(200).json({
-    status: 'success',
-    data: { product: jsonProduct(updatedProduct) },
-  });
+  sendSuccess(res, { product: jsonProduct(product) }, 'Product updated');
 });
 
 export const deleteProduct = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
@@ -202,7 +211,7 @@ export const deleteProduct = catchAsync(async (req: Request, res: Response, next
 
   await Product.findByIdAndDelete(req.params.id);
 
-  res.status(204).json({ status: 'success', data: null });
+  res.status(204).end();
 });
 
 export const deleteProductImage = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
@@ -218,28 +227,22 @@ export const deleteProductImage = catchAsync(async (req: Request, res: Response,
   product.images = product.images.filter((img) => img.publicId !== publicId);
   await product.save();
 
-  res.status(200).json({
-    status: 'success',
-    data: { product: jsonProduct(product) },
-  });
+  sendSuccess(res, { product: jsonProduct(product) });
 });
 
 export const getFilterOptions = catchAsync(async (_req: Request, res: Response) => {
   const [categories, fabrics, priceRange] = await Promise.all([
-    Product.distinct('category', { isActive: true }),
-    Product.distinct('fabric', { isActive: true }),
+    Product.distinct('category', { isActive: true, category: { $ne: 'Gifting' } }),
+    Product.distinct('fabric', { isActive: true, category: { $ne: 'Gifting' } }),
     Product.aggregate([
-      { $match: { isActive: true } },
+      { $match: { isActive: true, category: { $ne: 'Gifting' } } },
       { $group: { _id: null, minPrice: { $min: '$price' }, maxPrice: { $max: '$price' } } },
     ]),
   ]);
 
-  res.status(200).json({
-    status: 'success',
-    data: {
-      categories,
-      fabrics: fabrics.filter(Boolean),
-      priceRange: priceRange[0] || { minPrice: 0, maxPrice: 100000 },
-    },
+  sendSuccess(res, {
+    categories,
+    fabrics: fabrics.filter(Boolean),
+    priceRange: priceRange[0] || { minPrice: 0, maxPrice: 100000 },
   });
 });

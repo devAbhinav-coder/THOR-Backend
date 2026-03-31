@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
-import { redisConnection } from '../config/redis';
+import { redisConnection, redisEnabled } from '../config/redis';
 import {
   signupStart,
   signupVerify,
@@ -31,8 +31,15 @@ import {
   resetPasswordSchema,
   googleAuthSchema,
 } from '../validation/schemas';
+import { createAdaptiveLimiter } from '../middleware/adaptiveRateLimit';
 
 const router = Router();
+const sensitiveAuthLimiter = createAdaptiveLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  prefix: 'rl:adaptive:auth:',
+  message: 'Too many attempts. Please retry later.',
+});
 
 const otpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -40,19 +47,23 @@ const otpLimiter = rateLimit({
   message: { status: 'error', message: 'Too many code requests. Try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
-  store: new RedisStore({
-    prefix: 'rl:otp:',
-    sendCommand: (...args: string[]) =>
-      redisConnection.call(args[0], ...(args.slice(1) as string[])) as Promise<
-        string | number | boolean | (string | number | boolean)[]
-      >,
-  }),
+  ...(redisEnabled
+    ? {
+        store: new RedisStore({
+          prefix: 'rl:otp:',
+          sendCommand: (...args: string[]) =>
+            redisConnection.call(args[0], ...(args.slice(1) as string[])) as Promise<
+              string | number | boolean | (string | number | boolean)[]
+            >,
+        }),
+      }
+    : {}),
 });
 
 router.post('/signup/start', otpLimiter, validate(signupStartSchema), signupStart);
 router.post('/signup/verify', otpLimiter, validate(signupVerifySchema), signupVerify);
-router.post('/login', validate(loginSchema), login);
-router.post('/refresh', refresh);
+router.post('/login', sensitiveAuthLimiter, validate(loginSchema), login);
+router.post('/refresh', sensitiveAuthLimiter, refresh);
 router.post('/forgot-password', otpLimiter, validate(forgotPasswordSchema), forgotPassword);
 router.post('/reset-password', otpLimiter, validate(resetPasswordSchema), resetPassword);
 router.post('/google', validate(googleAuthSchema), googleAuth);
@@ -62,7 +73,7 @@ router.use(protect);
 
 router.get('/me', getMe);
 router.patch('/update-me', uploadAvatar, processAvatar, validate(updateProfileSchema), updateMe);
-router.patch('/update-password', updatePassword);
+router.patch('/update-password', sensitiveAuthLimiter, updatePassword);
 router.delete('/delete-me', deleteMe);
 router.post('/addresses', validate(addAddressSchema), addAddress);
 router.delete('/addresses/:addressId', removeAddress);

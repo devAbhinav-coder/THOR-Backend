@@ -42,6 +42,22 @@ const reviewSchema = new Schema<IReview>(
     ],
     isVerifiedPurchase: { type: Boolean, default: true },
     helpfulVotes: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+    reports: [
+      {
+        user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+        reason: {
+          type: String,
+          enum: ['spam', 'abusive', 'misleading', 'other'],
+          required: true,
+        },
+        details: {
+          type: String,
+          maxlength: [300, 'Report details cannot exceed 300 characters'],
+        },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+    reportCount: { type: Number, default: 0 },
     adminReply: {
       text: { type: String, maxlength: [500, 'Reply cannot exceed 500 characters'] },
       createdAt: { type: Date },

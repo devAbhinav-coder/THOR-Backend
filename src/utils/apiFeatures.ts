@@ -12,6 +12,10 @@ interface QueryString {
 class APIFeatures<T> {
   public query: Query<T[], T>;
   private queryString: QueryString;
+  private filterExpr: Record<string, unknown> = {};
+  private searchExpr: Record<string, unknown> = {};
+  private pageValue = 1;
+  private limitValue = 12;
 
   constructor(query: Query<T[], T>, queryString: QueryString) {
     this.query = query;
@@ -26,7 +30,8 @@ class APIFeatures<T> {
     let queryStr = JSON.stringify(queryObj);
     queryStr = queryStr.replace(/\b(gte|gt|lte|lt)\b/g, (match) => `$${match}`);
 
-    this.query = this.query.find(JSON.parse(queryStr));
+    this.filterExpr = JSON.parse(queryStr) as Record<string, unknown>;
+    this.query = this.query.find(this.filterExpr as Parameters<typeof this.query.find>[0]);
     return this;
   }
 
@@ -34,7 +39,8 @@ class APIFeatures<T> {
     if (this.queryString.search) {
       const searchRegex = new RegExp(this.queryString.search, 'i');
       const searchConditions = fields.map((field) => ({ [field]: searchRegex }));
-      this.query = this.query.find({ $or: searchConditions } as Parameters<typeof this.query.find>[0]);
+      this.searchExpr = { $or: searchConditions };
+      this.query = this.query.find(this.searchExpr as Parameters<typeof this.query.find>[0]);
     }
     return this;
   }
@@ -61,11 +67,28 @@ class APIFeatures<T> {
 
   paginate(): this {
     const page = parseInt(this.queryString.page || '1', 10);
-    const limit = parseInt(this.queryString.limit || '12', 10);
+    const maxLimit = parseInt(process.env.PAGINATION_MAX_LIMIT || '100', 10);
+    const defaultLimit = parseInt(process.env.PAGINATION_DEFAULT_LIMIT || '12', 10);
+    const requestedLimit = parseInt(this.queryString.limit || String(defaultLimit), 10);
+    const limit = Math.min(Math.max(1, requestedLimit), maxLimit);
     const skip = (page - 1) * limit;
+    this.pageValue = page;
+    this.limitValue = limit;
 
     this.query = this.query.skip(skip).limit(limit);
     return this;
+  }
+
+  getPage(): number {
+    return this.pageValue;
+  }
+
+  getLimit(): number {
+    return this.limitValue;
+  }
+
+  getMongoFilter(): Record<string, unknown> {
+    return { ...this.filterExpr, ...this.searchExpr };
   }
 }
 

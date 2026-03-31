@@ -1,5 +1,7 @@
 import User from '../models/User';
 import { Notification } from '../models/Notification';
+import logger from '../utils/logger';
+import { Types } from 'mongoose';
 
 export async function notifyAdmins(title: string, message: string, link?: string, type: 'order' | 'system' | 'alert' = 'system') {
   try {
@@ -16,11 +18,17 @@ export async function notifyAdmins(title: string, message: string, link?: string
 
     await Notification.insertMany(notifications);
   } catch (err) {
-    console.error('Failed to notify admins:', err);
+    logger.error('Failed to notify admins', { err });
   }
 }
 
-export async function notifyUser(userId: string | any, title: string, message: string, link?: string, type: 'order' | 'promotion' | 'alert' = 'order') {
+export async function notifyUser(
+  userId: string | Types.ObjectId,
+  title: string,
+  message: string,
+  link?: string,
+  type: 'order' | 'promotion' | 'alert' = 'order'
+) {
   try {
     await Notification.create({
       user: userId,
@@ -30,6 +38,6 @@ export async function notifyUser(userId: string | any, title: string, message: s
       type,
     });
   } catch (err) {
-    console.error(`Failed to notify user ${userId}:`, err);
+    logger.error('Failed to notify user', { userId: String(userId), err });
   }
 }

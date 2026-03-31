@@ -1,4 +1,4 @@
-import mongoose, { Schema } from 'mongoose';
+import { Schema, model } from 'mongoose';
 import { IOrder } from '../types';
 
 const orderItemSchema = new Schema({
@@ -12,6 +12,12 @@ const orderItemSchema = new Schema({
   },
   quantity: { type: Number, required: true, min: 1 },
   price: { type: Number, required: true },
+  customFieldAnswers: [
+    {
+      label: { type: String, required: true },
+      value: { type: String, required: true },
+    },
+  ],
 });
 
 const addressSchema = new Schema({
@@ -75,6 +81,15 @@ const orderSchema = new Schema<IOrder>(
     trackingUrl: { type: String, trim: true },
     shippedAt: Date,
     deliveredAt: Date,
+    productType: {
+      type: String,
+      enum: ['standard', 'custom'],
+      default: 'standard',
+    },
+    customRequestId: {
+      type: Schema.Types.ObjectId,
+      ref: 'GiftingRequest',
+    },
   },
   {
     timestamps: true,
@@ -97,8 +112,9 @@ const orderSchema = new Schema<IOrder>(
 
 orderSchema.pre<IOrder>('save', async function (next) {
   if (this.isNew) {
-    const count = await mongoose.model('Order').countDocuments();
-    this.orderNumber = `HOR${String(count + 1).padStart(6, '0')}`;
+    const tsPart = Date.now().toString(36).toUpperCase();
+    const randPart = Math.random().toString(36).slice(2, 6).toUpperCase();
+    this.orderNumber = `HOR-${tsPart}-${randPart}`;
     this.statusHistory = [{ status: this.status, timestamp: new Date() }];
   }
   next();
@@ -109,5 +125,5 @@ orderSchema.index({ status: 1 });
 orderSchema.index({ razorpayOrderId: 1 });
 // orderNumber index is already created by unique:true on the field
 
-const Order = mongoose.model<IOrder>('Order', orderSchema);
+const Order = model<IOrder>('Order', orderSchema);
 export default Order;

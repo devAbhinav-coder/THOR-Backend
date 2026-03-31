@@ -9,6 +9,10 @@ export interface ICategory extends Document {
   subcategories: string[];
   isActive: boolean;
   productCount: number;
+  // Gifting
+  isGiftCategory: boolean;
+  giftType?: 'corporate' | 'wedding' | 'seasonal' | 'festive' | 'personal';
+  minOrderQty: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -32,6 +36,9 @@ const categorySchema = new Schema<ICategory>(
     subcategories: [{ type: String, trim: true }],
     isActive: { type: Boolean, default: true },
     productCount: { type: Number, default: 0 },
+    isGiftCategory: { type: Boolean, default: false },
+    giftType: { type: String, enum: ['corporate', 'wedding', 'seasonal', 'festive', 'personal'] },
+    minOrderQty: { type: Number, default: 1, min: 1 },
   },
   { timestamps: true }
 );

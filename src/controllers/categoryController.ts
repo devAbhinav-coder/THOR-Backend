@@ -3,14 +3,16 @@ import Category from '../models/Category';
 import Product from '../models/Product';
 import catchAsync from '../utils/catchAsync';
 import AppError from '../utils/AppError';
+import { sendSuccess } from '../utils/response';
+import { categoryRepository } from '../repositories/categoryRepository';
 
 // GET /api/categories — public
 export const getAllCategories = catchAsync(async (req: Request, res: Response) => {
-  const filter: any = {};
+  const filter: Record<string, unknown> = {};
   if (req.query.active !== 'false') filter.isActive = true;
 
-  const categories = await Category.find(filter).sort({ name: 1 });
-  res.status(200).json({ status: 'success', results: categories.length, data: { categories } });
+  const categories = await categoryRepository.list(filter);
+  sendSuccess(res, { categories });
 });
 
 // GET /api/categories/stats — public — returns categories with real product counts
@@ -33,14 +35,14 @@ export const getCategoryStats = catchAsync(async (_req: Request, res: Response) 
     productCount: countMap.get(cat.name) || 0,
   }));
 
-  res.status(200).json({ status: 'success', results: result.length, data: { categories: result } });
+  sendSuccess(res, { categories: result });
 });
 
 // GET /api/categories/:id — public
 export const getCategory = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
   const cat = await Category.findById(req.params.id);
   if (!cat) return next(new AppError('Category not found', 404));
-  res.status(200).json({ status: 'success', data: { category: cat } });
+  sendSuccess(res, { category: cat });
 });
 
 function parseSubcategories(raw: unknown): string[] {
@@ -59,27 +61,45 @@ function parseSubcategories(raw: unknown): string[] {
 
 // POST /api/admin/categories — admin only
 export const createCategory = catchAsync(async (req: Request, res: Response) => {
-  const { name, description, subcategories, isActive } = req.body;
+  const { name, description, subcategories, isActive, isGiftCategory, giftType, minOrderQty } = req.body;
 
-  const image = (req as any).uploadedImage || undefined;
+  const image = (req as Request & { uploadedImage?: string }).uploadedImage || undefined;
 
   const category = await Category.create({
     name,
     description,
     subcategories: parseSubcategories(subcategories),
-    isActive,
+    isActive: isActive === undefined ? true : String(isActive) === 'true',
+    isGiftCategory: String(isGiftCategory) === 'true',
+    giftType: giftType || undefined,
+    minOrderQty: minOrderQty ? Number(minOrderQty) : 1,
     image,
   });
-  res.status(201).json({ status: 'success', data: { category } });
+  sendSuccess(res, { category }, 'Category created', 201);
 });
 
 // PATCH /api/admin/categories/:id — admin only
 export const updateCategory = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
-  const update: any = { ...req.body };
+  const update: Record<string, unknown> = { ...req.body };
   if (update.subcategories !== undefined) {
     update.subcategories = parseSubcategories(update.subcategories);
   }
-  if ((req as any).uploadedImage) update.image = (req as any).uploadedImage;
+  if (update.isActive !== undefined) {
+    update.isActive = String(update.isActive) === 'true';
+  }
+  if (update.isGiftCategory !== undefined) {
+    update.isGiftCategory = String(update.isGiftCategory) === 'true';
+  }
+  if (update.minOrderQty !== undefined) {
+    const qty = Number(update.minOrderQty);
+    update.minOrderQty = Number.isFinite(qty) && qty > 0 ? qty : 1;
+  }
+  if (update.giftType === '') {
+    update.giftType = undefined;
+  }
+  if ((req as Request & { uploadedImage?: string }).uploadedImage) {
+    update.image = (req as Request & { uploadedImage?: string }).uploadedImage;
+  }
 
   const category = await Category.findByIdAndUpdate(req.params.id, update, {
     new: true,
@@ -87,7 +107,7 @@ export const updateCategory = catchAsync(async (req: Request, res: Response, nex
   });
 
   if (!category) return next(new AppError('Category not found', 404));
-  res.status(200).json({ status: 'success', data: { category } });
+  sendSuccess(res, { category }, 'Category updated');
 });
 
 // DELETE /api/admin/categories/:id — admin only
@@ -107,5 +127,5 @@ export const deleteCategory = catchAsync(async (req: Request, res: Response, nex
   }
 
   await category.deleteOne();
-  res.status(204).json({ status: 'success', data: null });
+  res.status(204).end();
 });

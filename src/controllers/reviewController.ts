@@ -4,6 +4,30 @@ import Order from '../models/Order';
 import AppError from '../utils/AppError';
 import catchAsync from '../utils/catchAsync';
 import { AuthRequest } from '../types';
+import { sendPaginated, sendSuccess } from '../utils/response';
+
+const maskName = (name: string): string => {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'Verified Buyer';
+  return parts
+    .map((part) => (part.length <= 1 ? `${part}*` : `${part[0]}${'*'.repeat(Math.min(part.length - 1, 4))}`))
+    .join(' ');
+};
+
+const sanitizeReviewForPublic = (review: {
+  toObject: () => Record<string, unknown>;
+}): Record<string, unknown> => {
+  const raw = review.toObject();
+  const user = raw.user as { name?: string; avatar?: string } | undefined;
+  return {
+    ...raw,
+    user: {
+      ...(user || {}),
+      name: maskName(user?.name || ''),
+      badge: 'Verified Buyer',
+    },
+  };
+};
 
 export const getFeaturedReviews = catchAsync(async (_req: AuthRequest, res: Response) => {
   const reviews = await Review.find({ rating: { $gte: 3 } })
@@ -12,11 +36,7 @@ export const getFeaturedReviews = catchAsync(async (_req: AuthRequest, res: Resp
     .populate('user', 'name avatar')
     .populate('product', 'name slug');
 
-  res.status(200).json({
-    status: 'success',
-    results: reviews.length,
-    data: { reviews },
-  });
+  sendSuccess(res, { reviews: reviews.map(sanitizeReviewForPublic), results: reviews.length });
 });
 
 export const getProductReviews = catchAsync(async (req: AuthRequest, res: Response) => {
@@ -39,12 +59,11 @@ export const getProductReviews = catchAsync(async (req: AuthRequest, res: Respon
     { $sort: { _id: -1 } },
   ]);
 
-  res.status(200).json({
-    status: 'success',
-    pagination: { currentPage: page, totalPages: Math.ceil(total / limit), total },
-    ratingDistribution,
-    data: { reviews },
-  });
+  sendPaginated(
+    res,
+    { reviews: reviews.map(sanitizeReviewForPublic), ratingDistribution },
+    { page, limit, total }
+  );
 });
 
 export const createReview = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -94,7 +113,7 @@ export const createReview = catchAsync(async (req: AuthRequest, res: Response, n
   const review = await Review.create(reviewData);
   await review.populate('user', 'name avatar');
 
-  res.status(201).json({ status: 'success', data: { review } });
+  sendSuccess(res, { review }, 'Review created', 201);
 });
 
 export const updateReview = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -108,7 +127,7 @@ export const updateReview = catchAsync(async (req: AuthRequest, res: Response, n
 
   await review.save();
 
-  res.status(200).json({ status: 'success', data: { review } });
+  sendSuccess(res, { review });
 });
 
 export const deleteReview = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -119,7 +138,7 @@ export const deleteReview = catchAsync(async (req: AuthRequest, res: Response, n
 
   if (!review) return next(new AppError('Review not found.', 404));
 
-  res.status(204).json({ status: 'success', data: null });
+  res.status(204).end();
 });
 
 export const canReviewProduct = catchAsync(async (req: AuthRequest, res: Response) => {
@@ -128,14 +147,11 @@ export const canReviewProduct = catchAsync(async (req: AuthRequest, res: Respons
     Order.findOne({ user: req.user!._id, status: 'delivered', 'items.product': productId }),
     Review.findOne({ product: productId, user: req.user!._id }),
   ]);
-  res.status(200).json({
-    status: 'success',
-    data: {
-      canReview: !!order && !existingReview,
-      hasPurchased: !!order,
-      hasReviewed: !!existingReview,
-      orderId: order?._id || null,
-    },
+  sendSuccess(res, {
+    canReview: !!order && !existingReview,
+    hasPurchased: !!order,
+    hasReviewed: !!existingReview,
+    orderId: order?._id || null,
   });
 });
 
@@ -154,8 +170,41 @@ export const voteHelpful = catchAsync(async (req: AuthRequest, res: Response, ne
 
   await review.save();
 
-  res.status(200).json({
-    status: 'success',
-    data: { helpfulCount: review.helpfulVotes.length, voted: !alreadyVoted },
-  });
+  sendSuccess(res, { helpfulCount: review.helpfulVotes.length, voted: !alreadyVoted });
+});
+
+export const reportReview = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const review = await Review.findById(req.params.id);
+  if (!review) return next(new AppError('Review not found.', 404));
+
+  const userId = String(req.user!._id);
+  const reason = String(req.body.reason || '').trim().toLowerCase();
+  const details = typeof req.body.details === 'string' ? req.body.details.trim() : '';
+
+  const allowedReasons = new Set(['spam', 'abusive', 'misleading', 'other']);
+  if (!allowedReasons.has(reason)) {
+    return next(new AppError('Please provide a valid report reason.', 400));
+  }
+  if (details.length > 300) {
+    return next(new AppError('Report details cannot exceed 300 characters.', 400));
+  }
+
+  const hasAlreadyReported = (review.reports || []).some((r) => String(r.user) === userId);
+  if (hasAlreadyReported) {
+    return next(new AppError('You have already reported this review.', 409));
+  }
+
+  review.reports = [
+    ...(review.reports || []),
+    {
+      user: req.user!._id,
+      reason: reason as 'spam' | 'abusive' | 'misleading' | 'other',
+      details: details || undefined,
+      createdAt: new Date(),
+    },
+  ];
+  review.reportCount = review.reports.length;
+  await review.save();
+
+  sendSuccess(res, { reportCount: review.reportCount }, 'Review reported successfully');
 });

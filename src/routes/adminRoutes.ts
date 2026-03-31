@@ -30,8 +30,15 @@ import {
   uploadStorefrontAssets,
   processStorefrontAssets,
 } from '../middleware/upload';
+import { createAdaptiveLimiter } from '../middleware/adaptiveRateLimit';
 
 const router = Router();
+const adminSensitiveLimiter = createAdaptiveLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 60,
+  prefix: 'rl:adaptive:admin:',
+  message: 'Too many admin-sensitive actions. Please retry shortly.',
+});
 
 router.use(protect, restrictTo('admin'));
 
@@ -47,7 +54,7 @@ router.patch('/users/:id/toggle-status', toggleUserStatus);
 router.get('/reviews', getAllReviews);
 router.delete('/reviews/:id', deleteReview);
 router.patch('/reviews/:id/reply', replyToReview);
-router.post('/emails/send', validate(sendMarketingEmailSchema), sendCustomMarketingEmail);
+router.post('/emails/send', adminSensitiveLimiter, validate(sendMarketingEmailSchema), sendCustomMarketingEmail);
 
 router.get('/storefront/settings', getAdminStorefrontSettings);
 router.patch('/storefront/settings', uploadStorefrontAssets, processStorefrontAssets, updateStorefrontSettings);

@@ -24,6 +24,7 @@ export async function decrementVariantStock(
       $inc: {
         totalStock: -quantity,
         'variants.$[v].stock': -quantity,
+        soldCount: quantity,
       },
     },
     {
@@ -51,6 +52,7 @@ export async function incrementVariantStock(
       $inc: {
         totalStock: quantity,
         'variants.$[v].stock': quantity,
+        soldCount: -quantity,
       },
     },
     {

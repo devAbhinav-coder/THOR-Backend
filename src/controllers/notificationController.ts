@@ -3,6 +3,7 @@ import { Notification } from '../models/Notification';
 import catchAsync from '../utils/catchAsync';
 import AppError from '../utils/AppError';
 import { AuthRequest } from '../types';
+import { sendPaginated, sendSuccess } from '../utils/response';
 
 export const getMyNotifications = catchAsync(async (req: AuthRequest, res: Response) => {
   const page = parseInt(req.query.page as string) || 1;
@@ -10,7 +11,7 @@ export const getMyNotifications = catchAsync(async (req: AuthRequest, res: Respo
   const skip = (page - 1) * limit;
 
   // Filter by query parameters if needed
-  const filter: any = { user: req.user!._id };
+  const filter: Record<string, unknown> = { user: req.user!._id };
   if (req.query.isRead !== undefined) {
     filter.isRead = req.query.isRead === 'true';
   }
@@ -21,18 +22,7 @@ export const getMyNotifications = catchAsync(async (req: AuthRequest, res: Respo
     Notification.countDocuments({ user: req.user!._id, isRead: false }),
   ]);
 
-  res.status(200).json({
-    status: 'success',
-    data: {
-      notifications,
-      unreadCount,
-    },
-    pagination: {
-      total,
-      page,
-      pages: Math.ceil(total / limit),
-    },
-  });
+  sendPaginated(res, { notifications, unreadCount }, { page, limit, total });
 });
 
 export const markAsRead = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -46,28 +36,17 @@ export const markAsRead = catchAsync(async (req: AuthRequest, res: Response, nex
     return next(new AppError('Notification not found', 404));
   }
 
-  res.status(200).json({
-    status: 'success',
-    data: {
-      notification,
-    },
-  });
+  sendSuccess(res, { notification });
 });
 
 export const markAllAsRead = catchAsync(async (req: AuthRequest, res: Response) => {
   await Notification.updateMany({ user: req.user!._id, isRead: false }, { isRead: true });
 
-  res.status(200).json({
-    status: 'success',
-    message: 'All notifications marked as read',
-  });
+  sendSuccess(res, {}, 'All notifications marked as read');
 });
 
 export const clearAll = catchAsync(async (req: AuthRequest, res: Response) => {
   await Notification.deleteMany({ user: req.user!._id });
 
-  res.status(204).json({
-    status: 'success',
-    data: null,
-  });
+  res.status(204).end();
 });

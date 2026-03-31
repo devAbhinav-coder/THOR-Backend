@@ -32,6 +32,12 @@ export const uploadReviewImages = multer({
   limits: { fileSize: 3 * 1024 * 1024, files: 3 },
 }).array('images', 3);
 
+export const uploadGiftingImages = multer({
+  storage: memoryStorage,
+  fileFilter: imageFileFilter,
+  limits: { fileSize: 5 * 1024 * 1024, files: 5 },
+}).array('images', 5);
+
 export const uploadStorefrontAssets = multer({
   storage: memoryStorage,
   fileFilter: imageFileFilter,
@@ -129,7 +135,7 @@ export const processCategoryImage = async (
       { width: 800, crop: 'limit' },
     ]);
 
-    (req as any).uploadedImage = result.secure_url;
+    (req as Request & { uploadedImage?: string }).uploadedImage = result.secure_url;
     next();
   } catch (err) {
     next(new AppError('Category image upload failed.', 500));
@@ -162,6 +168,32 @@ export const processReviewImages = async (
   }
 };
 
+export const processGiftingImages = async (
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const files = req.files as Express.Multer.File[] | undefined;
+    if (!files || files.length === 0) return next();
+
+    const uploadPromises = files.map((file) =>
+      uploadToCloudinary(file.buffer, 'house-of-rani/gifting-requests', [
+        { width: 1000, height: 1000, crop: 'limit' },
+      ])
+    );
+
+    const results = await Promise.all(uploadPromises);
+
+    (req as Request & { uploadedImages: { url: string; publicId: string }[] }).uploadedImages =
+      results.map((r) => ({ url: r.secure_url, publicId: r.public_id }));
+
+    next();
+  } catch (err) {
+    next(new AppError('Gifting reference image upload failed.', 500));
+  }
+};
+
 export const processStorefrontAssets = async (
   req: Request,
   _res: Response,
@@ -176,7 +208,9 @@ export const processStorefrontAssets = async (
       promo?: { url: string; publicId: string };
       blogMain?: { url: string; publicId: string };
       blogSide?: { url: string; publicId: string };
-    } = { hero: {} };
+      giftingHero: Record<string, { url: string; publicId: string }>;
+      giftingSecondary: Record<string, { url: string; publicId: string }>;
+    } = { hero: {}, giftingHero: {}, giftingSecondary: {} };
 
     for (const file of files) {
       if (file.fieldname.startsWith('heroImage_')) {
@@ -200,6 +234,18 @@ export const processStorefrontAssets = async (
           { width: 800, crop: 'limit' },
         ]);
         uploaded.blogSide = { url: result.secure_url, publicId: result.public_id };
+      } else if (file.fieldname.startsWith('giftingHeroImage_')) {
+        const index = file.fieldname.replace('giftingHeroImage_', '');
+        const result = await uploadToCloudinary(file.buffer, 'house-of-rani/storefront/gifting-hero', [
+          { width: 1600, height: 900, crop: 'limit' },
+        ]);
+        uploaded.giftingHero[index] = { url: result.secure_url, publicId: result.public_id };
+      } else if (file.fieldname.startsWith('giftingSecondaryImage_')) {
+        const index = file.fieldname.replace('giftingSecondaryImage_', '');
+        const result = await uploadToCloudinary(file.buffer, 'house-of-rani/storefront/gifting-secondary', [
+          { width: 1600, crop: 'limit' },
+        ]);
+        uploaded.giftingSecondary[index] = { url: result.secure_url, publicId: result.public_id };
       }
     }
 

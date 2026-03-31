@@ -200,6 +200,94 @@ export const emailTemplates = {
     subject,
     html: shell(subject, html, ctaText, ctaLink),
   }),
+  customGiftQuote: (name: string, occasion: string, price: number, deliveryTime: string, adminNote?: string, requestId?: string) => ({
+    subject: `Quote ready for your custom gift: ${occasion}`,
+    html: shell(
+      'Custom gift quote',
+      `Hi ${name},<br/><br/>Your custom gift request for "${occasion}" has been reviewed by our team.<br/><br/>
+       Price: <b>₹${price.toFixed(2)}</b><br/>
+       Estimated Delivery: <b>${deliveryTime}</b><br/>
+       ${adminNote ? `Note from admin: ${adminNote}<br/>` : ''}<br/>
+       Please review the quote and choose to accept or reject it to proceed.`,
+      'Review Quote',
+      `${frontendUrl}/dashboard/gifting/${requestId}`
+    ),
+  }),
+  adminNewGiftingRequest: (
+    requesterName: string,
+    requesterEmail: string,
+    requesterPhone: string | undefined,
+    occasion: string,
+    itemCount: number,
+    proposedPrice: number | undefined,
+    requestId: string,
+  ) => ({
+    subject: `New Custom Gift Request — ${occasion}`,
+    html: shell(
+      'New Custom Gift Request',
+      `A new customization request has come in and requires your attention.<br/><br/>
+       <b>From:</b> ${requesterName} (${requesterEmail})${requesterPhone ? `<br/><b>Phone:</b> ${requesterPhone}` : ''}<br/>
+       <b>Occasion:</b> ${occasion}<br/>
+       <b>Items:</b> ${itemCount}<br/>
+       ${proposedPrice ? `<b>Proposed Budget:</b> ₹${proposedPrice.toFixed(2)}<br/>` : ''}
+       <br/>Please review and send a quote as soon as possible.`,
+      'Review Request',
+      `${frontendUrl}/admin/gifting`,
+    ),
+  }),
+  customGiftOrderCreated: (
+    userName: string,
+    occasion: string,
+    orderNumber: string,
+    quotedPrice: number,
+    orderId: string,
+  ) => ({
+    subject: `Your Custom Gift Order is Created — ${orderNumber}`,
+    html: shell(
+      'Order Created 🎁',
+      `Hi ${userName},<br/><br/>
+       Your custom gift order has been created! We're excited to create something special for you.<br/><br/>
+       <b>Occasion:</b> ${occasion}<br/>
+       <b>Order Number:</b> ${orderNumber}<br/>
+       <b>Order Total:</b> <b>₹${quotedPrice.toFixed(2)}</b><br/><br/>
+       Our team will reach out to you shortly to arrange payment and discuss production details.
+       You can track your order status anytime from your dashboard.`,
+      'View My Order',
+      `${frontendUrl}/dashboard/orders/${orderId}`,
+    ),
+  }),
+  adminCustomGiftAccepted: (
+    requesterName: string,
+    occasion: string,
+    orderNumber: string,
+    quotedPrice: number,
+    orderId: string,
+  ) => ({
+    subject: `Custom Gift Accepted — Order ${orderNumber}`,
+    html: shell(
+      'Customer Accepted the Quote ✅',
+      `<b>${requesterName}</b> has accepted the quote for their <b>${occasion}</b> custom gift request.<br/><br/>
+       Order Number: <b>${orderNumber}</b><br/>
+       Quoted Price: <b>₹${quotedPrice.toFixed(2)}</b><br/><br/>
+       Please contact the customer to arrange payment and begin production.`,
+      'View Order',
+      `${frontendUrl}/admin/orders/${orderId}`,
+    ),
+  }),
+  adminCustomGiftRejected: (
+    requesterName: string,
+    occasion: string,
+    requestId: string,
+  ) => ({
+    subject: `Custom Gift Rejected — ${occasion}`,
+    html: shell(
+      'Customer Rejected the Quote ❌',
+      `<b>${requesterName}</b> has rejected the quote for their <b>${occasion}</b> custom gift request.<br/><br/>
+       The request has been closed. You may wish to follow up with the customer directly if needed.`,
+      'View Request',
+      `${frontendUrl}/admin/gifting`,
+    ),
+  }),
   otpSignup: (name: string, code: string) => ({
     subject: "Your verification code",
     html: shell(

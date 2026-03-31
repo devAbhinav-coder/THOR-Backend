@@ -1,26 +1,47 @@
 import mongoose from 'mongoose';
 import logger from '../utils/logger';
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const connectDB = async (): Promise<void> => {
-  try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI as string, {
-      maxPoolSize: parseInt(process.env.MONGODB_MAX_POOL || '25', 10),
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-    });
+  const mongoUri = process.env.MONGODB_URI;
+  if (!mongoUri?.trim()) {
+    throw new Error('MONGODB_URI is missing. Please set it in environment variables.');
+  }
 
-    logger.info(`MongoDB Connected: ${conn.connection.host}`);
+  const maxRetries = parseInt(process.env.MONGODB_CONNECT_RETRIES || '10', 10);
+  const retryDelayMs = parseInt(process.env.MONGODB_RETRY_DELAY_MS || '5000', 10);
+  const serverSelectionTimeoutMS = parseInt(process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS || '12000', 10);
 
-    mongoose.connection.on('error', (err) => {
-      logger.error(`MongoDB connection error: ${err}`);
-    });
+  let attempt = 0;
+  while (attempt < maxRetries) {
+    attempt += 1;
+    try {
+      const conn = await mongoose.connect(mongoUri, {
+        maxPoolSize: parseInt(process.env.MONGODB_MAX_POOL || '25', 10),
+        serverSelectionTimeoutMS,
+        socketTimeoutMS: 45000,
+      });
 
-    mongoose.connection.on('disconnected', () => {
-      logger.warn('MongoDB disconnected. Attempting to reconnect...');
-    });
-  } catch (error) {
-    logger.error(`MongoDB connection failed: ${error}`);
-    process.exit(1);
+      logger.info(`MongoDB Connected: ${conn.connection.host}`);
+
+      mongoose.connection.on('error', (err) => {
+        logger.error(`MongoDB connection error: ${err}`);
+      });
+
+      mongoose.connection.on('disconnected', () => {
+        logger.warn('MongoDB disconnected. Mongoose will retry automatically.');
+      });
+      return;
+    } catch (error) {
+      logger.error(
+        `MongoDB connection failed (attempt ${attempt}/${maxRetries}): ${(error as Error).message}`
+      );
+      if (attempt >= maxRetries) {
+        process.exit(1);
+      }
+      await sleep(retryDelayMs);
+    }
   }
 };
 

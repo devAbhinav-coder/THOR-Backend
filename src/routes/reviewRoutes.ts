@@ -6,6 +6,7 @@ import {
   updateReview,
   deleteReview,
   voteHelpful,
+  reportReview,
   canReviewProduct,
 } from '../controllers/reviewController';
 import { protect } from '../middleware/auth';
@@ -26,5 +27,6 @@ router.post('/product/:productId', uploadReviewImages, processReviewImages, vali
 router.patch('/:id', updateReview);
 router.delete('/:id', deleteReview);
 router.patch('/:id/helpful', voteHelpful);
+router.patch('/:id/report', reportReview);
 
 export default router;

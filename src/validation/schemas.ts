@@ -124,6 +124,19 @@ const variantSchema = z.object({
   price: z.coerce.number().positive().optional(),
 });
 
+const productDetailSchema = z.object({
+  key: z.string().min(1).max(120),
+  value: z.string().min(1).max(500),
+});
+
+const productCustomFieldSchema = z.object({
+  label: z.string().min(1).max(120),
+  placeholder: z.string().max(200).optional(),
+  fieldType: z.enum(['text', 'textarea', 'select', 'image']),
+  options: z.array(z.string().max(120)).optional(),
+  isRequired: z.boolean().optional(),
+});
+
 export const createProductSchema = z.object({
   body: z.object({
     name: z.string().min(3, 'Name must be at least 3 characters').max(200),
@@ -153,6 +166,8 @@ export const createProductSchema = z.object({
     isActive: optionalBooleanFromString,
     seoTitle: z.string().optional(),
     seoDescription: z.string().optional(),
+    customFields: jsonStringToArray(productCustomFieldSchema).optional(),
+    productDetails: jsonStringToArray(productDetailSchema).optional(),
   }),
 });
 
@@ -179,6 +194,8 @@ export const updateProductSchema = z.object({
     isActive: optionalBooleanFromString,
     seoTitle: z.string().optional(),
     seoDescription: z.string().optional(),
+    customFields: jsonStringToArray(productCustomFieldSchema).optional(),
+    productDetails: jsonStringToArray(productDetailSchema).optional(),
   }),
 });
 
@@ -194,6 +211,14 @@ export const addToCartSchema = z.object({
       sku: z.string().min(1),
     }),
     quantity: z.coerce.number().int().min(1).max(10),
+    customFieldAnswers: z
+      .array(
+        z.object({
+          label: z.string().min(1).max(120),
+          value: z.string().min(1).max(500),
+        })
+      )
+      .optional(),
   }),
 });
 
@@ -327,5 +352,70 @@ export const createCategorySchema = z.object({
     description: z.string().optional(),
     subcategories: jsonStringToArray(z.string()).optional(),
     isActive: optionalBooleanFromString,
+  }),
+});
+
+// ─── Gifting ──────────────────────────────────────────────────────────────────
+
+const giftingItemSchema = z.object({
+  product: z.string().regex(/^[a-fA-F0-9]{24}$/, 'Invalid product id'),
+  name: z.string().min(1).max(200),
+  quantity: z.coerce.number().int().min(1).max(10000),
+  customFieldAnswers: z
+    .array(
+      z.object({
+        fieldId: z.string().min(1),
+        label: z.string().min(1).max(120),
+        value: z.string().min(1).max(500),
+      })
+    )
+    .optional(),
+});
+
+export const submitGiftingRequestSchema = z.object({
+  body: z.object({
+    name: z.string().min(2).max(80),
+    email: z.string().email(),
+    phone: z.string().trim().max(20).optional(),
+    occasion: z.string().min(2).max(120),
+    items: jsonStringToArray(giftingItemSchema).refine((arr) => arr.length > 0, 'At least one item is required'),
+    recipientMessage: z.string().max(500).optional(),
+    customizationNote: z.string().max(1000).optional(),
+    packagingPreference: z.enum(['standard', 'premium', 'custom']).optional(),
+    customPackagingNote: z.string().max(500).optional(),
+    proposedPrice: z.coerce.number().positive().optional(),
+  }),
+});
+
+export const giftingAdminUpdateSchema = z.object({
+  body: z.object({
+    status: z.enum(['new', 'price_quoted', 'approved_by_user', 'rejected_by_user', 'cancelled']).optional(),
+    adminNote: z.string().max(1000).optional(),
+    quotedPrice: z.coerce.number().positive().optional(),
+    deliveryTime: z.string().max(120).optional(),
+  }),
+  params: z.object({
+    id: z.string().regex(/^[a-fA-F0-9]{24}$/),
+  }),
+});
+
+export const giftingRespondSchema = z.object({
+  body: z.object({
+    action: z.enum(['accept', 'reject']),
+    shippingAddress: z
+      .object({
+        name: z.string().min(2).max(80),
+        phone: z.string().trim().max(20).optional(),
+        label: z.string().max(40).optional(),
+        street: z.string().min(5).max(250),
+        city: z.string().min(2).max(80),
+        state: z.string().min(2).max(80),
+        pincode: z.string().regex(/^\d{6}$/),
+        country: z.string().max(60).optional(),
+      })
+      .optional(),
+  }),
+  params: z.object({
+    id: z.string().regex(/^[a-fA-F0-9]{24}$/),
   }),
 });

@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AsyncFunction = (req: any, res: Response, next: NextFunction) => Promise<any>;
+type AsyncFunction = (req: Request, res: Response, next: NextFunction) => Promise<unknown>;
 
 const catchAsync = (fn: AsyncFunction) => {
   return (req: Request, res: Response, next: NextFunction): void => {

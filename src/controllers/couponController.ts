@@ -1,12 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
 import Coupon from '../models/Coupon';
 import Order from '../models/Order';
-import User from '../models/User';
 import AppError from '../utils/AppError';
 import catchAsync from '../utils/catchAsync';
 import { AuthRequest } from '../types';
 import { emailTemplates } from '../services/emailService';
-import { enqueueEmail } from '../queues/emailQueue';
+import { sendSuccess } from '../utils/response';
+import { enqueueBroadcastByUserFilter } from '../services/broadcastService';
 
 export const createCoupon = catchAsync(async (_req: Request, res: Response) => {
   const req = _req as AuthRequest;
@@ -15,30 +15,25 @@ export const createCoupon = catchAsync(async (_req: Request, res: Response) => {
     code: req.body.code.toUpperCase(),
   });
 
-  const users = await User.find({ role: 'user', isActive: true }).select('email');
   const tpl = emailTemplates.couponAnnouncement(coupon.code, coupon.description);
-  await Promise.all(
-    users.map((u) =>
-      enqueueEmail({
-        to: u.email,
-        subject: tpl.subject,
-        html: tpl.html,
-      })
-    )
+  await enqueueBroadcastByUserFilter(
+    { role: 'user', isActive: true },
+    () => ({ subject: tpl.subject, html: tpl.html, jobIdPrefix: `coupon:${String(coupon._id)}` }),
+    400
   );
 
-  res.status(201).json({ status: 'success', data: { coupon } });
+  sendSuccess(res, { coupon }, 'Coupon created', 201);
 });
 
 export const getAllCoupons = catchAsync(async (_req: Request, res: Response) => {
   const coupons = await Coupon.find().sort('-createdAt');
-  res.status(200).json({ status: 'success', data: { coupons } });
+  sendSuccess(res, { coupons });
 });
 
 export const getCoupon = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
   const coupon = await Coupon.findById(req.params.id);
   if (!coupon) return next(new AppError('Coupon not found.', 404));
-  res.status(200).json({ status: 'success', data: { coupon } });
+  sendSuccess(res, { coupon });
 });
 
 export const updateCoupon = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
@@ -47,13 +42,13 @@ export const updateCoupon = catchAsync(async (req: Request, res: Response, next:
     runValidators: true,
   });
   if (!coupon) return next(new AppError('Coupon not found.', 404));
-  res.status(200).json({ status: 'success', data: { coupon } });
+  sendSuccess(res, { coupon }, 'Coupon updated');
 });
 
 export const deleteCoupon = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
   const coupon = await Coupon.findByIdAndDelete(req.params.id);
   if (!coupon) return next(new AppError('Coupon not found.', 404));
-  res.status(204).json({ status: 'success', data: null });
+  res.status(204).end();
 });
 
 export const validateCoupon = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -78,18 +73,15 @@ export const validateCoupon = catchAsync(async (req: AuthRequest, res: Response,
 
   const discount = (coupon as typeof coupon & { calculateDiscount: (amount: number) => number }).calculateDiscount(orderAmount);
 
-  res.status(200).json({
-    status: 'success',
-    data: {
-      coupon: {
-        code: coupon.code,
-        discountType: coupon.discountType,
-        discountValue: coupon.discountValue,
-        description: coupon.description,
-      },
-      discount,
-      finalAmount: orderAmount - discount,
+  sendSuccess(res, {
+    coupon: {
+      code: coupon.code,
+      discountType: coupon.discountType,
+      discountValue: coupon.discountValue,
+      description: coupon.description,
     },
+    discount,
+    finalAmount: orderAmount - discount,
   });
 });
 
@@ -118,8 +110,5 @@ export const getEligibleCoupons = catchAsync(async (req: AuthRequest, res: Respo
     else ineligible.push({ code: coupon.code, reason: validity.message || 'Not eligible' });
   }
 
-  res.status(200).json({
-    status: 'success',
-    data: { coupons: eligible, ineligible, completedOrders },
-  });
+  sendSuccess(res, { coupons: eligible, ineligible, completedOrders });
 });

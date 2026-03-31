@@ -23,6 +23,12 @@ const cartItemSchema = new Schema({
     type: Number,
     required: true,
   },
+  customFieldAnswers: [
+    {
+      label: { type: String, required: true },
+      value: { type: String, required: true },
+    },
+  ],
 });
 
 const cartSchema = new Schema<ICart>(
