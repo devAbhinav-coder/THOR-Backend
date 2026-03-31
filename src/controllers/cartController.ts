@@ -44,10 +44,10 @@ export const addToCart = catchAsync(async (req: AuthRequest, res: Response, next
      return next(new AppError('Product not found or unavailable.', 404));
    }
  
-   // Gifting: Check if it's customizable (Request Quote only)
-   if (product.isCustomizable) {
-     return next(new AppError('This product requires a customization request. Please use the "Customize & Request" button.', 400));
-   }
+  //  // Gifting: Check if it's customizable (Request Quote only)
+  //  if (product.isCustomizable) {
+  //    return next(new AppError('This product requires a customization request. Please use the "Customize & Request" button.', 400));
+  //  }
  
    // Gifting: Enforce Min Order Qty (Corporate => at least 10)
    const minQty = getGiftMinQty(product as InstanceType<typeof Product>);

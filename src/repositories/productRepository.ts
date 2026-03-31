@@ -13,6 +13,6 @@ export const productRepository = {
       .sort({ isFeatured: -1, createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .select("name slug price comparePrice images category shortDescription tags giftOccasions isFeatured minOrderQty isCustomizable");
+      .select("name slug price comparePrice images category shortDescription tags giftOccasions isFeatured minOrderQty isCustomizable customFields");
   },
 };
