@@ -17,16 +17,21 @@ const getGiftMinQty = (product: InstanceType<typeof Product>) => {
   return isCorporateGift ? Math.max(baseMin, 10) : baseMin;
 };
 
-export const getCart = catchAsync(async (req: AuthRequest, res: Response) => {
-  const cart = await Cart.findOne({ user: req.user!._id })
+/** Same shape as getCart — never return raw cart after save() or product refs are ObjectIds and UI loses images */
+async function cartForResponse(userId: string) {
+  return Cart.findOne({ user: userId })
     .populate({
       path: 'items.product',
-      select: 'name images price isActive',
+      select: 'name images price isActive slug giftOccasions minOrderQty',
     })
     .populate({
       path: 'coupon',
       select: 'code',
     });
+}
+
+export const getCart = catchAsync(async (req: AuthRequest, res: Response) => {
+  const cart = await cartForResponse(String(req.user!._id));
 
   if (!cart) {
     sendSuccess(res, { cart: { items: [], subtotal: 0, discount: 0, total: 0 } });
@@ -129,11 +134,7 @@ export const addToCart = catchAsync(async (req: AuthRequest, res: Response, next
 
   await cart.save();
 
-  const populatedCart = await Cart.findById(cart._id).populate({
-    path: 'items.product',
-    select: 'name images price',
-  });
-
+  const populatedCart = await cartForResponse(String(req.user!._id));
   sendSuccess(res, { cart: populatedCart });
 });
 
@@ -174,7 +175,8 @@ export const updateCartItem = catchAsync(async (req: AuthRequest, res: Response,
   cart.items[itemIndex].quantity = quantity;
   await cart.save();
 
-  sendSuccess(res, { cart });
+  const populatedCart = await cartForResponse(String(req.user!._id));
+  sendSuccess(res, { cart: populatedCart });
 });
 
 export const removeFromCart = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -186,7 +188,8 @@ export const removeFromCart = catchAsync(async (req: AuthRequest, res: Response,
   cart.items = cart.items.filter((item) => item.variant.sku !== sku);
   await cart.save();
 
-  sendSuccess(res, { cart });
+  const populatedCart = await cartForResponse(String(req.user!._id));
+  sendSuccess(res, { cart: populatedCart });
 });
 
 export const clearCart = catchAsync(async (req: AuthRequest, res: Response) => {
@@ -225,8 +228,9 @@ export const applyCoupon = catchAsync(async (req: AuthRequest, res: Response, ne
   cart.total = cart.subtotal - discount;
   await cart.save();
 
+  const populatedCart = await cartForResponse(String(req.user!._id));
   sendSuccess(res, {
-    cart,
+    cart: populatedCart,
     coupon: {
       code: coupon.code,
       discountType: coupon.discountType,
@@ -245,5 +249,6 @@ export const removeCoupon = catchAsync(async (req: AuthRequest, res: Response, n
   cart.total = cart.subtotal;
   await cart.save();
 
-  sendSuccess(res, { cart });
+  const populatedCart = await cartForResponse(String(req.user!._id));
+  sendSuccess(res, { cart: populatedCart });
 });
