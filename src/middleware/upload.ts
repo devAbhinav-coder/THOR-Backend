@@ -17,8 +17,8 @@ const imageFileFilter = (_req: Request, file: Express.Multer.File, cb: multer.Fi
 export const uploadProductImages = multer({
   storage: memoryStorage,
   fileFilter: imageFileFilter,
-  limits: { fileSize: 12 * 1024 * 1024, files: 5 },
-}).array('images', 5);
+  limits: { fileSize: 12 * 1024 * 1024, files: 7 },
+}).array('images', 7);
 
 export const uploadAvatar = multer({
   storage: memoryStorage,

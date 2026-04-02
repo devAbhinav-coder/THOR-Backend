@@ -105,6 +105,10 @@ export const createProduct = catchAsync(async (req: Request, res: Response, next
     return next(new AppError('Please upload at least one product image.', 400));
   }
 
+  if (uploadedImages.length > 7) {
+    return next(new AppError('A product can have at most 7 images.', 400));
+  }
+
   const images = uploadedImages.map((img, index) => ({
     url: img.url,
     publicId: img.publicId,
@@ -144,6 +148,15 @@ export const updateProduct = catchAsync(async (req: Request, res: Response, next
 
   const uploadedImages = (req as Request & { uploadedImages?: { url: string; publicId: string }[] }).uploadedImages;
   if (uploadedImages && uploadedImages.length > 0) {
+    const combined = product.images.length + uploadedImages.length;
+    if (combined > 7) {
+      return next(
+        new AppError(
+          `Cannot add ${uploadedImages.length} image(s): product already has ${product.images.length} (max 7 total).`,
+          400
+        )
+      );
+    }
     const newImages = uploadedImages.map((img, index) => ({
       url: img.url,
       publicId: img.publicId,
@@ -215,7 +228,9 @@ export const deleteProduct = catchAsync(async (req: Request, res: Response, next
 });
 
 export const deleteProductImage = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
-  const { id, publicId } = req.params;
+  const { id } = req.params;
+  const rawParam = req.params.publicId;
+  const decodedId = decodeURIComponent(rawParam);
   const product = await Product.findById(id);
   if (!product) return next(new AppError('No product found with that ID.', 404));
 
@@ -223,8 +238,15 @@ export const deleteProductImage = catchAsync(async (req: Request, res: Response,
     return next(new AppError('Product must have at least one image.', 400));
   }
 
-  await deleteMultipleImages([publicId]);
-  product.images = product.images.filter((img) => img.publicId !== publicId);
+  const match = product.images.find(
+    (img) => img.publicId === decodedId || img.publicId === rawParam
+  );
+  if (!match) {
+    return next(new AppError('Image not found on this product.', 404));
+  }
+
+  await deleteMultipleImages([match.publicId]);
+  product.images = product.images.filter((img) => img.publicId !== match.publicId);
   await product.save();
 
   sendSuccess(res, { product: jsonProduct(product) });

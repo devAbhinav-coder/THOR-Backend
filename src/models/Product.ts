@@ -70,8 +70,8 @@ const productSchema = new Schema<IProduct>(
     images: {
       type: [productImageSchema],
       validate: {
-        validator: (v: unknown[]) => v.length > 0,
-        message: 'At least one image is required',
+        validator: (v: unknown[]) => Array.isArray(v) && v.length > 0 && v.length <= 7,
+        message: 'Product must have between 1 and 7 images',
       },
     },
     variants: [variantSchema],

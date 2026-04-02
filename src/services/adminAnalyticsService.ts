@@ -2,6 +2,7 @@ import Order from "../models/Order";
 import User from "../models/User";
 import Product from "../models/Product";
 import Review from "../models/Review";
+import { LOW_STOCK_ALERT_EXCLUSIVE_MAX } from "../constants/inventory";
 
 export async function getDashboardAnalyticsData() {
   const now = new Date();
@@ -44,7 +45,7 @@ export async function getDashboardAnalyticsData() {
     Product.aggregate([
       { $match: { isActive: true } },
       { $addFields: { computedTotal: { $sum: "$variants.stock" } } },
-      { $match: { computedTotal: { $lte: 5 } } },
+      { $match: { computedTotal: { $lt: LOW_STOCK_ALERT_EXCLUSIVE_MAX } } },
       { $sort: { computedTotal: 1 } },
       { $limit: 10 },
       { $project: { _id: 1, name: 1, category: 1, totalStock: "$computedTotal" } },
