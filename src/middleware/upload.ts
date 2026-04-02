@@ -17,7 +17,7 @@ const imageFileFilter = (_req: Request, file: Express.Multer.File, cb: multer.Fi
 export const uploadProductImages = multer({
   storage: memoryStorage,
   fileFilter: imageFileFilter,
-  limits: { fileSize: 5 * 1024 * 1024, files: 5 },
+  limits: { fileSize: 12 * 1024 * 1024, files: 5 },
 }).array('images', 5);
 
 export const uploadAvatar = multer({
@@ -35,7 +35,7 @@ export const uploadReviewImages = multer({
 export const uploadGiftingImages = multer({
   storage: memoryStorage,
   fileFilter: imageFileFilter,
-  limits: { fileSize: 5 * 1024 * 1024, files: 5 },
+  limits: { fileSize: 12 * 1024 * 1024, files: 5 },
 }).array('images', 5);
 
 export const uploadStorefrontAssets = multer({
@@ -49,10 +49,16 @@ interface CloudinaryUploadResult {
   public_id: string;
 }
 
+type CloudinaryUploadOpts = {
+  /** Default `auto`. Use a higher value (e.g. 92) for hero assets where clarity matters. */
+  quality?: string | number;
+};
+
 const uploadToCloudinary = (
   buffer: Buffer,
   folder: string,
-  transformation?: object
+  transformation?: object,
+  opts?: CloudinaryUploadOpts
 ): Promise<CloudinaryUploadResult> => {
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinaryInstance.uploader.upload_stream(
@@ -60,7 +66,7 @@ const uploadToCloudinary = (
         folder,
         resource_type: 'image',
         transformation,
-        quality: 'auto',
+        quality: opts?.quality ?? 'auto',
         fetch_format: 'auto',
       },
       (error, result) => {
@@ -83,10 +89,14 @@ export const processProductImages = async (
     const files = req.files as Express.Multer.File[] | undefined;
     if (!files || files.length === 0) return next();
 
+    // PDP + retina: keep long edge generous (portrait 3:4 fits in 2048×2730); `limit` keeps aspect ratio, never upscales.
     const uploadPromises = files.map((file) =>
-      uploadToCloudinary(file.buffer, 'house-of-rani/products', [
-        { width: 800, height: 800, crop: 'limit' },
-      ])
+      uploadToCloudinary(
+        file.buffer,
+        'house-of-rani/products',
+        [{ width: 2048, height: 2730, crop: 'limit' }],
+        { quality: 92 }
+      )
     );
 
     const results = await Promise.all(uploadPromises);
@@ -177,10 +187,14 @@ export const processGiftingImages = async (
     const files = req.files as Express.Multer.File[] | undefined;
     if (!files || files.length === 0) return next();
 
+    // Same PDP-style limits as catalog products (gift requests + cart custom-field refs).
     const uploadPromises = files.map((file) =>
-      uploadToCloudinary(file.buffer, 'house-of-rani/gifting-requests', [
-        { width: 1000, height: 1000, crop: 'limit' },
-      ])
+      uploadToCloudinary(
+        file.buffer,
+        'house-of-rani/gifting-requests',
+        [{ width: 2048, height: 2730, crop: 'limit' }],
+        { quality: 92 }
+      )
     );
 
     const results = await Promise.all(uploadPromises);
@@ -254,15 +268,21 @@ export const processStorefrontAssets = async (
         uploaded.shopBannerRight = { url: result.secure_url, publicId: result.public_id };
       } else if (file.fieldname.startsWith('giftingHeroImage_')) {
         const index = file.fieldname.replace('giftingHeroImage_', '');
-        const result = await uploadToCloudinary(file.buffer, 'house-of-rani/storefront/gifting-hero', [
-          { width: 1600, height: 900, crop: 'limit' },
-        ]);
+        const result = await uploadToCloudinary(
+          file.buffer,
+          'house-of-rani/storefront/gifting-hero',
+          [{ width: 1920, height: 1080, crop: 'limit' }],
+          { quality: 92 }
+        );
         uploaded.giftingHero[index] = { url: result.secure_url, publicId: result.public_id };
       } else if (file.fieldname.startsWith('giftingSecondaryImage_')) {
         const index = file.fieldname.replace('giftingSecondaryImage_', '');
-        const result = await uploadToCloudinary(file.buffer, 'house-of-rani/storefront/gifting-secondary', [
-          { width: 1600, crop: 'limit' },
-        ]);
+        const result = await uploadToCloudinary(
+          file.buffer,
+          'house-of-rani/storefront/gifting-secondary',
+          [{ width: 2048, crop: 'limit' }],
+          { quality: 92 }
+        );
         uploaded.giftingSecondary[index] = { url: result.secure_url, publicId: result.public_id };
       }
     }
