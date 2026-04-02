@@ -41,6 +41,21 @@ const promoBannerSchema = new Schema(
   { _id: false }
 );
 
+const shopBannerSchema = new Schema(
+  {
+    title: { type: String, trim: true, maxlength: 140 },
+    subtitle: { type: String, trim: true, maxlength: 260 },
+    leftImage: { type: String, trim: true },
+    leftImagePublicId: { type: String, trim: true },
+    centerImage: { type: String, trim: true },
+    centerImagePublicId: { type: String, trim: true },
+    rightImage: { type: String, trim: true },
+    rightImagePublicId: { type: String, trim: true },
+    isActive: { type: Boolean, default: true },
+  },
+  { _id: false }
+);
+
 const footerSchema = new Schema(
   {
     description: { type: String, trim: true, maxlength: 500 },
@@ -104,6 +119,7 @@ const storefrontSettingsSchema = new Schema(
     key: { type: String, unique: true, default: 'default' },
     announcementMessages: [{ type: String, trim: true, maxlength: 180 }],
     heroSlides: [heroSlideSchema],
+    shopBanner: shopBannerSchema,
     promoBanner: promoBannerSchema,
     blogBanner: blogBannerSchema,
     giftingHeroBanners: [giftingHeroBannerSchema],

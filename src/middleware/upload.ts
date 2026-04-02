@@ -208,6 +208,9 @@ export const processStorefrontAssets = async (
       promo?: { url: string; publicId: string };
       blogMain?: { url: string; publicId: string };
       blogSide?: { url: string; publicId: string };
+      shopBannerLeft?: { url: string; publicId: string };
+      shopBannerCenter?: { url: string; publicId: string };
+      shopBannerRight?: { url: string; publicId: string };
       giftingHero: Record<string, { url: string; publicId: string }>;
       giftingSecondary: Record<string, { url: string; publicId: string }>;
     } = { hero: {}, giftingHero: {}, giftingSecondary: {} };
@@ -234,6 +237,21 @@ export const processStorefrontAssets = async (
           { width: 800, crop: 'limit' },
         ]);
         uploaded.blogSide = { url: result.secure_url, publicId: result.public_id };
+      } else if (file.fieldname === 'shopBannerLeftImage') {
+        const result = await uploadToCloudinary(file.buffer, 'house-of-rani/storefront/shop-banner', [
+          { width: 900, height: 1200, crop: 'limit' },
+        ]);
+        uploaded.shopBannerLeft = { url: result.secure_url, publicId: result.public_id };
+      } else if (file.fieldname === 'shopBannerCenterImage') {
+        const result = await uploadToCloudinary(file.buffer, 'house-of-rani/storefront/shop-banner', [
+          { width: 2500, height: 500, crop: 'limit' },
+        ]);
+        uploaded.shopBannerCenter = { url: result.secure_url, publicId: result.public_id };
+      } else if (file.fieldname === 'shopBannerRightImage') {
+        const result = await uploadToCloudinary(file.buffer, 'house-of-rani/storefront/shop-banner', [
+          { width: 900, height: 1200, crop: 'limit' },
+        ]);
+        uploaded.shopBannerRight = { url: result.secure_url, publicId: result.public_id };
       } else if (file.fieldname.startsWith('giftingHeroImage_')) {
         const index = file.fieldname.replace('giftingHeroImage_', '');
         const result = await uploadToCloudinary(file.buffer, 'house-of-rani/storefront/gifting-hero', [

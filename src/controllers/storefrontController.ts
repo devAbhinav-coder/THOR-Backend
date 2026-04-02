@@ -52,6 +52,17 @@ const FALLBACK_SETTINGS = {
       isActive: true,
     },
   ],
+  shopBanner: {
+    title: 'Shop Our Collection',
+    subtitle: 'Discover premium ethnic wear crafted for every occasion.',
+    leftImage: '',
+    leftImagePublicId: '',
+    centerImage: '',
+    centerImagePublicId: '',
+    rightImage: '',
+    rightImagePublicId: '',
+    isActive: true,
+  },
   promoBanner: {
     eyebrow: 'The House of Rani',
     title: 'Festive-ready pieces, crafted to feel timeless.',
@@ -108,6 +119,7 @@ const FALLBACK_SETTINGS = {
 
 type StorefrontPayload = {
   heroSlides?: Record<string, unknown>[];
+  shopBanner?: Record<string, unknown>;
   promoBanner?: Record<string, unknown>;
   blogBanner?: Record<string, unknown>;
   giftingHeroBanners?: Record<string, unknown>[];
@@ -126,6 +138,7 @@ const getSettingsDoc = async () => {
   const payload = {
     announcementMessages: settings.announcementMessages?.length ? settings.announcementMessages : FALLBACK_SETTINGS.announcementMessages,
     heroSlides: settings.heroSlides?.length ? settings.heroSlides : FALLBACK_SETTINGS.heroSlides,
+    shopBanner: settings.shopBanner || FALLBACK_SETTINGS.shopBanner,
     promoBanner: settings.promoBanner || FALLBACK_SETTINGS.promoBanner,
     blogBanner: settings.blogBanner || {
       eyebrow: 'Journal & Stories',
@@ -171,6 +184,9 @@ export const updateStorefrontSettings = catchAsync(async (req: Request, res: Res
       promo?: { url: string; publicId: string };
       blogMain?: { url: string; publicId: string };
       blogSide?: { url: string; publicId: string };
+      shopBannerLeft?: { url: string; publicId: string };
+      shopBannerCenter?: { url: string; publicId: string };
+      shopBannerRight?: { url: string; publicId: string };
       giftingHero: Record<string, { url: string; publicId: string }>;
       giftingSecondary: Record<string, { url: string; publicId: string }>;
     };
@@ -185,6 +201,20 @@ export const updateStorefrontSettings = catchAsync(async (req: Request, res: Res
     }
     return slide;
   });
+
+  const nextShopBanner = { ...(payload.shopBanner || {}) };
+  if (uploaded?.shopBannerLeft) {
+    nextShopBanner.leftImage = uploaded.shopBannerLeft.url;
+    nextShopBanner.leftImagePublicId = uploaded.shopBannerLeft.publicId;
+  }
+  if (uploaded?.shopBannerCenter) {
+    nextShopBanner.centerImage = uploaded.shopBannerCenter.url;
+    nextShopBanner.centerImagePublicId = uploaded.shopBannerCenter.publicId;
+  }
+  if (uploaded?.shopBannerRight) {
+    nextShopBanner.rightImage = uploaded.shopBannerRight.url;
+    nextShopBanner.rightImagePublicId = uploaded.shopBannerRight.publicId;
+  }
 
   const nextPromo = { ...(payload.promoBanner || {}) };
   if (uploaded?.promo) {
@@ -227,6 +257,15 @@ export const updateStorefrontSettings = catchAsync(async (req: Request, res: Res
   if (typeof nextPromo.backgroundImagePublicId === 'string' && nextPromo.backgroundImagePublicId.trim()) {
     usedPublicIds.add(nextPromo.backgroundImagePublicId);
   }
+  if (typeof nextShopBanner.leftImagePublicId === 'string' && nextShopBanner.leftImagePublicId.trim()) {
+    usedPublicIds.add(nextShopBanner.leftImagePublicId);
+  }
+  if (typeof nextShopBanner.centerImagePublicId === 'string' && nextShopBanner.centerImagePublicId.trim()) {
+    usedPublicIds.add(nextShopBanner.centerImagePublicId);
+  }
+  if (typeof nextShopBanner.rightImagePublicId === 'string' && nextShopBanner.rightImagePublicId.trim()) {
+    usedPublicIds.add(nextShopBanner.rightImagePublicId);
+  }
   if (typeof nextBlogBanner.mainImagePublicId === 'string' && nextBlogBanner.mainImagePublicId.trim()) {
     usedPublicIds.add(nextBlogBanner.mainImagePublicId);
   }
@@ -253,6 +292,16 @@ export const updateStorefrontSettings = catchAsync(async (req: Request, res: Res
   if (previous?.promoBanner && typeof previous.promoBanner === 'object') {
     const maybePromo = previous.promoBanner as { backgroundImagePublicId?: string };
     if (maybePromo.backgroundImagePublicId) oldPublicIds.push(maybePromo.backgroundImagePublicId);
+  }
+  if (previous?.shopBanner && typeof previous.shopBanner === 'object') {
+    const maybeShopBanner = previous.shopBanner as {
+      leftImagePublicId?: string;
+      centerImagePublicId?: string;
+      rightImagePublicId?: string;
+    };
+    if (maybeShopBanner.leftImagePublicId) oldPublicIds.push(maybeShopBanner.leftImagePublicId);
+    if (maybeShopBanner.centerImagePublicId) oldPublicIds.push(maybeShopBanner.centerImagePublicId);
+    if (maybeShopBanner.rightImagePublicId) oldPublicIds.push(maybeShopBanner.rightImagePublicId);
   }
   if (previous?.blogBanner && typeof previous.blogBanner === 'object') {
     const maybeBlog = previous.blogBanner as { mainImagePublicId?: string; sideImagePublicId?: string };
@@ -281,6 +330,7 @@ export const updateStorefrontSettings = catchAsync(async (req: Request, res: Res
       key: 'default',
       announcementMessages: payload.announcementMessages || [],
       heroSlides: nextHeroSlides,
+      shopBanner: nextShopBanner,
       promoBanner: nextPromo,
       blogBanner: nextBlogBanner,
       giftingHeroBanners: nextGiftingHero,
