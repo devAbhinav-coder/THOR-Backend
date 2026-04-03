@@ -17,10 +17,10 @@ const fromEmail =
 const replyToEmail = process.env.MAIL_REPLY_TO || "no-reply@houseofrani.in";
 const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
 const isLocalhost = frontendUrl.includes("localhost");
-const brandLogoUrl = isLocalhost ? "cid:brandlogo" : `${frontendUrl}/logo.jpg`;
+const brandLogoUrl = isLocalhost ? "cid:brandlogo" : `${frontendUrl}/logo.png`;
 
 function getLocalLogoPath() {
-  const p = path.resolve(__dirname, "../../../../frontend/public/logo.jpg");
+  const p = path.resolve(__dirname, "../../../../frontend/public/logo.png");
   return fs.existsSync(p) ? p : null;
 }
 
@@ -51,7 +51,9 @@ function buildDkim():
       return undefined;
     }
     if (!privateKey.includes("BEGIN") || !privateKey.includes("KEY")) {
-      logger.warn("DKIM_PRIVATE_KEY(_PATH) does not look like a PEM key; DKIM disabled.");
+      logger.warn(
+        "DKIM_PRIVATE_KEY(_PATH) does not look like a PEM key; DKIM disabled.",
+      );
       return undefined;
     }
     return { domainName, keySelector, privateKey };
@@ -200,17 +202,24 @@ export const emailTemplates = {
     subject,
     html: shell(subject, html, ctaText, ctaLink),
   }),
-  customGiftQuote: (name: string, occasion: string, price: number, deliveryTime: string, adminNote?: string, requestId?: string) => ({
+  customGiftQuote: (
+    name: string,
+    occasion: string,
+    price: number,
+    deliveryTime: string,
+    adminNote?: string,
+    requestId?: string,
+  ) => ({
     subject: `Quote ready for your custom gift: ${occasion}`,
     html: shell(
-      'Custom gift quote',
+      "Custom gift quote",
       `Hi ${name},<br/><br/>Your custom gift request for "${occasion}" has been reviewed by our team.<br/><br/>
        Price: <b>₹${price.toFixed(2)}</b><br/>
        Estimated Delivery: <b>${deliveryTime}</b><br/>
-       ${adminNote ? `Note from admin: ${adminNote}<br/>` : ''}<br/>
+       ${adminNote ? `Note from admin: ${adminNote}<br/>` : ""}<br/>
        Please review the quote and choose to accept or reject it to proceed.`,
-      'Review Quote',
-      `${frontendUrl}/dashboard/gifting/${requestId}`
+      "Review Quote",
+      `${frontendUrl}/dashboard/gifting/${requestId}`,
     ),
   }),
   adminNewGiftingRequest: (
@@ -224,14 +233,14 @@ export const emailTemplates = {
   ) => ({
     subject: `New Custom Gift Request — ${occasion}`,
     html: shell(
-      'New Custom Gift Request',
+      "New Custom Gift Request",
       `A new customization request has come in and requires your attention.<br/><br/>
-       <b>From:</b> ${requesterName} (${requesterEmail})${requesterPhone ? `<br/><b>Phone:</b> ${requesterPhone}` : ''}<br/>
+       <b>From:</b> ${requesterName} (${requesterEmail})${requesterPhone ? `<br/><b>Phone:</b> ${requesterPhone}` : ""}<br/>
        <b>Occasion:</b> ${occasion}<br/>
        <b>Items:</b> ${itemCount}<br/>
-       ${proposedPrice ? `<b>Proposed Budget:</b> ₹${proposedPrice.toFixed(2)}<br/>` : ''}
+       ${proposedPrice ? `<b>Proposed Budget:</b> ₹${proposedPrice.toFixed(2)}<br/>` : ""}
        <br/>Please review and send a quote as soon as possible.`,
-      'Review Request',
+      "Review Request",
       `${frontendUrl}/admin/gifting`,
     ),
   }),
@@ -244,7 +253,7 @@ export const emailTemplates = {
   ) => ({
     subject: `Your Custom Gift Order is Created — ${orderNumber}`,
     html: shell(
-      'Order Created 🎁',
+      "Order Created 🎁",
       `Hi ${userName},<br/><br/>
        Your custom gift order has been created! We're excited to create something special for you.<br/><br/>
        <b>Occasion:</b> ${occasion}<br/>
@@ -252,7 +261,7 @@ export const emailTemplates = {
        <b>Order Total:</b> <b>₹${quotedPrice.toFixed(2)}</b><br/><br/>
        Our team will reach out to you shortly to arrange payment and discuss production details.
        You can track your order status anytime from your dashboard.`,
-      'View My Order',
+      "View My Order",
       `${frontendUrl}/dashboard/orders/${orderId}`,
     ),
   }),
@@ -265,12 +274,12 @@ export const emailTemplates = {
   ) => ({
     subject: `Custom Gift Accepted — Order ${orderNumber}`,
     html: shell(
-      'Customer Accepted the Quote ✅',
+      "Customer Accepted the Quote ✅",
       `<b>${requesterName}</b> has accepted the quote for their <b>${occasion}</b> custom gift request.<br/><br/>
        Order Number: <b>${orderNumber}</b><br/>
        Quoted Price: <b>₹${quotedPrice.toFixed(2)}</b><br/><br/>
        Please contact the customer to arrange payment and begin production.`,
-      'View Order',
+      "View Order",
       `${frontendUrl}/admin/orders/${orderId}`,
     ),
   }),
@@ -281,10 +290,10 @@ export const emailTemplates = {
   ) => ({
     subject: `Custom Gift Rejected — ${occasion}`,
     html: shell(
-      'Customer Rejected the Quote ❌',
+      "Customer Rejected the Quote ❌",
       `<b>${requesterName}</b> has rejected the quote for their <b>${occasion}</b> custom gift request.<br/><br/>
        The request has been closed. You may wish to follow up with the customer directly if needed.`,
-      'View Request',
+      "View Request",
       `${frontendUrl}/admin/gifting`,
     ),
   }),
@@ -310,7 +319,7 @@ export const sendEmailNow = async (payload: EmailPayload) => {
     return;
   }
 
-  const mailOptions: import('nodemailer/lib/mailer').Options = {
+  const mailOptions: import("nodemailer/lib/mailer").Options = {
     from: fromEmail,
     replyTo: replyToEmail,
     to: payload.to,
@@ -322,15 +331,16 @@ export const sendEmailNow = async (payload: EmailPayload) => {
   if (isLocalhost) {
     const p = getLocalLogoPath();
     if (p) {
-      mailOptions.attachments = [{
-        filename: 'logo.jpg',
-        path: p,
-        cid: 'brandlogo'
-      }];
+      mailOptions.attachments = [
+        {
+          filename: "logo.jpg",
+          path: p,
+          cid: "brandlogo",
+        },
+      ];
     }
   }
 
   const info = await transporter.sendMail(mailOptions);
   logger.info(`Email sent: ${info.messageId} to ${payload.to}`);
 };
-
