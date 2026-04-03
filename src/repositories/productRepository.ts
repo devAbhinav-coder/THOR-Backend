@@ -2,10 +2,13 @@ import Product from "../models/Product";
 
 export const productRepository = {
   findFeatured() {
+    // Include `variants` (at least stock) so storefront cards can show correct sold-out state.
     return Product.find({ isFeatured: true, isActive: true, category: { $ne: "Gifting" } })
       .sort("-createdAt")
       .limit(8)
-      .select("name slug price comparePrice images ratings category fabric isFeatured");
+      .select(
+        "name slug price comparePrice images ratings category fabric isFeatured variants isCustomizable customFields",
+      );
   },
 
   findGiftable(filter: Record<string, unknown>, skip: number, limit: number) {
