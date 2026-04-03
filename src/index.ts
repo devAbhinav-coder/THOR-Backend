@@ -35,6 +35,7 @@ import blogRoutes from "./routes/blogRoutes";
 import notificationRoutes from "./routes/notificationRoutes";
 import giftingRoutes from "./routes/giftingRoutes";
 import { startEmailWorker, closeEmailWorker, emailQueue } from "./queues/emailQueue";
+import { startPushWorker, closePushWorker, pushQueue } from "./queues/pushQueue";
 import { requestContext } from "./utils/requestContext";
 import { botHeuristics } from "./middleware/botHeuristics";
 import { xssSanitize } from "./middleware/xssSanitize";
@@ -49,6 +50,7 @@ if (process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true") {
 
 connectDB();
 startEmailWorker();
+startPushWorker();
 
 if (process.env.NODE_ENV === "production" && redisEnabled) {
   redisConnection
@@ -233,8 +235,12 @@ const shutdown = async (signal: string) => {
         await Sentry.close(2000);
       }
       await closeEmailWorker();
+      await closePushWorker();
       if (emailQueue) {
         await emailQueue.close();
+      }
+      if (pushQueue) {
+        await pushQueue.close();
       }
       await mongoose.connection.close();
       await redisConnection.quit();

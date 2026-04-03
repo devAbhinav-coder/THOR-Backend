@@ -1,9 +1,12 @@
 import { Response, NextFunction } from 'express';
 import { Notification } from '../models/Notification';
+import { PushSubscriptionModel } from '../models/PushSubscription';
 import catchAsync from '../utils/catchAsync';
 import AppError from '../utils/AppError';
 import { AuthRequest } from '../types';
 import { sendPaginated, sendSuccess } from '../utils/response';
+import { getVapidPublicKey, isWebPushConfigured } from '../services/webPushService';
+import { enqueuePush } from '../queues/pushQueue';
 
 export const getMyNotifications = catchAsync(async (req: AuthRequest, res: Response) => {
   const page = parseInt(req.query.page as string) || 1;
@@ -49,4 +52,74 @@ export const clearAll = catchAsync(async (req: AuthRequest, res: Response) => {
   await Notification.deleteMany({ user: req.user!._id });
 
   res.status(204).end();
+});
+
+export const getPushPublicKey = catchAsync(async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  if (!isWebPushConfigured()) {
+    sendSuccess(res, { enabled: false, publicKey: '' });
+    return;
+  }
+  sendSuccess(res, { enabled: true, publicKey: getVapidPublicKey() });
+});
+
+export const subscribePush = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (!isWebPushConfigured()) {
+    return next(new AppError('Web push is not configured on server.', 503));
+  }
+
+  const { subscription } = req.body as {
+    subscription?: {
+      endpoint?: string;
+      expirationTime?: number | null;
+      keys?: { p256dh?: string; auth?: string };
+    };
+  };
+  if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+    return next(new AppError('Invalid push subscription payload.', 400));
+  }
+
+  await PushSubscriptionModel.findOneAndUpdate(
+    { endpoint: subscription.endpoint },
+    {
+      user: req.user!._id,
+      endpoint: subscription.endpoint,
+      expirationTime: subscription.expirationTime ?? null,
+      keys: {
+        p256dh: subscription.keys.p256dh,
+        auth: subscription.keys.auth,
+      },
+      isActive: true,
+    },
+    { upsert: true, new: true, runValidators: true }
+  );
+
+  sendSuccess(res, {}, 'Push subscription saved.');
+});
+
+export const unsubscribePush = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const endpoint = String(req.body?.endpoint || '').trim();
+  if (!endpoint) {
+    return next(new AppError('Endpoint is required.', 400));
+  }
+  await PushSubscriptionModel.updateOne({ endpoint, user: req.user!._id }, { isActive: false });
+  sendSuccess(res, {}, 'Push subscription removed.');
+});
+
+export const sendTestPushToSelf = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (req.user?.role !== 'admin') {
+    return next(new AppError('Only admins can send test push notifications.', 403));
+  }
+
+  if (!isWebPushConfigured()) {
+    return next(new AppError('Web push is not configured on server.', 503));
+  }
+
+  await enqueuePush({
+    userId: String(req.user!._id),
+    title: 'Test Push Notification',
+    body: 'If you received this, browser push is working correctly.',
+    link: '/admin',
+  });
+
+  sendSuccess(res, {}, 'Test push sent to your active devices.');
 });

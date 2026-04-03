@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { Types } from 'mongoose';
 import Order from '../models/Order';
 import User from '../models/User';
 import Product from '../models/Product';
@@ -14,10 +15,60 @@ import { notifyUser } from '../services/notificationService';
 import { sendPaginated, sendSuccess } from '../utils/response';
 import { enqueueBroadcastByUserFilter } from '../services/broadcastService';
 import { getDashboardAnalyticsData } from '../services/adminAnalyticsService';
+import AdminAuditLog from '../models/AdminAuditLog';
+import { writeAdminAudit } from '../services/adminAuditService';
 
 export const getDashboardAnalytics = catchAsync(async (_req: Request, res: Response) => {
   const data = await getDashboardAnalyticsData();
   sendSuccess(res, data);
+});
+
+export const getAdminAuditLogs = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
+  const page = Math.max(1, parseInt((req.query.page as string) || '1', 10));
+  const limit = Math.min(100, Math.max(1, parseInt((req.query.limit as string) || '20', 10)));
+  const skip = (page - 1) * limit;
+  const filter: Record<string, unknown> = {};
+
+  const action = String(req.query.action || '').trim();
+  const ip = String(req.query.ip || '').trim();
+  const userId = String(req.query.userId || '').trim();
+  const from = String(req.query.from || '').trim();
+  const to = String(req.query.to || '').trim();
+
+  if (action) filter.action = action;
+  if (ip) filter.ip = { $regex: ip.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+  if (userId) {
+    if (!Types.ObjectId.isValid(userId)) {
+      return next(new AppError('Invalid user id filter.', 400));
+    }
+    filter.$or = [{ actor: userId }, { targetUser: userId }];
+  }
+  if (from || to) {
+    const createdAt: Record<string, Date> = {};
+    if (from) {
+      const d = new Date(from);
+      if (Number.isNaN(d.getTime())) return next(new AppError('Invalid from date.', 400));
+      createdAt.$gte = d;
+    }
+    if (to) {
+      const d = new Date(to);
+      if (Number.isNaN(d.getTime())) return next(new AppError('Invalid to date.', 400));
+      createdAt.$lte = d;
+    }
+    filter.createdAt = createdAt;
+  }
+
+  const [logs, total] = await Promise.all([
+    AdminAuditLog.find(filter)
+      .sort('-createdAt')
+      .skip(skip)
+      .limit(limit)
+      .populate('actor', 'name email role')
+      .populate('targetUser', 'name email role'),
+    AdminAuditLog.countDocuments(filter),
+  ]);
+
+  sendPaginated(res, { logs }, { page, limit, total });
 });
 
 export const getAllOrders = catchAsync(async (req: Request, res: Response) => {
@@ -198,27 +249,77 @@ export const getAllUsers = catchAsync(async (req: Request, res: Response) => {
   const page = parseInt((req.query.page as string) || '1', 10);
   const limit = parseInt((req.query.limit as string) || '20', 10);
   const skip = (page - 1) * limit;
+  const roleQuery = String(req.query.role || 'user').trim().toLowerCase();
+  const filter: Record<string, unknown> =
+    roleQuery === 'admin'
+      ? { role: 'admin' }
+      : roleQuery === 'all'
+        ? {}
+        : { role: 'user' };
 
   const [users, total] = await Promise.all([
-    User.find({ role: 'user' })
+    User.find(filter)
       .sort('-createdAt')
       .skip(skip)
       .limit(limit)
-      .select('name email phone isActive createdAt'),
-    User.countDocuments({ role: 'user' }),
+      .select('name email phone avatar role isActive createdAt'),
+    User.countDocuments(filter),
   ]);
 
   sendPaginated(res, { users }, { page, limit, total });
 });
 
 export const toggleUserStatus = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
+  if (!Types.ObjectId.isValid(req.params.id)) {
+    return next(new AppError('Invalid user id.', 400));
+  }
   const user = await User.findById(req.params.id);
   if (!user) return next(new AppError('User not found.', 404));
+  if (user.role === 'admin') {
+    return next(new AppError('Admin account status cannot be toggled from this route.', 403));
+  }
 
   user.isActive = !user.isActive;
   await user.save();
+  await writeAdminAudit(req, 'user.status.toggled', { isActive: user.isActive }, String(user._id));
 
   sendSuccess(res, { isActive: user.isActive });
+});
+
+export const updateUserRole = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
+  const { role } = req.body as { role?: 'user' | 'admin' };
+  if (!Types.ObjectId.isValid(req.params.id)) {
+    return next(new AppError('Invalid user id.', 400));
+  }
+  if (!role) {
+    return next(new AppError('Role is required.', 400));
+  }
+
+  const actor = (req as Request & { user?: { _id?: unknown; role?: string } }).user;
+  if (!actor || actor.role !== 'admin') {
+    return next(new AppError('Only admins can change roles.', 403));
+  }
+  if (String(actor._id) === req.params.id) {
+    return next(new AppError('You cannot change your own role.', 403));
+  }
+
+  const user = await User.findById(req.params.id);
+  if (!user) return next(new AppError('User not found.', 404));
+  if (user.role === role) {
+    return next(new AppError(`User is already ${role}.`, 400));
+  }
+
+  const previousRole = user.role;
+  user.role = role;
+  await user.save();
+  await writeAdminAudit(
+    req,
+    'user.role.updated',
+    { previousRole, newRole: role },
+    String(user._id)
+  );
+
+  sendSuccess(res, { user: { _id: user._id, role: user.role } }, 'User role updated.');
 });
 
 export const getAllReviews = catchAsync(async (req: Request, res: Response) => {

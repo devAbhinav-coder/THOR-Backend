@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import {
   getDashboardAnalytics,
+  getAdminAuditLogs,
   getAllOrders,
   getOrderDetails,
   updateOrderStatus,
   getAllUsers,
   toggleUserStatus,
+  updateUserRole,
   getAllReviews,
   deleteReview,
   replyToReview,
@@ -23,7 +25,7 @@ import {
 } from '../controllers/categoryController';
 import { protect, restrictTo } from '../middleware/auth';
 import { validate } from '../middleware/validate';
-import { updateOrderStatusSchema, createCategorySchema, sendMarketingEmailSchema } from '../validation/schemas';
+import { updateOrderStatusSchema, createCategorySchema, sendMarketingEmailSchema, updateUserRoleSchema } from '../validation/schemas';
 import {
   uploadAvatar,
   processCategoryImage,
@@ -43,6 +45,7 @@ const adminSensitiveLimiter = createAdaptiveLimiter({
 router.use(protect, restrictTo('admin'));
 
 router.get('/analytics', getDashboardAnalytics);
+router.get('/security/audit', getAdminAuditLogs);
 
 router.get('/orders', getAllOrders);
 router.get('/orders/:id', getOrderDetails);
@@ -50,6 +53,7 @@ router.patch('/orders/:id/status', validate(updateOrderStatusSchema), updateOrde
 
 router.get('/users', getAllUsers);
 router.patch('/users/:id/toggle-status', toggleUserStatus);
+router.patch('/users/:id/role', validate(updateUserRoleSchema), updateUserRole);
 
 router.get('/reviews', getAllReviews);
 router.delete('/reviews/:id', deleteReview);

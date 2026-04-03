@@ -40,6 +40,12 @@ const sensitiveAuthLimiter = createAdaptiveLimiter({
   prefix: 'rl:adaptive:auth:',
   message: 'Too many attempts. Please retry later.',
 });
+const loginLimiter = createAdaptiveLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  prefix: 'rl:adaptive:login:',
+  message: 'Too many login attempts. Please wait 15 minutes before trying again.',
+});
 
 const otpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -62,7 +68,7 @@ const otpLimiter = rateLimit({
 
 router.post('/signup/start', otpLimiter, validate(signupStartSchema), signupStart);
 router.post('/signup/verify', otpLimiter, validate(signupVerifySchema), signupVerify);
-router.post('/login', sensitiveAuthLimiter, validate(loginSchema), login);
+router.post('/login', loginLimiter, sensitiveAuthLimiter, validate(loginSchema), login);
 router.post('/refresh', sensitiveAuthLimiter, refresh);
 router.post('/forgot-password', otpLimiter, validate(forgotPasswordSchema), forgotPassword);
 router.post('/reset-password', otpLimiter, validate(resetPasswordSchema), resetPassword);

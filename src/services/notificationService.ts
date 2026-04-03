@@ -2,6 +2,7 @@ import User from '../models/User';
 import { Notification } from '../models/Notification';
 import logger from '../utils/logger';
 import { Types } from 'mongoose';
+import { enqueuePush } from '../queues/pushQueue';
 
 export async function notifyAdmins(title: string, message: string, link?: string, type: 'order' | 'system' | 'alert' = 'system') {
   try {
@@ -16,7 +17,18 @@ export async function notifyAdmins(title: string, message: string, link?: string
       type,
     }));
 
-    await Notification.insertMany(notifications);
+    const created = await Notification.insertMany(notifications);
+    await Promise.all(
+      created.map((n) =>
+        enqueuePush({
+          userId: String(n.user),
+          title,
+          body: message,
+          link,
+          notificationId: String(n._id),
+        })
+      )
+    );
   } catch (err) {
     logger.error('Failed to notify admins', { err });
   }
@@ -30,12 +42,19 @@ export async function notifyUser(
   type: 'order' | 'promotion' | 'alert' = 'order'
 ) {
   try {
-    await Notification.create({
+    const created = await Notification.create({
       user: userId,
       title,
       message,
       link,
       type,
+    });
+    await enqueuePush({
+      userId: String(userId),
+      title,
+      body: message,
+      link,
+      notificationId: String(created._id),
     });
   } catch (err) {
     logger.error('Failed to notify user', { userId: String(userId), err });

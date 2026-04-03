@@ -343,6 +343,15 @@ export const updateOrderStatusSchema = z.object({
   }),
 });
 
+export const updateUserRoleSchema = z.object({
+  body: z.object({
+    role: z.enum(['user', 'admin']),
+  }),
+  params: z.object({
+    id: z.string().regex(/^[a-fA-F0-9]{24}$/, 'Invalid user id'),
+  }),
+});
+
 // ─── Category ─────────────────────────────────────────────────────────────────
 
 export const createCategorySchema = z.object({
