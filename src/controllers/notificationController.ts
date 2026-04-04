@@ -51,7 +51,7 @@ export const markAllAsRead = catchAsync(async (req: AuthRequest, res: Response) 
 export const clearAll = catchAsync(async (req: AuthRequest, res: Response) => {
   await Notification.deleteMany({ user: req.user!._id });
 
-  res.status(204).end();
+  sendSuccess(res, {}, 'All notifications cleared');
 });
 
 export const getPushPublicKey = catchAsync(async (_req: AuthRequest, res: Response, next: NextFunction) => {
