@@ -25,23 +25,31 @@ export function sendPaginated(
   message = "OK",
   statusCode = 200
 ): void {
-  const totalPages = Math.max(1, Math.ceil(pagination.total / Math.max(1, pagination.limit)));
+  const limit = Math.max(1, pagination.limit);
+  const totalPages = Math.max(1, Math.ceil(pagination.total / limit));
+  const currentPage = pagination.page;
+  const hasNextPage = currentPage < totalPages;
+  const hasPrevPage = currentPage > 1;
   res.status(statusCode).json({
     status: "success",
     success: true,
     message,
     data,
     pagination: {
-      currentPage: pagination.page,
+      currentPage,
       totalPages,
       total: pagination.total,
+      hasNextPage,
+      hasPrevPage,
     },
     meta: {
       pagination: {
-        currentPage: pagination.page,
+        currentPage,
         limit: pagination.limit,
         total: pagination.total,
         totalPages,
+        hasNextPage,
+        hasPrevPage,
       },
     },
   });

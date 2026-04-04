@@ -49,7 +49,7 @@ export const getAllBlogs = catchAsync(async (req: Request, res: Response) => {
 
   const [blogs, totalCount] = await Promise.all([
     features.query,
-    Blog.countDocuments(features.getMongoFilter()),
+    Blog.countDocuments(features.query.getFilter()),
   ]);
 
   sendPaginated(
@@ -71,7 +71,7 @@ export const getAdminBlogs = catchAsync(async (req: Request, res: Response) => {
 
   const [blogs, totalCount] = await Promise.all([
     features.query,
-    Blog.countDocuments(features.getMongoFilter()),
+    Blog.countDocuments(features.query.getFilter()),
   ]);
 
   sendPaginated(

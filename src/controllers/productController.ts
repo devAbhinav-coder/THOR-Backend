@@ -29,7 +29,8 @@ export const getAllProducts = catchAsync(async (req: Request, res: Response) => 
 
   const [products, totalCount] = await Promise.all([
     features.query,
-    Product.countDocuments(features.getMongoFilter()),
+    // Must match chained query filter (base + URL filters + search) — getMongoFilter() omits constructor conditions.
+    Product.countDocuments(features.query.getFilter()),
   ]);
   sendPaginated(
     res,
@@ -89,7 +90,7 @@ export const getProductsByCategory = catchAsync(async (req: Request, res: Respon
 
   const [products, totalCount] = await Promise.all([
     features.query,
-    Product.countDocuments(features.getMongoFilter()),
+    Product.countDocuments(features.query.getFilter()),
   ]);
   sendPaginated(
     res,
