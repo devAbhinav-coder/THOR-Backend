@@ -14,8 +14,8 @@ type EmailPayload = {
 
 const fromEmail =
   process.env.MAIL_FROM || "The House of Rani <no-reply@houseofrani.in>";
-const replyToEmail = process.env.MAIL_REPLY_TO || "no-reply@houseofrani.in";
-const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+const replyToEmail = process.env.MAIL_REPLY_TO || "support@thehouseofrani.com";
+const frontendUrl = process.env.FRONTEND_URL || "https://thehouseofrani.com";
 const isLocalhost = frontendUrl.includes("localhost");
 const brandLogoUrl = isLocalhost ? "cid:brandlogo" : `${frontendUrl}/logo.png`;
 
@@ -96,7 +96,7 @@ const shell = (
 ) => `
   <div style="font-family:Inter,Segoe UI,Arial,sans-serif;background:#f3f4f6;padding:28px;">
     <div style="max-width:680px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e5e7eb;box-shadow:0 10px 30px rgba(15,23,42,0.08);">
-      <div style="padding:20px 24px;background:linear-gradient(135deg,#0f172a,#1f2937);color:#fff;">
+      <div style="padding:20px 24px; background:linear-gradient(135deg,#0f172a,#1f2937);color:#fff;">
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
           <tr>
             <td style="vertical-align:middle;">

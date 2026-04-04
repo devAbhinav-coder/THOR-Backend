@@ -8,7 +8,8 @@ import RefreshToken from "../models/RefreshToken";
 import AppError from "../utils/AppError";
 import catchAsync from "../utils/catchAsync";
 import { AuthRequest } from "../types";
-import { emailTemplates } from "../services/emailService";
+import logger from "../utils/logger";
+import { emailTemplates, sendEmailNow } from "../services/emailService";
 import { enqueueEmail } from "../queues/emailQueue";
 import {
   sendAuthResponse,
@@ -27,6 +28,27 @@ const googleClient =
   process.env.GOOGLE_CLIENT_ID ?
     new OAuth2Client(process.env.GOOGLE_CLIENT_ID)
   : null;
+
+/** Try SMTP immediately so welcome mail is not only queued (queue worker / auth can fail silently). */
+async function deliverWelcomeEmail(
+  displayName: string,
+  emailLower: string,
+): Promise<void> {
+  const welcome = emailTemplates.welcome(displayName);
+  const payload = {
+    to: emailLower,
+    subject: welcome.subject,
+    html: welcome.html,
+  };
+  try {
+    await sendEmailNow(payload);
+  } catch (err) {
+    logger.warn(
+      `Welcome email direct send failed (${emailLower}): ${(err as Error).message}; retry via queue`,
+    );
+    await enqueueEmail(payload);
+  }
+}
 
 async function issueOtpCode(): Promise<{ plain: string; hash: string }> {
   const plain = String(crypto.randomInt(100000, 1000000));
@@ -118,12 +140,9 @@ export const signupVerify = catchAsync(
 
     await AuthOtp.deleteOne({ _id: doc._id });
 
-    const welcome = emailTemplates.welcome(payload.name);
-    await enqueueEmail({
-      to: emailLower,
-      subject: welcome.subject,
-      html: welcome.html,
-    });
+    await deliverWelcomeEmail(payload.name, emailLower);
+    user.set("welcomeEmailAt", new Date());
+    await user.save({ validateModifiedOnly: true });
 
     await sendAuthResponse(res, user, 201);
   },
@@ -336,12 +355,13 @@ export const googleAuth = catchAsync(
     const name = payload.name || email.split("@")[0];
 
     let user = await User.findOne({ googleId: sub }).select(
-      "+googleId +password",
+      "+googleId +password +welcomeEmailAt",
     );
+    let isNewGoogleSignup = false;
 
     if (!user) {
       const byEmail = await User.findOne({ email }).select(
-        "+googleId +password",
+        "+googleId +password +welcomeEmailAt",
       );
       if (byEmail) {
         if (byEmail.googleId && byEmail.googleId !== sub) {
@@ -352,9 +372,20 @@ export const googleAuth = catchAsync(
             ),
           );
         }
+        const hadGoogleId = Boolean(byEmail.googleId);
+        const welcomeMissing = !byEmail.welcomeEmailAt;
+        const accountAgeMs = Date.now() - new Date(byEmail.createdAt).getTime();
+        const veryNewAccount = accountAgeMs < 5 * 60 * 1000;
+
         byEmail.googleId = sub;
         await byEmail.save();
         user = byEmail;
+
+        if (!hadGoogleId && welcomeMissing && veryNewAccount) {
+          await deliverWelcomeEmail(user.name, user.email);
+          user.set("welcomeEmailAt", new Date());
+          await user.save({ validateModifiedOnly: true });
+        }
       } else {
         const randomPassword = crypto.randomBytes(32).toString("hex");
         const safeName = (name || "").trim() || email.split("@")[0];
@@ -366,6 +397,7 @@ export const googleAuth = catchAsync(
           emailVerified: true,
           addresses: [],
         });
+        isNewGoogleSignup = true;
       }
     }
 
@@ -376,6 +408,12 @@ export const googleAuth = catchAsync(
           401,
         ),
       );
+    }
+
+    if (isNewGoogleSignup) {
+      await deliverWelcomeEmail(user.name, user.email);
+      user.set("welcomeEmailAt", new Date());
+      await user.save({ validateModifiedOnly: true });
     }
 
     await sendAuthResponse(res, user, 200);

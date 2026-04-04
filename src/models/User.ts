@@ -104,6 +104,11 @@ const userSchema = new Schema<IUser>(
       unique: true,
       select: false,
     },
+    welcomeEmailAt: {
+      type: Date,
+      required: false,
+      select: false,
+    },
     emailVerified: {
       type: Boolean,
       default: true,
@@ -128,6 +133,7 @@ const userSchema = new Schema<IUser>(
       transform(_doc, ret: Record<string, unknown>) {
         delete ret['password'];
         delete ret['googleId'];
+        delete ret['welcomeEmailAt'];
         delete ret['passwordResetToken'];
         delete ret['passwordResetExpires'];
         delete ret['__v'];

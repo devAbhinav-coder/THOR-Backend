@@ -8,6 +8,8 @@ export interface IUser extends Document {
   password: string;
   role: 'user' | 'admin';
   googleId?: string;
+  /** Set when a welcome email was sent (OTP verify or new Google account). */
+  welcomeEmailAt?: Date;
   emailVerified?: boolean;
   phone?: string;
   avatar?: string;
