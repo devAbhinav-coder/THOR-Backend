@@ -16,6 +16,7 @@ import { sendPaginated, sendSuccess } from '../utils/response';
 import { giftingRepository } from '../repositories/giftingRepository';
 import { buildCustomOrderItems } from '../services/giftingService';
 import { safeJsonParse } from '../utils/safeJson';
+import { reconcileProductJson } from '../utils/productStock';
 
 const extractObjectIdString = (value: unknown): string | null => {
   if (!value) return null;
@@ -51,7 +52,10 @@ export const getGiftableProducts = catchAsync(async (req: Request, res: Response
   const cacheKey = `cache:gifting:products:${JSON.stringify({ giftOccasion, category, search, page, limit })}`;
   const cached = await getCache<{ products: unknown[]; total: number }>(cacheKey);
   if (cached) {
-    sendSuccess(res, { products: cached.products, total: cached.total, page: Number(page), limit: Number(limit) });
+    const products = cached.products.map((p) =>
+      reconcileProductJson(p as Parameters<typeof reconcileProductJson>[0]),
+    );
+    sendSuccess(res, { products, total: cached.total, page: Number(page), limit: Number(limit) });
     return;
   }
 
@@ -59,9 +63,12 @@ export const getGiftableProducts = catchAsync(async (req: Request, res: Response
     productRepository.findGiftable(filter, skip, Number(limit)),
     Product.countDocuments(filter),
   ]);
-  await setCache(cacheKey, { products, total }, 120);
+  const normalized = products.map((p) =>
+    reconcileProductJson(p.toJSON() as Parameters<typeof reconcileProductJson>[0]),
+  );
+  await setCache(cacheKey, { products: normalized, total }, 120);
 
-  sendSuccess(res, { products, total, page: Number(page), limit: Number(limit) });
+  sendSuccess(res, { products: normalized, total, page: Number(page), limit: Number(limit) });
 });
 
 // ─── Public: Get gift categories ─────────────────────────────────────────────

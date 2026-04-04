@@ -68,7 +68,10 @@ export const getFeaturedProducts = catchAsync(async (_req: Request, res: Respons
   const cacheKey = 'cache:products:featured';
   const cached = await getCache<Record<string, unknown>[]>(cacheKey);
   if (cached) {
-    sendSuccess(res, { products: cached });
+    const products = cached.map((p) =>
+      reconcileProductJson(p as Parameters<typeof reconcileProductJson>[0]),
+    );
+    sendSuccess(res, { products });
     return;
   }
 

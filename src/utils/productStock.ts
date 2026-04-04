@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { normalizeCloudinaryDeliveryUrl } from './cloudinaryUrl';
 
 /** Sum of variant.stock — source of truth for sellable quantity (must match cart / checkout). */
 export function sumVariantStocks(variants: { stock?: number }[] | undefined): number {
@@ -6,11 +7,20 @@ export function sumVariantStocks(variants: { stock?: number }[] | undefined): nu
   return variants.reduce((acc, v) => acc + Math.max(0, Math.floor(Number(v.stock) || 0)), 0);
 }
 
-export function reconcileProductJson<T extends { variants?: { stock?: number }[] }>(
-  json: T
-): T & { totalStock: number } {
+type ProductJsonImage = { url?: string; publicId?: string; alt?: string };
+
+export function reconcileProductJson<
+  T extends { variants?: { stock?: number }[]; images?: ProductJsonImage[] },
+>(json: T): T & { totalStock: number } {
   const totalStock = sumVariantStocks(json.variants);
-  return { ...json, totalStock };
+  const out = { ...json, totalStock } as T & { totalStock: number };
+  if (json.images?.length) {
+    out.images = json.images.map((img) => ({
+      ...img,
+      url: normalizeCloudinaryDeliveryUrl(img.url) || img.url || '',
+    }));
+  }
+  return out;
 }
 
 /** Cart / order line: `product` may be ObjectId or populated document. */
