@@ -27,7 +27,8 @@ export function getResendFromAddress(): string {
   const explicit = process.env.RESEND_FROM_EMAIL?.trim();
   if (explicit) return explicit;
   return (
-    process.env.MAIL_FROM?.trim() || "The House of Rani <onboarding@resend.dev>"
+    process.env.MAIL_FROM?.trim() ||
+    "The House of Rani <noreply@thehouseofrani.com>"
   );
 }
 
@@ -55,7 +56,9 @@ function isRetryableError(msg: string): boolean {
 /**
  * Transactional OTP: Zoho (SMTP) first for speed, then Resend if SMTP fails.
  */
-export async function deliverOtpEmail(payload: DeliverableEmail): Promise<void> {
+export async function deliverOtpEmail(
+  payload: DeliverableEmail,
+): Promise<void> {
   const text = payload.text || htmlToPlainText(payload.html);
 
   if (smtpConfigured()) {
@@ -87,12 +90,16 @@ export async function deliverOtpEmail(payload: DeliverableEmail): Promise<void> 
 /**
  * Marketing / broadcast: Resend only (better API deliverability tooling).
  */
-export async function deliverBroadcastEmail(payload: DeliverableEmail): Promise<void> {
+export async function deliverBroadcastEmail(
+  payload: DeliverableEmail,
+): Promise<void> {
   const text = payload.text || htmlToPlainText(payload.html);
   await sendViaResend({ ...payload, text });
 }
 
-export async function sendViaResend(payload: DeliverableEmail & { text?: string }): Promise<void> {
+export async function sendViaResend(
+  payload: DeliverableEmail & { text?: string },
+): Promise<void> {
   const client = getResend();
   if (!client) {
     throw new Error("RESEND_API_KEY is not configured.");
