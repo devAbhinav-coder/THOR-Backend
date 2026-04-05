@@ -54,14 +54,26 @@ function isRetryableError(msg: string): boolean {
 }
 
 /**
- * Transactional OTP: Zoho (SMTP) first for speed, then Resend if SMTP fails.
+ * Many cloud hosts block outbound SMTP (ports 25 / 587) to stop spam; your laptop does not.
+ * Symptom: "Connection timeout" to smtp.zoho.in on the server, works locally. Resend uses HTTPS (443) so it still works.
+ *
+ * Set OTP_SMTP_ENABLED=0 on that host to skip SMTP for OTP and send via Resend only (no ~40s double-timeout wait).
+ */
+function isOtpSmtpEnabled(): boolean {
+  const v = process.env.OTP_SMTP_ENABLED?.trim().toLowerCase();
+  if (v === "0" || v === "false" || v === "no" || v === "off") return false;
+  return true;
+}
+
+/**
+ * Transactional OTP: Zoho (SMTP) first when allowed, then Resend if SMTP fails or is disabled.
  */
 export async function deliverOtpEmail(
   payload: DeliverableEmail,
 ): Promise<void> {
   const text = payload.text || htmlToPlainText(payload.html);
 
-  if (smtpConfigured()) {
+  if (smtpConfigured() && isOtpSmtpEnabled()) {
     try {
       await sendViaSmtpWithRetry(
         {
@@ -79,12 +91,16 @@ export async function deliverOtpEmail(
         `SMTP OTP delivery failed (${payload.to}): ${(smtpErr as Error).message}; trying Resend`,
       );
     }
+  } else if (smtpConfigured() && !isOtpSmtpEnabled()) {
+    logger.info(
+      `OTP_SMTP_ENABLED off — skipping Zoho for OTP (${payload.to}); using Resend`,
+    );
   } else {
     logger.warn("SMTP not configured; sending OTP via Resend only");
   }
 
   await sendViaResend({ ...payload, text });
-  logger.info(`OTP email sent via Resend (fallback) to ${payload.to}`);
+  logger.info(`OTP email sent via Resend to ${payload.to}`);
 }
 
 /**
