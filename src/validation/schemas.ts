@@ -85,6 +85,42 @@ export const googleAuthSchema = z.object({
   }),
 });
 
+/** Unified OTP API (Zoho + Resend fallback); rate limits also enforced in service. */
+export const sendOtpSchema = z.object({
+  body: z.discriminatedUnion('type', [
+    z.object({
+      type: z.literal('signup'),
+      email: z.string().email('Invalid email address'),
+      name: z.string().min(2, 'Name must be at least 2 characters').max(50),
+      password: strongPassword,
+      phone: z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'),
+    }),
+    z.object({
+      type: z.literal('login'),
+      email: z.string().email('Invalid email address'),
+    }),
+    z.object({
+      type: z.literal('forgot_password'),
+      email: z.string().email('Invalid email address'),
+    }),
+  ]),
+});
+
+export const resendOtpSchema = z.object({
+  body: z.object({
+    type: z.enum(['signup', 'login', 'forgot_password']),
+    email: z.string().email('Invalid email address'),
+  }),
+});
+
+export const verifyOtpSchema = z.object({
+  body: z.object({
+    type: z.enum(['signup', 'login', 'forgot_password']),
+    email: z.string().email('Invalid email address'),
+    otp: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'),
+  }),
+});
+
 export const updateProfileSchema = z.object({
   body: z.object({
     name: z.string().min(2).max(50).optional(),

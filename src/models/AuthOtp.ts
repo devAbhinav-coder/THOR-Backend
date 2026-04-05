@@ -1,6 +1,7 @@
 import mongoose, { Schema } from 'mongoose';
 
-export type AuthOtpPurpose = 'signup' | 'password_reset';
+/** Stored in MongoDB (`purpose`). API uses `forgot_password` which maps to `password_reset`. */
+export type AuthOtpPurpose = 'signup' | 'login' | 'password_reset';
 
 const signupPayloadSchema = new Schema(
   {
@@ -15,10 +16,17 @@ const signupPayloadSchema = new Schema(
 const authOtpSchema = new Schema(
   {
     email: { type: String, required: true, lowercase: true, trim: true },
-    purpose: { type: String, enum: ['signup', 'password_reset'], required: true },
+    purpose: {
+      type: String,
+      enum: ['signup', 'login', 'password_reset'],
+      required: true,
+    },
+    /** bcrypt hash of the 6-digit code (never store plaintext). */
     codeHash: { type: String, required: true },
     expiresAt: { type: Date, required: true, index: true },
     attempts: { type: Number, default: 0 },
+    /** Last time a code was emailed — used for 60s resend cooldown. */
+    lastSentAt: { type: Date },
     signupPayload: { type: signupPayloadSchema, required: false },
   },
   {

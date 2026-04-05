@@ -96,6 +96,55 @@ const FALLBACK_SETTINGS = {
       isActive: true,
     },
   ],
+  homeGiftShowcase: {
+    isActive: true,
+    headlineLine1: 'Our Gifting',
+    headlineLine2: 'Collections',
+    description:
+      'Handmade gifts, corporate gifting, and curated hampers — everything you need for celebrations, clients, and loved ones. Browse ready-to-ship pieces or start a custom gifting request.',
+    socialHandle: '@thehouseofrani',
+    cards: [
+      {
+        title: 'Handmade Gifts',
+        description:
+          'Thoughtful, artisan-style pieces with personal detail — perfect for birthdays, weddings, and thank-yous.',
+        image: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=800&q=80',
+        shopButtonText: 'Browse gifts',
+        shopLinkMode: 'gifting',
+        giftingSearch: 'handmade',
+        shopButtonLink: '/gifting',
+        giftButtonText: 'Gifting',
+        giftButtonLink: '/gifting',
+        accent: 'rose',
+      },
+      {
+        title: 'Corporate Gifts',
+        description:
+          'Premium branded and bulk-friendly options for teams, clients, and events — easy to coordinate.',
+        image: 'https://images.unsplash.com/photo-1524758631624-e2822e304c36?w=800&q=80',
+        shopButtonText: 'Browse gifts',
+        shopLinkMode: 'gifting',
+        giftingSearch: 'corporate',
+        shopButtonLink: '/gifting',
+        giftButtonText: 'Gifting',
+        giftButtonLink: '/gifting',
+        accent: 'amber',
+      },
+      {
+        title: 'Hampers',
+        description:
+          'Curated hampers and festive sets, beautifully arranged for gifting at a glance.',
+        image: 'https://images.unsplash.com/photo-1549465220-1a8b9238cd48?w=800&q=80',
+        shopButtonText: 'Browse gifts',
+        shopLinkMode: 'gifting',
+        giftingSearch: 'hamper',
+        shopButtonLink: '/gifting',
+        giftButtonText: 'Gifting',
+        giftButtonLink: '/gifting',
+        accent: 'sage',
+      },
+    ],
+  },
   footer: {
     description:
       'Your destination for exquisite Indian ethnic wear. Curated sarees, lehengas, and more.',
@@ -124,6 +173,7 @@ type StorefrontPayload = {
   blogBanner?: Record<string, unknown>;
   giftingHeroBanners?: Record<string, unknown>[];
   giftingSecondaryBanners?: Record<string, unknown>[];
+  homeGiftShowcase?: Record<string, unknown>;
   announcementMessages?: string[];
   footer?: Record<string, unknown>;
 };
@@ -156,6 +206,7 @@ const getSettingsDoc = async () => {
     giftingSecondaryBanners: settings.giftingSecondaryBanners?.length
       ? settings.giftingSecondaryBanners
       : FALLBACK_SETTINGS.giftingSecondaryBanners,
+    homeGiftShowcase: settings.homeGiftShowcase || FALLBACK_SETTINGS.homeGiftShowcase,
     footer: settings.footer || FALLBACK_SETTINGS.footer,
   };
   await setCache(cacheKey, payload, 120);
@@ -189,6 +240,7 @@ export const updateStorefrontSettings = catchAsync(async (req: Request, res: Res
       shopBannerRight?: { url: string; publicId: string };
       giftingHero: Record<string, { url: string; publicId: string }>;
       giftingSecondary: Record<string, { url: string; publicId: string }>;
+      homeGiftCard: Record<string, { url: string; publicId: string }>;
     };
   }).uploadedStorefrontImages;
 
@@ -248,6 +300,26 @@ export const updateStorefrontSettings = catchAsync(async (req: Request, res: Res
     return banner;
   });
 
+  const showcasePayload = (payload.homeGiftShowcase || {}) as Record<string, unknown>;
+  const cardsIn = Array.isArray(showcasePayload.cards) ? (showcasePayload.cards as Record<string, unknown>[]) : [];
+  const nextGiftCards = cardsIn.slice(0, 3).map((card, index) => {
+    const up = uploaded?.homeGiftCard?.[String(index)];
+    if (up) {
+      return { ...card, image: up.url, imagePublicId: up.publicId };
+    }
+    const img = typeof card.image === 'string' ? card.image.trim() : '';
+    if (!img) {
+      const { imagePublicId: _removed, ...rest } = card;
+      return { ...rest, image: '' };
+    }
+    return card;
+  });
+  const nextHomeGiftShowcase = {
+    ...FALLBACK_SETTINGS.homeGiftShowcase,
+    ...showcasePayload,
+    cards: nextGiftCards,
+  };
+
   const usedPublicIds = new Set<string>();
   for (const slide of nextHeroSlides) {
     if (typeof slide.imagePublicId === 'string' && slide.imagePublicId.trim()) {
@@ -280,6 +352,11 @@ export const updateStorefrontSettings = catchAsync(async (req: Request, res: Res
   for (const banner of nextGiftingSecondary) {
     if (typeof banner.imagePublicId === 'string' && banner.imagePublicId.trim()) {
       usedPublicIds.add(banner.imagePublicId);
+    }
+  }
+  for (const card of nextGiftCards as Array<{ imagePublicId?: string }>) {
+    if (typeof card.imagePublicId === 'string' && card.imagePublicId.trim()) {
+      usedPublicIds.add(card.imagePublicId);
     }
   }
 
@@ -318,6 +395,12 @@ export const updateStorefrontSettings = catchAsync(async (req: Request, res: Res
       if (banner.imagePublicId) oldPublicIds.push(banner.imagePublicId);
     }
   }
+  const prevGift = previous?.homeGiftShowcase as { cards?: Array<{ imagePublicId?: string }> } | undefined;
+  if (prevGift?.cards?.length) {
+    for (const card of prevGift.cards) {
+      if (card.imagePublicId) oldPublicIds.push(card.imagePublicId);
+    }
+  }
 
   const stalePublicIds = oldPublicIds.filter((id) => !usedPublicIds.has(id));
   if (stalePublicIds.length > 0) {
@@ -335,6 +418,7 @@ export const updateStorefrontSettings = catchAsync(async (req: Request, res: Res
       blogBanner: nextBlogBanner,
       giftingHeroBanners: nextGiftingHero,
       giftingSecondaryBanners: nextGiftingSecondary,
+      homeGiftShowcase: nextHomeGiftShowcase,
       footer: payload.footer || {},
     },
     { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }

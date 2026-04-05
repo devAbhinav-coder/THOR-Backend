@@ -114,6 +114,56 @@ const giftingSecondaryBannerSchema = new Schema(
   { _id: false }
 );
 
+/** Home page — above “Why Choose Us”; three pastel cards + dual CTAs (shop vs gifting). */
+const homeGiftShowcaseCardSchema = new Schema(
+  {
+    title: { type: String, trim: true, maxlength: 80 },
+    description: { type: String, trim: true, maxlength: 320 },
+    image: { type: String, trim: true },
+    imagePublicId: { type: String, trim: true },
+    shopButtonText: { type: String, trim: true, maxlength: 36, default: 'Shop products' },
+    shopButtonLink: { type: String, trim: true, maxlength: 240, default: '/shop' },
+    /** Primary CTA: gifting filters, direct product path, custom URL, or coming soon (no link). */
+    shopLinkMode: {
+      type: String,
+      enum: ['gifting', 'product', 'coming_soon', 'custom'],
+      default: 'custom',
+    },
+    /** Matches gifting page ?occasion= and API giftOccasion (gift category name). */
+    giftingOccasion: { type: String, trim: true, maxlength: 80 },
+    /** Matches gifting page ?productCategory= and API category (product catalog category name). */
+    giftingProductCategory: { type: String, trim: true, maxlength: 80 },
+    /** Optional search term for /gifting?search= */
+    giftingSearch: { type: String, trim: true, maxlength: 120 },
+    /** Internal path when shopLinkMode is product, e.g. /shop/my-slug */
+    directProductPath: { type: String, trim: true, maxlength: 280 },
+    giftButtonText: { type: String, trim: true, maxlength: 36, default: 'Gifting' },
+    giftButtonLink: { type: String, trim: true, maxlength: 240, default: '/gifting' },
+    accent: {
+      type: String,
+      enum: ['rose', 'amber', 'sage'],
+      default: 'rose',
+    },
+  },
+  { _id: false }
+);
+
+const homeGiftShowcaseSchema = new Schema(
+  {
+    isActive: { type: Boolean, default: true },
+    headlineLine1: { type: String, trim: true, maxlength: 80 },
+    headlineLine2: { type: String, trim: true, maxlength: 80 },
+    description: { type: String, trim: true, maxlength: 520 },
+    /** Shown next to social icons, e.g. @thehouseofrani */
+    socialHandle: { type: String, trim: true, maxlength: 80 },
+    cards: {
+      type: [homeGiftShowcaseCardSchema],
+      validate: [(arr: unknown[]) => !Array.isArray(arr) || arr.length <= 3, 'Max 3 cards'],
+    },
+  },
+  { _id: false }
+);
+
 const storefrontSettingsSchema = new Schema(
   {
     key: { type: String, unique: true, default: 'default' },
@@ -124,6 +174,7 @@ const storefrontSettingsSchema = new Schema(
     blogBanner: blogBannerSchema,
     giftingHeroBanners: [giftingHeroBannerSchema],
     giftingSecondaryBanners: [giftingSecondaryBannerSchema],
+    homeGiftShowcase: homeGiftShowcaseSchema,
     footer: footerSchema,
   },
   { timestamps: true }

@@ -12,6 +12,11 @@ import logger from "../utils/logger";
 import { emailTemplates, sendEmailNow } from "../services/emailService";
 import { enqueueEmail } from "../queues/emailQueue";
 import {
+  sendOtp as sendOtpUnified,
+  verifyOtp,
+  createVerifiedSignupUser,
+} from "../services/otpAuthService";
+import {
   sendAuthResponse,
   hashToken,
   clearTokenCookies,
@@ -21,7 +26,6 @@ import { assertRefreshAllowed } from "../services/refreshRateLimiter";
 import { sendSuccess } from "../utils/response";
 import { writeAdminAudit } from "../services/adminAuditService";
 
-const OTP_EXPIRY_MS = 10 * 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
 
 const googleClient =
@@ -50,48 +54,30 @@ async function deliverWelcomeEmail(
   }
 }
 
-async function issueOtpCode(): Promise<{ plain: string; hash: string }> {
-  const plain = String(crypto.randomInt(100000, 1000000));
-  const hash = await bcrypt.hash(plain, 10);
-  return { plain, hash };
-}
-
 /** Step 1: collect details & send email OTP (account created only after verify). */
 export const signupStart = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const { name, email, password, phone } = req.body;
     const emailLower = email.toLowerCase().trim();
-
-    const existing = await User.findOne({ email: emailLower });
-    if (existing) {
+    try {
+      await sendOtpUnified({
+        flow: "signup",
+        email: emailLower,
+        signup: { name, email: emailLower, password, phone },
+      });
+    } catch (e) {
+      const err = e as Error & { statusCode?: number };
+      if (err.statusCode) {
+        return next(new AppError(err.message, err.statusCode));
+      }
+      logger.error(`signup/start send OTP: ${err.message}`);
       return next(
-        new AppError("An account with this email already exists.", 409),
+        new AppError(
+          "Could not send verification email. Please try again shortly.",
+          503,
+        ),
       );
     }
-
-    const { plain, hash } = await issueOtpCode();
-    const expiresAt = new Date(Date.now() + OTP_EXPIRY_MS);
-
-    await AuthOtp.findOneAndUpdate(
-      { email: emailLower, purpose: "signup" },
-      {
-        email: emailLower,
-        purpose: "signup",
-        codeHash: hash,
-        expiresAt,
-        attempts: 0,
-        signupPayload: { name, phone, password },
-      },
-      { upsert: true, new: true, runValidators: true },
-    );
-
-    const tpl = emailTemplates.otpSignup(name, plain);
-    await enqueueEmail({
-      to: emailLower,
-      subject: tpl.subject,
-      html: tpl.html,
-    });
-
     sendSuccess(res, {}, "Verification code sent to your email.");
   },
 );
@@ -102,48 +88,22 @@ export const signupVerify = catchAsync(
     const { email, otp } = req.body;
     const emailLower = email.toLowerCase().trim();
 
-    const doc = await AuthOtp.findOne({
+    const result = await verifyOtp({
+      flow: "signup",
       email: emailLower,
-      purpose: "signup",
+      otp: String(otp),
     });
-
-    if (!doc || doc.expiresAt.getTime() < Date.now()) {
-      return next(new AppError("Invalid or expired verification code.", 400));
+    if (!result.ok) {
+      return next(new AppError(result.message, result.statusCode));
     }
-    if (doc.attempts >= MAX_OTP_ATTEMPTS) {
-      return next(
-        new AppError("Too many attempts. Please request a new code.", 429),
-      );
+    if (result.flow !== "signup") {
+      return next(new AppError("Invalid verification response.", 500));
     }
 
-    const ok = await bcrypt.compare(String(otp), doc.codeHash);
-    if (!ok) {
-      await AuthOtp.updateOne({ _id: doc._id }, { $inc: { attempts: 1 } });
-      return next(new AppError("Invalid verification code.", 400));
-    }
-
-    const payload = doc.signupPayload;
-    if (!payload?.name || !payload?.password) {
-      return next(
-        new AppError("Signup session invalid. Please start again.", 400),
-      );
-    }
-
-    const user = await User.create({
-      name: payload.name,
-      email: emailLower,
-      password: payload.password,
-      phone: payload.phone || undefined,
-      emailVerified: true,
-      addresses: [],
-    });
-
-    await AuthOtp.deleteOne({ _id: doc._id });
-
-    await deliverWelcomeEmail(payload.name, emailLower);
-    user.set("welcomeEmailAt", new Date());
-    await user.save({ validateModifiedOnly: true });
-
+    const user = await createVerifiedSignupUser(
+      emailLower,
+      result.signupPayload,
+    );
     await sendAuthResponse(res, user, 201);
   },
 );
@@ -249,46 +209,29 @@ export const refresh = catchAsync(
 );
 
 export const forgotPassword = catchAsync(
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     const { email } = req.body;
     const emailLower = email.toLowerCase().trim();
+    const generic =
+      "If an account exists for this email, you will receive a reset code shortly.";
 
-    const user = await User.findOne({ email: emailLower }).select("+googleId");
-    const generic = {
-      status: "success" as const,
-      message:
-        "If an account exists for this email, you will receive a reset code shortly.",
-    };
-
-    if (!user || user.googleId) {
-      sendSuccess(res, {}, generic.message);
-      return;
+    try {
+      await sendOtpUnified({ flow: "forgot_password", email: emailLower });
+    } catch (e) {
+      const err = e as Error & { statusCode?: number };
+      if (err.statusCode) {
+        return next(new AppError(err.message, err.statusCode));
+      }
+      logger.warn(`forgot-password OTP path: ${err.message}`);
+      return next(
+        new AppError(
+          "Could not send reset email. Please try again shortly.",
+          503,
+        ),
+      );
     }
 
-    const { plain, hash } = await issueOtpCode();
-    const expiresAt = new Date(Date.now() + OTP_EXPIRY_MS);
-
-    await AuthOtp.findOneAndUpdate(
-      { email: emailLower, purpose: "password_reset" },
-      {
-        email: emailLower,
-        purpose: "password_reset",
-        codeHash: hash,
-        expiresAt,
-        attempts: 0,
-      },
-      { upsert: true, new: true },
-    );
-
-    const tpl = emailTemplates.otpPasswordReset(user.name, plain);
-    await enqueueEmail({
-      to: emailLower,
-      subject: tpl.subject,
-      html: tpl.html,
-    });
-
-    sendSuccess(res, {}, generic.message);
-    return;
+    sendSuccess(res, {}, generic);
   },
 );
 

@@ -227,7 +227,8 @@ export const processStorefrontAssets = async (
       shopBannerRight?: { url: string; publicId: string };
       giftingHero: Record<string, { url: string; publicId: string }>;
       giftingSecondary: Record<string, { url: string; publicId: string }>;
-    } = { hero: {}, giftingHero: {}, giftingSecondary: {} };
+      homeGiftCard: Record<string, { url: string; publicId: string }>;
+    } = { hero: {}, giftingHero: {}, giftingSecondary: {}, homeGiftCard: {} };
 
     for (const file of files) {
       if (file.fieldname.startsWith('heroImage_')) {
@@ -284,6 +285,15 @@ export const processStorefrontAssets = async (
           { quality: 92 }
         );
         uploaded.giftingSecondary[index] = { url: result.secure_url, publicId: result.public_id };
+      } else if (file.fieldname.startsWith('homeGiftCardImage_')) {
+        const index = file.fieldname.replace('homeGiftCardImage_', '');
+        const result = await uploadToCloudinary(
+          file.buffer,
+          'house-of-rani/storefront/home-gift-cards',
+          [{ width: 800, height: 800, crop: 'limit' }],
+          { quality: 90 }
+        );
+        uploaded.homeGiftCard[index] = { url: result.secure_url, publicId: result.public_id };
       }
     }
 

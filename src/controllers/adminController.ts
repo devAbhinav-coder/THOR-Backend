@@ -7,7 +7,7 @@ import Review from '../models/Review';
 import AppError from '../utils/AppError';
 import catchAsync from '../utils/catchAsync';
 import { emailTemplates } from '../services/emailService';
-import { enqueueBroadcastEmail, enqueueEmail } from '../queues/emailQueue';
+import { enqueueBroadcastChunks, enqueueEmail } from '../queues/emailQueue';
 import { incrementVariantStock } from '../services/inventoryService';
 import { refProductId } from '../utils/productStock';
 import { sanitizeMarketingEmailHtml } from '../utils/sanitizeMarketingHtml';
@@ -217,15 +217,13 @@ export const sendCustomMarketingEmail = catchAsync(async (req: Request, res: Res
       return next(new AppError('Select at least one user.', 400));
     }
     const selectedRecipients = await User.find({ _id: { $in: userIds }, isActive: true }).select('_id email');
-    await Promise.all(
-      selectedRecipients.map((r) =>
-        enqueueBroadcastEmail(
-          { to: r.email, subject: tpl.subject, html: tpl.html },
-          { jobId: `marketing:${subject.trim().slice(0, 32)}:${String(r._id)}` }
-        )
-      )
+    const emails = selectedRecipients.map((r) => r.email);
+    const chunks = await enqueueBroadcastChunks(emails, tpl.subject, tpl.html);
+    sendSuccess(
+      res,
+      { recipients: selectedRecipients.length, chunkJobs: chunks },
+      `Queued ${selectedRecipients.length} marketing emails in ${chunks} batch(es).`,
     );
-    sendSuccess(res, { recipients: selectedRecipients.length }, `Queued ${selectedRecipients.length} emails`);
     return;
   }
 

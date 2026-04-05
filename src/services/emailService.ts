@@ -67,10 +67,17 @@ const smtpPort = Number(process.env.SMTP_PORT || 587);
 const smtpSecure = process.env.SMTP_SECURE === "true";
 const dkimOpts = buildDkim();
 
+const connectionTimeoutMs = parseInt(process.env.SMTP_CONNECTION_TIMEOUT_MS || "20000", 10);
+const socketTimeoutMs = parseInt(process.env.SMTP_SOCKET_TIMEOUT_MS || "25000", 10);
+const greetingTimeoutMs = parseInt(process.env.SMTP_GREETING_TIMEOUT_MS || "15000", 10);
+
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: smtpPort,
   secure: smtpSecure,
+  connectionTimeout: connectionTimeoutMs,
+  socketTimeout: socketTimeoutMs,
+  greetingTimeout: greetingTimeoutMs,
   ...(!smtpSecure && process.env.SMTP_REQUIRE_TLS !== "false" ?
     { requireTLS: true }
   : {}),
@@ -87,6 +94,69 @@ const transporter = nodemailer.createTransport({
     rejectUnauthorized: process.env.SMTP_TLS_REJECT_UNAUTHORIZED !== "false",
   },
 });
+
+export function smtpConfigured(): boolean {
+  return Boolean(process.env.SMTP_HOST?.trim());
+}
+
+type SmtpPayload = {
+  to: string;
+  subject: string;
+  html: string;
+  text?: string;
+};
+
+/**
+ * SMTP send with limited retries (timeouts / transient socket errors).
+ */
+export async function sendViaSmtpWithRetry(
+  payload: SmtpPayload,
+  maxAttempts = 2,
+): Promise<void> {
+  if (!smtpConfigured()) {
+    throw new Error("SMTP is not configured (SMTP_HOST missing).");
+  }
+
+  const mailOptions: import("nodemailer/lib/mailer").Options = {
+    from: fromEmail,
+    replyTo: replyToEmail,
+    to: payload.to,
+    subject: payload.subject,
+    html: payload.html,
+    text: payload.text || htmlToPlainText(payload.html),
+  };
+
+  if (isLocalhost) {
+    const p = getLocalLogoPath();
+    if (p) {
+      mailOptions.attachments = [
+        {
+          filename: "logo.jpg",
+          path: p,
+          cid: "brandlogo",
+        },
+      ];
+    }
+  }
+
+  let lastErr: Error | null = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const info = await transporter.sendMail(mailOptions);
+      logger.info(`Email sent (SMTP): ${info.messageId} to ${payload.to}`);
+      return;
+    } catch (e) {
+      lastErr = e as Error;
+      logger.warn(
+        `SMTP attempt ${attempt}/${maxAttempts} failed (${payload.to}): ${lastErr.message}`,
+      );
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 800 * attempt));
+      }
+    }
+  }
+  throw lastErr || new Error("SMTP send failed");
+}
 
 const shell = (
   title: string,
@@ -311,36 +381,29 @@ export const emailTemplates = {
       `Hi ${name},<br/><br/>Use this code to reset your password:<br/><br/><b style="font-size:22px;letter-spacing:0.18em;color:#0f172a;">${code}</b><br/><br/>It expires in <b>10 minutes</b>. If you did not request a reset, ignore this email.`,
     ),
   }),
+  /** Email OTP sign-in (passwordless) for verified non-Google accounts. */
+  otpLogin: (name: string, code: string) => ({
+    subject: "Your sign-in code",
+    html: shell(
+      "Sign in to your account",
+      `Hi ${name},<br/><br/>Your one-time sign-in code is:<br/><br/><b style="font-size:22px;letter-spacing:0.18em;color:#0f172a;">${code}</b><br/><br/>It expires in <b>10 minutes</b>. If you did not try to sign in, ignore this email.`,
+    ),
+  }),
 };
 
 export const sendEmailNow = async (payload: EmailPayload) => {
-  if (!process.env.SMTP_HOST) {
+  if (!smtpConfigured()) {
     logger.warn(`SMTP_HOST missing, skipping email to ${payload.to}`);
     return;
   }
 
-  const mailOptions: import("nodemailer/lib/mailer").Options = {
-    from: fromEmail,
-    replyTo: replyToEmail,
-    to: payload.to,
-    subject: payload.subject,
-    html: payload.html,
-    text: payload.text || htmlToPlainText(payload.html),
-  };
-
-  if (isLocalhost) {
-    const p = getLocalLogoPath();
-    if (p) {
-      mailOptions.attachments = [
-        {
-          filename: "logo.jpg",
-          path: p,
-          cid: "brandlogo",
-        },
-      ];
-    }
-  }
-
-  const info = await transporter.sendMail(mailOptions);
-  logger.info(`Email sent: ${info.messageId} to ${payload.to}`);
+  await sendViaSmtpWithRetry(
+    {
+      to: payload.to,
+      subject: payload.subject,
+      html: payload.html,
+      text: payload.text,
+    },
+    2,
+  );
 };

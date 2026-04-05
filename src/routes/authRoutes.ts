@@ -30,7 +30,11 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   googleAuthSchema,
+  sendOtpSchema,
+  verifyOtpSchema,
+  resendOtpSchema,
 } from '../validation/schemas';
+import { postSendOtp, postVerifyOtp, postResendOtp } from '../controllers/otpController';
 import { createAdaptiveLimiter } from '../middleware/adaptiveRateLimit';
 
 const router = Router();
@@ -68,6 +72,10 @@ const otpLimiter = rateLimit({
 
 router.post('/signup/start', otpLimiter, validate(signupStartSchema), signupStart);
 router.post('/signup/verify', otpLimiter, validate(signupVerifySchema), signupVerify);
+/** Unified OTP API (immediate Zoho + Resend fallback). */
+router.post('/send-otp', otpLimiter, validate(sendOtpSchema), postSendOtp);
+router.post('/resend-otp', otpLimiter, validate(resendOtpSchema), postResendOtp);
+router.post('/verify-otp', otpLimiter, validate(verifyOtpSchema), postVerifyOtp);
 router.post('/login', loginLimiter, sensitiveAuthLimiter, validate(loginSchema), login);
 router.post('/refresh', sensitiveAuthLimiter, refresh);
 router.post('/forgot-password', otpLimiter, validate(forgotPasswordSchema), forgotPassword);
