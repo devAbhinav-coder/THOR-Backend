@@ -33,7 +33,45 @@ function err(message: string, statusCode: number): Error {
   return e;
 }
 
-/** Creates the user after signup OTP is verified and sends the welcome email. */
+/**
+ * Welcome mail must not block the verify-otp HTTP response: SMTP can take tens of seconds
+ * (or hang on blocked ports), while the frontend axios client times out at 15s — users see
+ * "no response" even though OTP was valid and the account was created.
+ */
+function scheduleWelcomeEmail(
+  userId: string,
+  emailLower: string,
+  name: string,
+): void {
+  const welcome = emailTemplates.welcome(name);
+  const payload = {
+    to: emailLower,
+    subject: welcome.subject,
+    html: welcome.html,
+  };
+  void (async () => {
+    try {
+      try {
+        await sendEmailNow(payload);
+      } catch (e) {
+        logger.warn(
+          `Welcome email direct send failed (${emailLower}): ${(e as Error).message}; retry via queue`,
+        );
+        await enqueueEmail(payload);
+      }
+      await User.updateOne(
+        { _id: userId },
+        { $set: { welcomeEmailAt: new Date() } },
+      );
+    } catch (e) {
+      logger.error(
+        `Welcome email pipeline failed (${emailLower}): ${(e as Error).message}`,
+      );
+    }
+  })();
+}
+
+/** Creates the user after signup OTP is verified; welcome email is sent in the background. */
 export async function createVerifiedSignupUser(
   emailLower: string,
   signupPayload: SignupOtpPayload,
@@ -47,22 +85,7 @@ export async function createVerifiedSignupUser(
     addresses: [],
   });
 
-  const welcome = emailTemplates.welcome(signupPayload.name);
-  const payload = {
-    to: emailLower,
-    subject: welcome.subject,
-    html: welcome.html,
-  };
-  try {
-    await sendEmailNow(payload);
-  } catch (e) {
-    logger.warn(
-      `Welcome email direct send failed (${emailLower}): ${(e as Error).message}; retry via queue`,
-    );
-    await enqueueEmail(payload);
-  }
-  user.set("welcomeEmailAt", new Date());
-  await user.save({ validateModifiedOnly: true });
+  scheduleWelcomeEmail(String(user._id), emailLower, signupPayload.name);
   return user;
 }
 

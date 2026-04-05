@@ -85,6 +85,7 @@ export const sendAuthResponse = async (
 
   res.status(statusCode).json({
     status: 'success',
+    message: 'Authenticated successfully',
     token: accessToken,
     data: { user: userObj },
   });

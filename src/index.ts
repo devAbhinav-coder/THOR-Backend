@@ -61,10 +61,23 @@ if (process.env.NODE_ENV === "production" && redisEnabled) {
     });
 }
 
-const corsOrigins = (process.env.FRONTEND_URLS || process.env.FRONTEND_URL || "http://localhost:3000")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
+/** Match browser `Origin` to env (trailing slash / casing mismatches break CORS silently). */
+function normalizeOriginUrl(origin: string): string {
+  const t = origin.trim().replace(/\/+$/, "");
+  try {
+    const u = new URL(t);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return t;
+  }
+}
+
+const corsAllowSet = new Set(
+  (process.env.FRONTEND_URLS || process.env.FRONTEND_URL || "http://localhost:3000")
+    .split(",")
+    .map((s) => normalizeOriginUrl(s.trim()))
+    .filter(Boolean),
+);
 
 app.use(
   cors({
@@ -72,15 +85,24 @@ app.use(
       if (!origin) {
         return callback(null, true);
       }
-      if (corsOrigins.includes(origin)) {
+      if (corsAllowSet.has(normalizeOriginUrl(origin))) {
         return callback(null, true);
       }
+      logger.warn(`CORS blocked request from origin: ${origin} (allowed: ${[...corsAllowSet].join(", ")})`);
       callback(null, false);
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Request-Id", "Idempotency-Key"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Request-Id",
+      "Idempotency-Key",
+      "Accept",
+      "Cookie",
+    ],
     maxAge: 86400,
+    optionsSuccessStatus: 204,
   }),
 );
 
@@ -110,6 +132,7 @@ if (process.env.NODE_ENV === "production" && configuredMax > 2000) {
 const limiter = rateLimit({
   windowMs,
   max,
+  skip: (req) => req.method === "OPTIONS",
   message: {
     status: "error",
     message: "Too many requests, please try again later.",
@@ -132,6 +155,7 @@ const limiter = rateLimit({
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
+  skip: (req) => req.method === "OPTIONS",
   message: {
     status: "error",
     message: "Too many authentication attempts, please try again after 15 minutes.",
