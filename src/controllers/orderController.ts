@@ -61,7 +61,7 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
     variant: { sku: string; size?: string; color?: string; colorCode?: string };
     quantity: number;
     price: number;
-    customFieldAnswers?: { label: string; value: string }[];
+    customFieldAnswers?: { label: string; value: string }[] | string;
   }> = [];
   let checkoutSubtotal = 0;
   let cartIdToDelete: mongoose.Types.ObjectId | null = null;
