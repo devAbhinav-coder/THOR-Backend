@@ -149,6 +149,9 @@ export const updateOrderStatus = catchAsync(async (req: Request, res: Response, 
   if (status === 'delivered') {
     order.deliveredAt = new Date();
     order.paymentStatus = 'paid';
+    if (!order.invoice?.isGenerated) {
+      order.invoice = { isGenerated: true, generatedAt: new Date() };
+    }
   }
 
   if (status === 'cancelled' && previousStatus !== 'cancelled') {

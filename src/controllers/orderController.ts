@@ -387,10 +387,11 @@ export const verifyPayment = catchAsync(async (req: AuthRequest, res: Response, 
       fresh.status = 'confirmed';
       fresh.razorpayPaymentId = razorpayPaymentId;
       fresh.razorpaySignature = razorpaySignature;
+      fresh.invoice = { isGenerated: true, generatedAt: new Date() };
       fresh.statusHistory.push({
         status: 'confirmed',
         timestamp: new Date(),
-        note: 'Payment received',
+        note: 'Payment received (Invoice auto-generated)',
       });
       await fresh.save({ session });
     });
