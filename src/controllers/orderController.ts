@@ -54,18 +54,67 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
   }
 
   try {
-  const { shippingAddress, paymentMethod, couponCode, notes } = req.body;
+  const { shippingAddress, paymentMethod, couponCode, notes, buyNowItem } = req.body;
 
-  const cart = await orderRepository.findCartForCheckout(String(req.user!._id));
-  if (!cart || cart.items.length === 0) {
-    return next(new AppError('Your cart is empty.', 400));
+  let checkoutItems: Array<{
+    product: mongoose.Types.ObjectId | { _id: mongoose.Types.ObjectId };
+    variant: { sku: string; size?: string; color?: string; colorCode?: string };
+    quantity: number;
+    price: number;
+    customFieldAnswers?: { label: string; value: string }[];
+  }> = [];
+  let checkoutSubtotal = 0;
+  let cartIdToDelete: mongoose.Types.ObjectId | null = null;
+  let cartCouponDiscount = 0;
+  let cartCouponId: mongoose.Types.ObjectId | undefined;
+  let productMap = new Map<string, InstanceType<typeof Product>>();
+
+  if (buyNowItem) {
+    const product = await Product.findById(buyNowItem.productId);
+    if (!product || !product.isActive) {
+      return next(new AppError('Product is no longer available.', 400));
+    }
+    const minQty = getGiftMinQty(product);
+    if (buyNowItem.quantity < minQty) {
+      return next(new AppError(`Minimum quantity for "${product.name}" is ${minQty}.`, 400));
+    }
+    const variant = product.variants.find((v) => v.sku === buyNowItem.variant.sku);
+    if (!variant || variant.stock < buyNowItem.quantity) {
+      return next(new AppError(`Insufficient stock for "${product.name}".`, 400));
+    }
+
+    const linePrice = Number(variant.price ?? product.price ?? 0);
+    checkoutItems = [
+      {
+        product: product._id as mongoose.Types.ObjectId,
+        variant: buyNowItem.variant,
+        quantity: buyNowItem.quantity,
+        price: linePrice,
+        customFieldAnswers: buyNowItem.customFieldAnswers,
+      },
+    ];
+    checkoutSubtotal = linePrice * buyNowItem.quantity;
+    productMap = new Map([[String(product._id), product]]);
+  } else {
+    const cart = await orderRepository.findCartForCheckout(String(req.user!._id));
+    if (!cart || cart.items.length === 0) {
+      return next(new AppError('Your cart is empty.', 400));
+    }
+
+    checkoutItems = cart.items;
+    checkoutSubtotal = cart.subtotal;
+    cartIdToDelete = cart._id as mongoose.Types.ObjectId;
+    if (cart.coupon) {
+      cartCouponDiscount = cart.discount;
+      cartCouponId = cart.coupon as mongoose.Types.ObjectId;
+    }
+
+    const productIds = [...new Set(cart.items.map((i) => refProductId(i.product)))];
+    const products = await orderRepository.findProductsByIds(productIds);
+    productMap = new Map(products.map((p) => [String(p._id), p]));
   }
 
-  const productIds = [...new Set(cart.items.map((i) => refProductId(i.product)))];
-  const products = await orderRepository.findProductsByIds(productIds);
-  const productMap = new Map(products.map((p) => [String(p._id), p]));
-
-  for (const item of cart.items) {
+  for (const item of checkoutItems) {
     const product = productMap.get(refProductId(item.product));
     if (!product || !product.isActive) {
       return next(new AppError(`Product is no longer available.`, 400));
@@ -90,24 +139,24 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
         coupon as typeof coupon & {
           isValid: (userId: string, amount: number) => { valid: boolean; message?: string };
         }
-      ).isValid(String(req.user!._id), cart.subtotal);
+      ).isValid(String(req.user!._id), checkoutSubtotal);
       if (validity.valid) {
         discount = (
           coupon as typeof coupon & { calculateDiscount: (amount: number) => number }
-        ).calculateDiscount(cart.subtotal);
+        ).calculateDiscount(checkoutSubtotal);
         couponId = coupon._id as mongoose.Types.ObjectId;
       }
     }
-  } else if (cart.coupon) {
-    discount = cart.discount;
-    couponId = cart.coupon as mongoose.Types.ObjectId;
+  } else if (cartCouponId) {
+    discount = cartCouponDiscount;
+    couponId = cartCouponId;
   }
 
-  const { shippingCharge, tax, total } = computeOrderTotals(cart.subtotal, discount);
+  const { shippingCharge, tax, total } = computeOrderTotals(checkoutSubtotal, discount);
 
   let orderItems: ReturnType<typeof buildOrderItemsFromProducts>;
   try {
-    orderItems = buildOrderItemsFromProducts(cart.items, productMap);
+    orderItems = buildOrderItemsFromProducts(checkoutItems, productMap);
   } catch (e) {
     return next(e);
   }
@@ -117,7 +166,7 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
     items: orderItems,
     shippingAddress,
     paymentMethod,
-    subtotal: cart.subtotal,
+    subtotal: checkoutSubtotal,
     discount,
     shippingCharge,
     tax,
@@ -138,7 +187,9 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
     order.razorpayOrderId = razorpayOrder.id;
     await order.save();
 
-    await orderRepository.deleteCartById(cart._id);
+    if (cartIdToDelete) {
+      await orderRepository.deleteCartById(cartIdToDelete);
+    }
 
     const razorpayBody = {
       status: 'success' as const,
@@ -166,7 +217,7 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
       const created = await Order.create([orderPayload], { session });
       codOrder = created[0] as InstanceType<typeof Order>;
 
-      for (const item of cart.items) {
+      for (const item of checkoutItems) {
         const ok = await decrementVariantStock(refProductId(item.product), item.variant.sku, item.quantity, { session });
         if (!ok) {
           throw new AppError(`Insufficient stock for a cart item. Please refresh and try again.`, 409);
@@ -178,7 +229,7 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
         if (!coupon) {
           throw new AppError('Coupon is no longer valid.', 400);
         }
-        const validity = coupon.isValid(String(req.user!._id), cart.subtotal);
+        const validity = coupon.isValid(String(req.user!._id), checkoutSubtotal);
         if (!validity.valid) {
           throw new AppError(validity.message || 'Coupon is not valid.', 400);
         }
@@ -195,7 +246,9 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
         }
       }
 
-      await orderRepository.deleteCartByIdInSession(cart._id, session);
+      if (cartIdToDelete) {
+        await orderRepository.deleteCartByIdInSession(cartIdToDelete, session);
+      }
     });
   } finally {
     await session.endSession();
