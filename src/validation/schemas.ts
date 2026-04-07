@@ -408,6 +408,15 @@ export const updateUserRoleSchema = z.object({
   }),
 });
 
+export const updateUserNoteSchema = z.object({
+  body: z.object({
+    note: z.string().max(1000).optional().default(''),
+  }),
+  params: z.object({
+    id: z.string().regex(/^[a-fA-F0-9]{24}$/, 'Invalid user id'),
+  }),
+});
+
 // ─── Category ─────────────────────────────────────────────────────────────────
 
 export const createCategorySchema = z.object({

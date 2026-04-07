@@ -118,6 +118,7 @@ const userSchema = new Schema<IUser>(
       match: [/^[6-9]\d{9}$/, 'Please enter a valid Indian phone number'],
     },
     avatar: String,
+    adminNote: { type: String, maxlength: 1000, default: '' },
     addresses: {
       type: [addressSchema],
       default: [],

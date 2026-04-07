@@ -86,6 +86,10 @@ const orderSchema = new Schema<IOrder>(
       enum: ['standard', 'custom'],
       default: 'standard',
     },
+    invoice: {
+      isGenerated: { type: Boolean, default: false },
+      generatedAt: Date,
+    },
     customRequestId: {
       type: Schema.Types.ObjectId,
       ref: 'GiftingRequest',

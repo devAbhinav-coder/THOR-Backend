@@ -5,8 +5,11 @@ import {
   getAllOrders,
   getOrderDetails,
   updateOrderStatus,
+  generateOrderInvoice,
   getAllUsers,
+  getUserInsights,
   toggleUserStatus,
+  updateUserNote,
   updateUserRole,
   getAllReviews,
   deleteReview,
@@ -25,7 +28,7 @@ import {
 } from '../controllers/categoryController';
 import { protect, restrictTo } from '../middleware/auth';
 import { validate } from '../middleware/validate';
-import { updateOrderStatusSchema, createCategorySchema, sendMarketingEmailSchema, updateUserRoleSchema } from '../validation/schemas';
+import { updateOrderStatusSchema, createCategorySchema, sendMarketingEmailSchema, updateUserNoteSchema, updateUserRoleSchema } from '../validation/schemas';
 import {
   uploadAvatar,
   processCategoryImage,
@@ -50,10 +53,13 @@ router.get('/security/audit', getAdminAuditLogs);
 router.get('/orders', getAllOrders);
 router.get('/orders/:id', getOrderDetails);
 router.patch('/orders/:id/status', validate(updateOrderStatusSchema), updateOrderStatus);
+router.post('/orders/:id/generate-invoice', generateOrderInvoice);
 
 router.get('/users', getAllUsers);
+router.get('/users/:id/insights', getUserInsights);
 router.patch('/users/:id/toggle-status', toggleUserStatus);
 router.patch('/users/:id/role', validate(updateUserRoleSchema), updateUserRole);
+router.patch('/users/:id/note', validate(updateUserNoteSchema), updateUserNote);
 
 router.get('/reviews', getAllReviews);
 router.delete('/reviews/:id', deleteReview);

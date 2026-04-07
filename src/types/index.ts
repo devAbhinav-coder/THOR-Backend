@@ -13,6 +13,7 @@ export interface IUser extends Document {
   emailVerified?: boolean;
   phone?: string;
   avatar?: string;
+  adminNote?: string;
   addresses: IAddress[];
   isActive: boolean;
   passwordChangedAt?: Date;
@@ -169,6 +170,10 @@ export interface IOrder extends Document {
   deliveredAt?: Date;
   productType: 'standard' | 'custom';
   customRequestId?: Types.ObjectId;
+  invoice?: {
+    isGenerated: boolean;
+    generatedAt?: Date;
+  };
   createdAt: Date;
   updatedAt: Date;
 }

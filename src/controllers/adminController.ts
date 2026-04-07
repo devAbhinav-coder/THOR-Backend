@@ -190,6 +190,23 @@ export const updateOrderStatus = catchAsync(async (req: Request, res: Response, 
   sendSuccess(res, { order });
 });
 
+export const generateOrderInvoice = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
+  const order = await Order.findById(req.params.id);
+  if (!order) return next(new AppError('Order not found.', 404));
+
+  const invoiceEligible = order.paymentStatus === 'paid' || order.status === 'delivered';
+  if (!invoiceEligible) {
+    return next(new AppError('Invoice can be generated only for paid or delivered orders.', 400));
+  }
+
+  if (!order.invoice?.isGenerated) {
+    order.invoice = { isGenerated: true, generatedAt: new Date() };
+    await order.save();
+  }
+
+  sendSuccess(res, { invoice: order.invoice, orderId: String(order._id) }, 'Invoice generated.');
+});
+
 export const sendCustomMarketingEmail = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
   const { subject, messageHtml, audience, userIds, ctaText, ctaLink } = req.body as {
     subject?: string;
@@ -318,6 +335,60 @@ export const updateUserRole = catchAsync(async (req: Request, res: Response, nex
   );
 
   sendSuccess(res, { user: { _id: user._id, role: user.role } }, 'User role updated.');
+});
+
+export const getUserInsights = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
+  if (!Types.ObjectId.isValid(req.params.id)) {
+    return next(new AppError('Invalid user id.', 400));
+  }
+  const user = await User.findById(req.params.id).select('name email phone avatar role isActive createdAt adminNote');
+  if (!user) return next(new AppError('User not found.', 404));
+
+  const orders = await Order.find({ user: user._id })
+    .sort('-createdAt')
+    .limit(20)
+    .select('orderNumber status paymentStatus total createdAt items');
+
+  const paidOrders = orders.filter((o) => o.paymentStatus === 'paid');
+  const totalSpent = paidOrders.reduce((acc, o) => acc + Number(o.total || 0), 0);
+  const orderCount = orders.length;
+  const paidOrderCount = paidOrders.length;
+  const avgOrderValue = paidOrderCount > 0 ? totalSpent / paidOrderCount : 0;
+  const lastOrderAt = orders[0]?.createdAt || null;
+  const userSegment =
+    paidOrderCount >= 5 || totalSpent >= 20000
+      ? 'frequent_buyer'
+      : paidOrderCount >= 2
+        ? 'repeat_buyer'
+        : paidOrderCount >= 1
+          ? 'new_buyer'
+          : 'prospect';
+
+  sendSuccess(res, {
+    user,
+    metrics: {
+      orderCount,
+      paidOrderCount,
+      totalSpent,
+      avgOrderValue: Math.round(avgOrderValue * 100) / 100,
+      lastOrderAt,
+      userSegment,
+    },
+    orders,
+  });
+});
+
+export const updateUserNote = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
+  if (!Types.ObjectId.isValid(req.params.id)) {
+    return next(new AppError('Invalid user id.', 400));
+  }
+  const note = String(req.body?.note || '').trim();
+  const user = await User.findById(req.params.id);
+  if (!user) return next(new AppError('User not found.', 404));
+  user.adminNote = note.slice(0, 1000);
+  await user.save();
+  await writeAdminAudit(req, 'user.note.updated', { noteLength: user.adminNote.length }, String(user._id));
+  sendSuccess(res, { user: { _id: user._id, adminNote: user.adminNote } }, 'User note updated.');
 });
 
 export const getAllReviews = catchAsync(async (req: Request, res: Response) => {
