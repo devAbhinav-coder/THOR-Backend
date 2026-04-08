@@ -210,14 +210,21 @@ app.get("/api/health", async (_req: Request, res: Response) => {
   } catch {
     redisOk = false;
   }
-  const ok = mongoOk && (redisEnabled ? redisOk : true);
-  res.status(ok ? 200 : 503).json({
-    status: ok ? "ok" : "degraded",
-    message: ok ? "The House of Rani API is running" : "Dependency check failed",
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV,
-    checks: { mongodb: mongoOk, redis: redisEnabled ? redisOk : "disabled" },
-  });
+ 
+ 
+ const ok = mongoOk; // ONLY Mongo decides health
+
+res.status(ok ? 200 : 503).json({
+  status: ok ? "ok" : "degraded",
+  message: ok
+    ? "API is running"
+    : "Database connection failed",
+  timestamp: new Date().toISOString(),
+  checks: {
+    mongodb: mongoOk,
+    redis: redisEnabled ? redisOk : "disabled",
+  },
+});
 });
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(openApiSpec));
 
