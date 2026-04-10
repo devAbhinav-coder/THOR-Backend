@@ -86,3 +86,19 @@ export const verifyPaymentAndThrow = (
     throw new AppError('Payment verification failed. Invalid signature.', 400);
   }
 };
+
+export const refundRazorpayPayment = async (
+  razorpayPaymentId: string,
+  amountInr: number,
+  notes?: Record<string, string>
+) => {
+  try {
+    const refund = await razorpayInstance.payments.refund(razorpayPaymentId, {
+      amount: Math.round(amountInr * 100),
+      notes: notes || {},
+    });
+    return refund;
+  } catch (error: any) {
+    throw new AppError(error.description || 'Razorpay refund failed', 400);
+  }
+};

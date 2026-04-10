@@ -6,7 +6,12 @@ import {
   getOrderDetails,
   updateOrderStatus,
   generateOrderInvoice,
+  processRefund,
+  getReturns,
+  getReturnsInsights,
+  resolveReturn,
   getAllUsers,
+  getUserDirectoryStats,
   getUserInsights,
   toggleUserStatus,
   updateUserNote,
@@ -28,7 +33,7 @@ import {
 } from '../controllers/categoryController';
 import { protect, restrictTo } from '../middleware/auth';
 import { validate } from '../middleware/validate';
-import { updateOrderStatusSchema, createCategorySchema, sendMarketingEmailSchema, updateUserNoteSchema, updateUserRoleSchema } from '../validation/schemas';
+import { updateOrderStatusSchema, processRefundSchema, createCategorySchema, sendMarketingEmailSchema, updateUserNoteSchema, updateUserRoleSchema } from '../validation/schemas';
 import {
   uploadAvatar,
   processCategoryImage,
@@ -54,7 +59,13 @@ router.get('/orders', getAllOrders);
 router.get('/orders/:id', getOrderDetails);
 router.patch('/orders/:id/status', validate(updateOrderStatusSchema), updateOrderStatus);
 router.post('/orders/:id/generate-invoice', generateOrderInvoice);
+router.post('/orders/:id/refund', validate(processRefundSchema), processRefund);
+router.patch('/orders/:id/return/resolve', resolveReturn);
 
+router.get('/returns/insights', getReturnsInsights);
+router.get('/returns', getReturns);
+
+router.get('/users/stats', getUserDirectoryStats);
 router.get('/users', getAllUsers);
 router.get('/users/:id/insights', getUserInsights);
 router.patch('/users/:id/toggle-status', toggleUserStatus);

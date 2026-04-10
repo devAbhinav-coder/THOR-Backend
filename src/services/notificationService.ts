@@ -3,6 +3,26 @@ import { Notification } from '../models/Notification';
 import logger from '../utils/logger';
 import { Types } from 'mongoose';
 import { enqueuePush } from '../queues/pushQueue';
+import { enqueueEmail } from '../queues/emailQueue';
+
+export async function notifyAdminsEmail(subject: string, html: string) {
+  try {
+    const admins = await User.find({ role: 'admin', isActive: true }, 'email');
+    if (admins.length === 0) return;
+
+    await Promise.all(
+      admins.map((admin) =>
+        enqueueEmail({
+          to: admin.email,
+          subject,
+          html,
+        }).catch((err) => logger.error(`Failed to send email to admin ${admin.email}`, { err }))
+      )
+    );
+  } catch (err) {
+    logger.error('Failed to notify admins by email', { err });
+  }
+}
 
 export async function notifyAdmins(title: string, message: string, link?: string, type: 'order' | 'system' | 'alert' = 'system') {
   try {
@@ -39,7 +59,7 @@ export async function notifyUser(
   title: string,
   message: string,
   link?: string,
-  type: 'order' | 'promotion' | 'alert' = 'order'
+  type: 'order' | 'promotion' | 'alert' | 'info' | 'success' | 'error' | 'system' = 'order'
 ) {
   try {
     const created = await Notification.create({

@@ -6,6 +6,7 @@ import {
   getOrderById,
   cancelOrder,
   prepareOrderPayment,
+  requestReturn,
 } from '../controllers/orderController';
 import { protect } from '../middleware/auth';
 import { validate } from '../middleware/validate';
@@ -26,6 +27,7 @@ router.post('/', paymentLimiter, validate(createOrderSchema), createOrder);
 router.post('/verify-payment', paymentLimiter, validate(verifyPaymentSchema), verifyPayment);
 router.get('/my-orders', getMyOrders);
 router.get('/:id', getOrderById);
+router.post('/:id/return', paymentLimiter, requestReturn);
 router.post('/:orderId/prepare-payment', paymentLimiter, prepareOrderPayment);
 router.patch('/:id/cancel', paymentLimiter, cancelOrder);
 

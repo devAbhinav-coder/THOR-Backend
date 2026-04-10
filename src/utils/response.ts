@@ -20,7 +20,7 @@ export function sendSuccess(
 
 export function sendPaginated(
   res: Response,
-  data: Record<string, unknown>,
+  data: Record<string, unknown> | Record<string, unknown>[],
   pagination: { page: number; limit: number; total: number },
   message = "OK",
   statusCode = 200

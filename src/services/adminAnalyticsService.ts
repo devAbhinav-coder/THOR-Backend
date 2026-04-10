@@ -33,6 +33,8 @@ export async function getDashboardAnalyticsData() {
     reviewsThisMonth,
     topViewedRaw,
     revenueByCategory,
+    totalRefunds,
+    refundsByReason,
   ] = await Promise.all([
     Order.aggregate([{ $match: { paymentStatus: "paid" } }, { $group: { _id: null, total: { $sum: "$total" } } }]),
     Order.aggregate([{ $match: { paymentStatus: "paid", createdAt: { $gte: startOfMonth } } }, { $group: { _id: null, total: { $sum: "$total" } } }]),
@@ -80,6 +82,14 @@ export async function getDashboardAnalyticsData() {
       { $match: { _id: { $nin: [null, ""] } } },
       { $sort: { revenue: -1 } },
       { $limit: 10 },
+    ]),
+    Order.aggregate([
+      { $match: { "refundData.amount": { $exists: true } } },
+      { $group: { _id: null, total: { $sum: "$refundData.amount" }, count: { $sum: 1 } } }
+    ]),
+    Order.aggregate([
+      { $match: { returnStatus: { $in: ["requested", "approved", "returned"] }, "returnRequest.reason": { $exists: true } } },
+      { $group: { _id: "$returnRequest.reason", count: { $sum: 1 } } }
     ]),
   ]);
 
@@ -157,7 +167,10 @@ export async function getDashboardAnalyticsData() {
       paidOrdersCount,
       totalReviews,
       reviewsThisMonth,
+      refundedAmount: totalRefunds[0]?.total || 0,
+      refundedOrdersCount: totalRefunds[0]?.count || 0,
     },
+    refundsByReason,
     lowStockProducts,
     recentOrders,
     ordersByStatus,

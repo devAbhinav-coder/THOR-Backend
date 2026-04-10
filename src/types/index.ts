@@ -174,6 +174,29 @@ export interface IOrder extends Document {
     isGenerated: boolean;
     generatedAt?: Date;
   };
+  returnStatus?: 'none' | 'requested' | 'approved' | 'rejected' | 'returned';
+  returnRequest?: {
+    reason: string;
+    note?: string;
+    refundMethod?: 'original_payment' | 'upi' | 'bank_transfer';
+    userBankDetails?: {
+      upiId?: string;
+      accountName?: string;
+      accountNumber?: string;
+      ifscCode?: string;
+      bankName?: string;
+    };
+    requestedAt: Date;
+    resolvedAt?: Date;
+    adminNote?: string;
+  };
+  refundData?: {
+    amount: number;
+    method: 'razorpay_auto' | 'cash' | 'bank_transfer' | 'upi_manual';
+    gatewayRefundId?: string;
+    notes?: string;
+    processedAt: Date;
+  };
   createdAt: Date;
   updatedAt: Date;
 }

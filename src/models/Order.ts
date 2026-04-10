@@ -94,6 +94,36 @@ const orderSchema = new Schema<IOrder>(
       type: Schema.Types.ObjectId,
       ref: 'GiftingRequest',
     },
+    returnStatus: {
+      type: String,
+      enum: ['none', 'requested', 'approved', 'rejected', 'returned'],
+      default: 'none',
+    },
+    returnRequest: {
+      reason: String,
+      note: String,
+      refundMethod: { type: String, enum: ['original_payment', 'upi', 'bank_transfer'] },
+      userBankDetails: {
+        upiId: String,
+        accountName: String,
+        accountNumber: String,
+        ifscCode: String,
+        bankName: String,
+      },
+      requestedAt: Date,
+      resolvedAt: Date,
+      adminNote: String,
+    },
+    refundData: {
+      amount: Number,
+      method: {
+        type: String,
+        enum: ['razorpay_auto', 'cash', 'bank_transfer', 'upi_manual'],
+      },
+      gatewayRefundId: String,
+      notes: String,
+      processedAt: Date,
+    },
   },
   {
     timestamps: true,

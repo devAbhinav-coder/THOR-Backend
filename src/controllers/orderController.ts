@@ -29,7 +29,7 @@ import {
   tryClaimPaymentPlacedNotification,
 } from '../services/checkoutConcurrency';
 import { refProductId } from '../utils/productStock';
-import { notifyAdmins } from '../services/notificationService';
+import { notifyAdmins, notifyUser, notifyAdminsEmail } from '../services/notificationService';
 import { sendPaginated, sendSuccess } from '../utils/response';
 import { orderRepository } from '../repositories/orderRepository';
 import { buildOrderItemsFromProducts, computeOrderTotals, getGiftMinQty } from '../services/orderService';
@@ -269,22 +269,13 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
     html: userTemplate.html,
   });
 
-  const admins = await orderRepository.findActiveAdminEmails();
   const adminTemplate = emailTemplates.adminNewOrder(
     codOrder.orderNumber,
     codOrder.total,
     req.user?.name || 'Customer',
     req.user?.email || ''
   );
-  await Promise.all(
-    admins.map((a) =>
-      enqueueEmail({
-        to: a.email,
-        subject: adminTemplate.subject,
-        html: adminTemplate.html,
-      })
-    )
-  );
+  await notifyAdminsEmail(adminTemplate.subject, adminTemplate.html);
 
   await notifyAdmins(
     'New Order Received',
@@ -292,6 +283,15 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
     `/admin/orders/${codOrder._id}`,
     'order'
   );
+
+  // Notify user in-app + push
+  notifyUser(
+    String(req.user!._id),
+    `Order ${codOrder.orderNumber} confirmed!`,
+    `We've received your order. We'll notify you when it ships.`,
+    `/dashboard/orders/${codOrder._id}`,
+    'order'
+  ).catch(() => {});
 
   const codBody = { status: 'success' as const, data: { order: codOrder.toJSON() } };
   if (idemKey) {
@@ -414,24 +414,24 @@ export const verifyPayment = catchAsync(async (req: AuthRequest, res: Response, 
       html: userTemplate.html,
     });
 
-    const admins = await orderRepository.findActiveAdminEmails();
     const adminTemplate = emailTemplates.adminNewOrder(
       updated!.orderNumber,
       updated!.total,
       req.user?.name || 'Customer',
       req.user?.email || ''
     );
-    await Promise.all(
-      admins.map((a) =>
-        enqueueEmail({
-          to: a.email,
-          subject: adminTemplate.subject,
-          html: adminTemplate.html,
-        })
-      )
-    );
+    await notifyAdminsEmail(adminTemplate.subject, adminTemplate.html);
     
-    // In-App Notification
+    // In-App + Push Notification for user
+    notifyUser(
+      String(req.user!._id),
+      `Payment confirmed — ${updated!.orderNumber}`,
+      `Your payment was successful! Order ${updated!.orderNumber} is now confirmed and being processed.`,
+      `/dashboard/orders/${updated!._id}`,
+      'success'
+    ).catch(() => {});
+
+    // In-App Notification for admins
     await notifyAdmins(
       'New Order Received',
       `Order ${updated!.orderNumber} verified by ${req.user?.name || 'Customer'}.`,
@@ -559,5 +559,137 @@ export const cancelOrder = catchAsync(async (req: AuthRequest, res: Response, ne
 
   await order.save();
 
+  // Populate user for notifications
+  const cancelPopulated = await Order.findById(order._id).populate('user', 'name email');
+  const cancelUser = cancelPopulated?.user as unknown as { _id: string; name?: string; email?: string } | undefined;
+
+  // Email to user confirming cancellation
+  if (cancelUser?.email) {
+    const tpl = emailTemplates.userOrderCancelled(
+      cancelUser.name || 'Customer',
+      order.orderNumber!,
+      req.body.reason,
+      'customer'
+    );
+    enqueueEmail({ to: cancelUser.email, subject: tpl.subject, html: tpl.html }).catch(() => {});
+  }
+
+  // In-App + Push to user
+  notifyUser(
+    String(req.user!._id),
+    `Order ${order.orderNumber} cancelled`,
+    `Your cancellation has been confirmed.${order.paymentMethod === 'razorpay' ? ' Any paid amount will be refunded within 5-7 business days.' : ''}`,
+    `/dashboard/orders/${order._id}`,
+    'info'
+  ).catch(() => {});
+
+  // Email + in-app to admin
+  if (cancelUser) {
+    const adminTpl = emailTemplates.adminOrderCancelled(
+      cancelUser.name || 'Customer',
+      cancelUser.email || '',
+      order.orderNumber!,
+      String(order._id),
+      req.body.reason,
+      'customer'
+    );
+    notifyAdminsEmail(adminTpl.subject, adminTpl.html).catch(() => {});
+  }
+
+  await notifyAdmins(
+    'Order Cancelled',
+    `Order ${order.orderNumber} was cancelled by ${req.user?.name || 'the customer'}.`,
+    `/admin/orders/${order._id}`,
+    'alert'
+  );
+
   sendSuccess(res, { order });
+});
+
+export const requestReturn = catchAsync(async (req: AuthRequest, res: Response) => {
+  const { id } = req.params;
+  const { reason, note, refundMethod, userBankDetails } = req.body;
+
+  if (!reason || reason.trim() === '') {
+    throw new AppError('Reason is required for returning an order', 400);
+  }
+
+  const order = await Order.findOne({ _id: id, user: req.user?._id }).populate('user');
+  if (!order) {
+    throw new AppError('Order not found', 404);
+  }
+
+  if (order.status !== 'delivered') {
+    throw new AppError('Only delivered orders can be returned', 400);
+  }
+
+  if (order.returnStatus && order.returnStatus !== 'none') {
+    throw new AppError('Return request already active or processed', 400);
+  }
+
+  // 7-day return window from delivery (requires deliveredAt — set when order is marked delivered)
+  if (!order.deliveredAt) {
+    throw new AppError('Delivery date is not recorded for this order. Please contact support.', 400);
+  }
+  const daysSinceDelivery =
+    (Date.now() - new Date(order.deliveredAt).getTime()) / (1000 * 60 * 60 * 24);
+  if (daysSinceDelivery > 7) {
+    throw new AppError('Return window of 7 days has expired', 400);
+  }
+
+  let finalRefundMethod: 'original_payment' | 'upi' | 'bank_transfer' | undefined;
+  if (order.paymentMethod === 'razorpay') {
+    finalRefundMethod = 'original_payment';
+  } else if (order.paymentMethod === 'cod') {
+    if (!refundMethod || !['upi', 'bank_transfer'].includes(refundMethod)) {
+      throw new AppError('Valid refund method (upi or bank_transfer) is required for COD orders', 400);
+    }
+    finalRefundMethod = refundMethod;
+    if (finalRefundMethod === 'upi' && !userBankDetails?.upiId) {
+      throw new AppError('UPI ID is required for UPI refund method', 400);
+    }
+    if (finalRefundMethod === 'bank_transfer' && (!userBankDetails?.accountNumber || !userBankDetails?.ifscCode || !userBankDetails?.accountName)) {
+      throw new AppError('Account Name, Account Number and IFSC Code are required for Bank Transfer refund', 400);
+    }
+  }
+
+  order.returnStatus = 'requested';
+  order.returnRequest = {
+    reason: reason.trim(),
+    note: note?.trim(),
+    refundMethod: finalRefundMethod,
+    userBankDetails: finalRefundMethod === 'original_payment' ? undefined : userBankDetails,
+    requestedAt: new Date(),
+  };
+
+
+  await order.save();
+
+  // Fire notifications + emails
+  const populatedUser = order.user as unknown as { name: string; email: string };
+  const userName = populatedUser?.name || 'Customer';
+  const userEmail = populatedUser?.email || '';
+  const refundMethodLabel = finalRefundMethod || 'original_payment';
+
+  // Email to user
+  if (userEmail) {
+    const tpl = emailTemplates.userReturnRequested(userName, order.orderNumber!, order.returnRequest!.reason, refundMethodLabel);
+    enqueueEmail({ to: userEmail, subject: tpl.subject, html: tpl.html }).catch(() => {});
+  }
+
+  // Email + notification to admin
+  const adminTemplate = emailTemplates.adminNewReturnRequest(
+    userName, userEmail, order.orderNumber!, String(order._id),
+    order.returnRequest!.reason, refundMethodLabel, order.paymentMethod,
+  );
+  notifyAdminsEmail(adminTemplate.subject, adminTemplate.html).catch(() => {});
+
+  notifyAdmins(
+    `Return Requested — ${order.orderNumber}`,
+    `${userName} has requested a return. Reason: ${order.returnRequest!.reason}`,
+    `/admin/orders/${order._id}`,
+    'alert',
+  ).catch(() => {});
+
+  sendSuccess(res, { order }, 'Return requested successfully');
 });

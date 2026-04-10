@@ -399,6 +399,17 @@ export const updateOrderStatusSchema = z.object({
   }),
 });
 
+export const processRefundSchema = z.object({
+  body: z.object({
+    refundMethod: z.enum(['razorpay_auto', 'cash', 'bank_transfer', 'upi_manual']).optional(),
+    amount: z.coerce.number().positive(),
+    notes: z.string().max(1000).optional(),
+  }),
+  params: z.object({
+    id: z.string().min(1),
+  }),
+});
+
 export const updateUserRoleSchema = z.object({
   body: z.object({
     role: z.enum(['user', 'admin']),
