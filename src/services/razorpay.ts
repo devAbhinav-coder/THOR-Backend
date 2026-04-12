@@ -87,18 +87,95 @@ export const verifyPaymentAndThrow = (
   }
 };
 
+/** Razorpay axios layer throws `{ statusCode, error: { description, code } }` — not an `Error`. */
+function razorpayApiMessage(err: unknown): string {
+  if (err && typeof err === 'object') {
+    const o = err as {
+      error?: { description?: string; field?: string };
+      description?: string;
+      message?: string;
+    };
+    if (o.error?.description) return o.error.description;
+    if (typeof o.message === 'string' && o.message) return o.message;
+    if (typeof o.description === 'string') return o.description;
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return 'Razorpay refund failed';
+}
+
+function razorpayHttpStatus(err: unknown): number | undefined {
+  if (err && typeof err === 'object' && 'statusCode' in err) {
+    const sc = (err as { statusCode?: number }).statusCode;
+    return typeof sc === 'number' ? sc : undefined;
+  }
+  return undefined;
+}
+
 export const refundRazorpayPayment = async (
   razorpayPaymentId: string,
   amountInr: number,
   notes?: Record<string, string>
 ) => {
   try {
-    const refund = await razorpayInstance.payments.refund(razorpayPaymentId, {
-      amount: Math.round(amountInr * 100),
-      notes: notes || {},
-    });
+    let payment = (await razorpayInstance.payments.fetch(razorpayPaymentId)) as unknown as {
+      amount: number;
+      amount_refunded?: number;
+      status: string;
+    };
+
+    const amountPaise = Number(payment.amount);
+
+    if (payment.status === 'authorized') {
+      await razorpayInstance.payments.capture(razorpayPaymentId, amountPaise, 'INR');
+      payment = (await razorpayInstance.payments.fetch(razorpayPaymentId)) as unknown as {
+        amount: number;
+        amount_refunded?: number;
+        status: string;
+      };
+    }
+
+    if (payment.status !== 'captured') {
+      throw new AppError(
+        `Cannot refund this payment yet (status: ${payment.status}).`,
+        400
+      );
+    }
+
+    const capturedPaise = Number(payment.amount);
+    const alreadyRefunded = Number(payment.amount_refunded ?? 0);
+    const refundablePaise = capturedPaise - alreadyRefunded;
+    if (refundablePaise <= 0) {
+      throw new AppError('This payment has already been fully refunded.', 400);
+    }
+
+    const requestedPaise = Math.round(Number(amountInr.toFixed(2)) * 100);
+    if (requestedPaise > refundablePaise) {
+      throw new AppError(
+        `Refund amount exceeds what can still be refunded (max ₹${(refundablePaise / 100).toFixed(2)}).`,
+        400
+      );
+    }
+
+    const body: { amount?: number; notes?: Record<string, string> } = {};
+    if (notes && Object.keys(notes).length > 0) {
+      body.notes = notes;
+    }
+
+    const refundFullRemaining = requestedPaise >= refundablePaise;
+    if (!refundFullRemaining) {
+      body.amount = requestedPaise;
+    }
+
+    const refund = await razorpayInstance.payments.refund(razorpayPaymentId, body);
     return refund;
-  } catch (error: any) {
-    throw new AppError(error.description || 'Razorpay refund failed', 400);
+  } catch (error: unknown) {
+    if (error instanceof AppError) throw error;
+    const msg = razorpayApiMessage(error);
+    const http = razorpayHttpStatus(error);
+    const code =
+      http !== undefined && http >= 400 && http < 500 ? http
+      : http !== undefined && http >= 500 ? 502
+      : 400;
+    throw new AppError(msg, code);
   }
 };

@@ -519,11 +519,16 @@ export const processRefund = catchAsync(async (req: Request, res: Response, next
     }
     methodToUse = 'razorpay_auto';
     try {
-      const refundResult = await refundRazorpayPayment(order.razorpayPaymentId, amt, notes ? { reason: notes.slice(0, 40) } : undefined);
-      // Razorpay typings: refundResult.id is available
-      gatewayRefundId = (refundResult as any).id;
-    } catch (err: any) {
-      return next(new AppError(err.message || 'Razorpay automated refund failed.', 500));
+      const refundResult = await refundRazorpayPayment(
+        order.razorpayPaymentId,
+        amt,
+        notes ? { reason: notes.slice(0, 40) } : undefined
+      );
+      gatewayRefundId = (refundResult as { id?: string }).id;
+    } catch (err: unknown) {
+      if (err instanceof AppError) return next(err);
+      const message = err instanceof Error ? err.message : 'Razorpay automated refund failed.';
+      return next(new AppError(message, 500));
     }
   } else if (!refundMethod) {
     return next(new AppError('Refund method is required for COD orders.', 400));

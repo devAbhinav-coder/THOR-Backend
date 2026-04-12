@@ -40,13 +40,22 @@ export function buildOrderItemsFromProducts(
   });
 }
 
-export function computeOrderTotals(subtotal: number, discount: number) {
-  const SHIPPING_THRESHOLD = 1000;
-  const SHIPPING_CHARGE = 100;
+const SHIPPING_THRESHOLD = 1000;
+const SHIPPING_CHARGE = 100;
+const COD_HANDLING_FEE = 100;
+
+export function computeOrderTotals(
+  subtotal: number,
+  discount: number,
+  paymentMethod: 'razorpay' | 'cod' = 'cod',
+) {
   const TAX_RATE = 0;
   const subtotalAfterDiscount = subtotal - discount;
   const shippingCharge = subtotalAfterDiscount >= SHIPPING_THRESHOLD ? 0 : SHIPPING_CHARGE;
   const tax = Math.round(subtotalAfterDiscount * TAX_RATE * 100) / 100;
-  const total = subtotalAfterDiscount + shippingCharge + tax;
-  return { shippingCharge, tax, total };
+  const codFee = paymentMethod === 'cod' ? COD_HANDLING_FEE : 0;
+  const total = subtotalAfterDiscount + shippingCharge + tax + codFee;
+  return { shippingCharge, tax, total, codFee };
 }
+
+export { SHIPPING_THRESHOLD, SHIPPING_CHARGE, COD_HANDLING_FEE };

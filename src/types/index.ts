@@ -158,6 +158,7 @@ export interface IOrder extends Document {
   subtotal: number;
   discount: number;
   shippingCharge: number;
+  codFee?: number;
   tax: number;
   total: number;
   coupon?: Types.ObjectId;

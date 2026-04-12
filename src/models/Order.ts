@@ -65,6 +65,8 @@ const orderSchema = new Schema<IOrder>(
     subtotal: { type: Number, required: true },
     discount: { type: Number, default: 0 },
     shippingCharge: { type: Number, default: 0 },
+    /** Cash on delivery convenience / handling fee (₹); 0 for online prepay */
+    codFee: { type: Number, default: 0 },
     tax: { type: Number, default: 0 },
     total: { type: Number, required: true },
     coupon: { type: Schema.Types.ObjectId, ref: 'Coupon' },

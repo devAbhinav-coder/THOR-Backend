@@ -152,7 +152,11 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
     couponId = cartCouponId;
   }
 
-  const { shippingCharge, tax, total } = computeOrderTotals(checkoutSubtotal, discount);
+  const { shippingCharge, tax, total, codFee } = computeOrderTotals(
+    checkoutSubtotal,
+    discount,
+    paymentMethod === 'razorpay' || paymentMethod === 'cod' ? paymentMethod : 'cod',
+  );
 
   let orderItems: ReturnType<typeof buildOrderItemsFromProducts>;
   try {
@@ -169,6 +173,7 @@ export const createOrder = catchAsync(async (req: AuthRequest, res: Response, ne
     subtotal: checkoutSubtotal,
     discount,
     shippingCharge,
+    codFee,
     tax,
     total,
     coupon: couponId,
