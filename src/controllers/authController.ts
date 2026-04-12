@@ -28,6 +28,9 @@ import { writeAdminAudit } from "../services/adminAuditService";
 
 const MAX_OTP_ATTEMPTS = 5;
 
+/** Same copy for every failed password login — avoids account enumeration via error text. */
+const LOGIN_FAILED_GENERIC = "Invalid email or password.";
+
 const googleClient =
   process.env.GOOGLE_CLIENT_ID ?
     new OAuth2Client(process.env.GOOGLE_CLIENT_ID)
@@ -111,23 +114,30 @@ export const signupVerify = catchAsync(
 export const login = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const { email, password } = req.body;
+    const emailLower = String(email || "")
+      .toLowerCase()
+      .trim();
 
-    const user = await User.findOne({ email }).select("+password +googleId");
+    const user = await User.findOne({ email: emailLower }).select(
+      "+password +googleId",
+    );
     if (!user) {
       await writeAdminAudit(req, "auth.login.failed", {
         reason: "user_not_found",
-        email: String(email || "").toLowerCase(),
+        email: emailLower,
       });
-      return next(new AppError("Invalid Credentials", 401));
+      return next(new AppError(LOGIN_FAILED_GENERIC, 401));
     }
 
     if (user.googleId) {
-      return next(
-        new AppError(
-          "This account uses Google sign-in. Please use Sign in with Google.",
-          401,
-        ),
+      await writeAdminAudit(
+        req,
+        "auth.login.failed",
+        { reason: "google_only_account", email: user.email },
+        String(user._id),
+        String(user._id),
       );
+      return next(new AppError(LOGIN_FAILED_GENERIC, 401));
     }
 
     if (!(await user.comparePassword(password))) {
@@ -138,7 +148,7 @@ export const login = catchAsync(
         String(user._id),
         String(user._id),
       );
-      return next(new AppError("Invalid Credentials", 401));
+      return next(new AppError(LOGIN_FAILED_GENERIC, 401));
     }
 
     if (!user.isActive) {
@@ -149,12 +159,7 @@ export const login = catchAsync(
         String(user._id),
         String(user._id),
       );
-      return next(
-        new AppError(
-          "Your account has been deactivated. Please contact support.",
-          401,
-        ),
-      );
+      return next(new AppError(LOGIN_FAILED_GENERIC, 401));
     }
 
     if (user.emailVerified === false) {
@@ -165,9 +170,7 @@ export const login = catchAsync(
         String(user._id),
         String(user._id),
       );
-      return next(
-        new AppError("Please verify your email before signing in.", 401),
-      );
+      return next(new AppError(LOGIN_FAILED_GENERIC, 401));
     }
 
     await sendAuthResponse(res, user, 200);

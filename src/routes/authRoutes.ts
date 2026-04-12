@@ -29,6 +29,7 @@ import {
   addAddressSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  updatePasswordSchema,
   googleAuthSchema,
   sendOtpSchema,
   verifyOtpSchema,
@@ -80,14 +81,19 @@ router.post('/login', loginLimiter, sensitiveAuthLimiter, validate(loginSchema),
 router.post('/refresh', sensitiveAuthLimiter, refresh);
 router.post('/forgot-password', otpLimiter, validate(forgotPasswordSchema), forgotPassword);
 router.post('/reset-password', otpLimiter, validate(resetPasswordSchema), resetPassword);
-router.post('/google', validate(googleAuthSchema), googleAuth);
+router.post('/google', loginLimiter, sensitiveAuthLimiter, validate(googleAuthSchema), googleAuth);
 router.post('/logout', logout);
 
 router.use(protect);
 
 router.get('/me', getMe);
 router.patch('/update-me', uploadAvatar, processAvatar, validate(updateProfileSchema), updateMe);
-router.patch('/update-password', sensitiveAuthLimiter, updatePassword);
+router.patch(
+  '/update-password',
+  sensitiveAuthLimiter,
+  validate(updatePasswordSchema),
+  updatePassword,
+);
 router.delete('/delete-me', deleteMe);
 router.post('/addresses', validate(addAddressSchema), addAddress);
 router.delete('/addresses/:addressId', removeAddress);

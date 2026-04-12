@@ -37,10 +37,17 @@ const jsonStringToArray = <T extends z.ZodTypeAny>(itemSchema: T) =>
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
+/** Bcrypt uses at most 72 bytes; cap avoids confusion and DoS-y huge payloads. */
 const strongPassword = z
   .string()
   .min(8, 'Password must be at least 8 characters')
+  .max(128, 'Password must be at most 128 characters')
   .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, 'Password must contain uppercase, lowercase and number');
+
+const passwordWire = z
+  .string()
+  .min(1, 'Password is required')
+  .max(128, 'Password is too long');
 
 export const signupStartSchema = z.object({
   body: z.object({
@@ -61,8 +68,20 @@ export const signupVerifySchema = z.object({
 export const loginSchema = z.object({
   body: z.object({
     email: z.string().email('Invalid email address'),
-    password: z.string().min(1, 'Password is required'),
+    password: passwordWire,
   }),
+});
+
+export const updatePasswordSchema = z.object({
+  body: z
+    .object({
+      currentPassword: passwordWire,
+      newPassword: strongPassword,
+    })
+    .refine((b) => b.currentPassword !== b.newPassword, {
+      message: 'New password must be different from your current password',
+      path: ['newPassword'],
+    }),
 });
 
 export const forgotPasswordSchema = z.object({

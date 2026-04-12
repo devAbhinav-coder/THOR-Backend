@@ -34,14 +34,27 @@ import storefrontRoutes from "./routes/storefrontRoutes";
 import blogRoutes from "./routes/blogRoutes";
 import notificationRoutes from "./routes/notificationRoutes";
 import giftingRoutes from "./routes/giftingRoutes";
-import { startEmailWorker, closeEmailWorker, emailQueue } from "./queues/emailQueue";
-import { startPushWorker, closePushWorker, pushQueue } from "./queues/pushQueue";
+import {
+  startEmailWorker,
+  closeEmailWorker,
+  emailQueue,
+} from "./queues/emailQueue";
+import {
+  startPushWorker,
+  closePushWorker,
+  pushQueue,
+} from "./queues/pushQueue";
 import { requestContext } from "./utils/requestContext";
 import { botHeuristics } from "./middleware/botHeuristics";
 import { xssSanitize } from "./middleware/xssSanitize";
 import { responseAdapter } from "./middleware/responseAdapter";
 import { paginationGuard } from "./middleware/paginationGuard";
 import { openApiSpec } from "./docs/openapi";
+import {
+  getCorsAllowedOriginSet,
+  normalizeOriginUrl,
+} from "./config/allowedOrigins";
+import { csrfOriginGuard } from "./middleware/csrfOriginGuard";
 const app = express();
 
 if (process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true") {
@@ -53,31 +66,13 @@ startEmailWorker();
 startPushWorker();
 
 if (process.env.NODE_ENV === "production" && redisEnabled) {
-  redisConnection
-    .ping()
-    .catch((err: Error) => {
-      logger.error(`Redis ping failed in production: ${err.message}`);
-      process.exit(1);
-    });
+  redisConnection.ping().catch((err: Error) => {
+    logger.error(`Redis ping failed in production: ${err.message}`);
+    process.exit(1);
+  });
 }
 
-/** Match browser `Origin` to env (trailing slash / casing mismatches break CORS silently). */
-function normalizeOriginUrl(origin: string): string {
-  const t = origin.trim().replace(/\/+$/, "");
-  try {
-    const u = new URL(t);
-    return `${u.protocol}//${u.host}`;
-  } catch {
-    return t;
-  }
-}
-
-const corsAllowSet = new Set(
-  (process.env.FRONTEND_URLS || process.env.FRONTEND_URL || "http://localhost:3000")
-    .split(",")
-    .map((s) => normalizeOriginUrl(s.trim()))
-    .filter(Boolean),
-);
+const corsAllowSet = getCorsAllowedOriginSet();
 
 app.use(
   cors({
@@ -88,7 +83,9 @@ app.use(
       if (corsAllowSet.has(normalizeOriginUrl(origin))) {
         return callback(null, true);
       }
-      logger.warn(`CORS blocked request from origin: ${origin} (allowed: ${[...corsAllowSet].join(", ")})`);
+      logger.warn(
+        `CORS blocked request from origin: ${origin} (allowed: ${[...corsAllowSet].join(", ")})`,
+      );
       callback(null, false);
     },
     credentials: true,
@@ -106,27 +103,34 @@ app.use(
   }),
 );
 
+app.use(csrfOriginGuard);
+
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
-    ...(process.env.NODE_ENV === "production"
-      ? {
-          strictTransportSecurity: {
-            maxAge: 31536000,
-            includeSubDomains: true,
-            preload: false,
-          },
-        }
-      : {}),
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+    ...(process.env.NODE_ENV === "production" ?
+      {
+        strictTransportSecurity: {
+          maxAge: 31536000,
+          includeSubDomains: true,
+          preload: false,
+        },
+      }
+    : {}),
   }),
 );
 
-const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS || "900000", 10);
-const configuredMax = parseInt(process.env.RATE_LIMIT_MAX || "1000", 10);
+const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS || "9000", 10);
+const configuredMax = parseInt(process.env.RATE_LIMIT_MAX || "100", 10);
 const max =
-  process.env.NODE_ENV === "production" ? Math.min(Math.max(100, configuredMax), 2000) : configuredMax;
+  process.env.NODE_ENV === "production" ?
+    Math.min(Math.max(100, configuredMax), 2000)
+  : configuredMax;
 if (process.env.NODE_ENV === "production" && configuredMax > 2000) {
-  logger.warn(`RATE_LIMIT_MAX=${configuredMax} too high for production; capped to ${max}.`);
+  logger.warn(
+    `RATE_LIMIT_MAX=${configuredMax} too high for production; capped to ${max}.`,
+  );
 }
 
 const limiter = rateLimit({
@@ -139,17 +143,20 @@ const limiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  ...(redisEnabled
-    ? {
-        store: new RedisStore({
-          prefix: "rl:api:",
-          sendCommand: (...args: string[]) =>
-            redisConnection.call(args[0], ...(args.slice(1) as string[])) as Promise<
-              string | number | boolean | (string | number | boolean)[]
-            >,
-        }),
-      }
-    : {}),
+  ...(redisEnabled ?
+    {
+      store: new RedisStore({
+        prefix: "rl:api:",
+        sendCommand: (...args: string[]) =>
+          redisConnection.call(
+            args[0],
+            ...(args.slice(1) as string[]),
+          ) as Promise<
+            string | number | boolean | (string | number | boolean)[]
+          >,
+      }),
+    }
+  : {}),
 });
 
 const authLimiter = rateLimit({
@@ -158,21 +165,25 @@ const authLimiter = rateLimit({
   skip: (req) => req.method === "OPTIONS",
   message: {
     status: "error",
-    message: "Too many authentication attempts, please try again after 15 minutes.",
+    message:
+      "Too many authentication attempts, please try again after 15 minutes.",
   },
   standardHeaders: true,
   legacyHeaders: false,
-  ...(redisEnabled
-    ? {
-        store: new RedisStore({
-          prefix: "rl:auth:",
-          sendCommand: (...args: string[]) =>
-            redisConnection.call(args[0], ...(args.slice(1) as string[])) as Promise<
-              string | number | boolean | (string | number | boolean)[]
-            >,
-        }),
-      }
-    : {}),
+  ...(redisEnabled ?
+    {
+      store: new RedisStore({
+        prefix: "rl:auth:",
+        sendCommand: (...args: string[]) =>
+          redisConnection.call(
+            args[0],
+            ...(args.slice(1) as string[]),
+          ) as Promise<
+            string | number | boolean | (string | number | boolean)[]
+          >,
+      }),
+    }
+  : {}),
 });
 
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -198,7 +209,7 @@ app.use(compression());
 app.use(
   morgan(process.env.NODE_ENV === "development" ? "dev" : "combined", {
     stream: { write: (message) => logger.info(message.trim()) },
-  })
+  }),
 );
 
 app.get("/api/health", async (_req: Request, res: Response) => {
@@ -210,21 +221,18 @@ app.get("/api/health", async (_req: Request, res: Response) => {
   } catch {
     redisOk = false;
   }
- 
- 
- const ok = mongoOk; // ONLY Mongo decides health
 
-res.status(ok ? 200 : 503).json({
-  status: ok ? "ok" : "degraded",
-  message: ok
-    ? "API is running"
-    : "Database connection failed",
-  timestamp: new Date().toISOString(),
-  checks: {
-    mongodb: mongoOk,
-    redis: redisEnabled ? redisOk : "disabled",
-  },
-});
+  const ok = mongoOk; // ONLY Mongo decides health
+
+  res.status(ok ? 200 : 503).json({
+    status: ok ? "ok" : "degraded",
+    message: ok ? "API is running" : "Database connection failed",
+    timestamp: new Date().toISOString(),
+    checks: {
+      mongodb: mongoOk,
+      redis: redisEnabled ? redisOk : "disabled",
+    },
+  });
 });
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(openApiSpec));
 
