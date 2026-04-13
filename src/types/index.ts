@@ -197,6 +197,7 @@ export interface IOrder extends Document {
     gatewayRefundId?: string;
     notes?: string;
     processedAt: Date;
+    nonRefundableFees?: number;
   };
   createdAt: Date;
   updatedAt: Date;

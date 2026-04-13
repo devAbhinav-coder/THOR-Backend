@@ -4,6 +4,9 @@ import Product from "../models/Product";
 import Review from "../models/Review";
 import { LOW_STOCK_ALERT_EXCLUSIVE_MAX } from "../constants/inventory";
 
+/** Paid + refunded: both represent checkout totals we recognised; refunds are subtracted separately. */
+const PAYMENT_STATUS_GROSS = { paymentStatus: { $in: ["paid", "refunded"] as const } };
+
 export async function getDashboardAnalyticsData() {
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -35,10 +38,22 @@ export async function getDashboardAnalyticsData() {
     revenueByCategory,
     totalRefunds,
     refundsByReason,
+    nonRefundableFeesRetained,
   ] = await Promise.all([
-    Order.aggregate([{ $match: { paymentStatus: "paid" } }, { $group: { _id: null, total: { $sum: "$total" } } }]),
-    Order.aggregate([{ $match: { paymentStatus: "paid", createdAt: { $gte: startOfMonth } } }, { $group: { _id: null, total: { $sum: "$total" } } }]),
-    Order.aggregate([{ $match: { paymentStatus: "paid", createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth } } }, { $group: { _id: null, total: { $sum: "$total" } } }]),
+    Order.aggregate([{ $match: PAYMENT_STATUS_GROSS }, { $group: { _id: null, total: { $sum: "$total" } } }]),
+    Order.aggregate([
+      { $match: { ...PAYMENT_STATUS_GROSS, createdAt: { $gte: startOfMonth } } },
+      { $group: { _id: null, total: { $sum: "$total" } } },
+    ]),
+    Order.aggregate([
+      {
+        $match: {
+          ...PAYMENT_STATUS_GROSS,
+          createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth },
+        },
+      },
+      { $group: { _id: null, total: { $sum: "$total" } } },
+    ]),
     Order.countDocuments(),
     Order.countDocuments({ createdAt: { $gte: startOfMonth } }),
     User.countDocuments({ role: "user" }),
@@ -55,7 +70,12 @@ export async function getDashboardAnalyticsData() {
     Order.find().sort("-createdAt").limit(10).populate("user", "name email"),
     Order.aggregate([{ $group: { _id: "$status", count: { $sum: 1 } } }]),
     Order.aggregate([
-      { $match: { paymentStatus: "paid", createdAt: { $gte: new Date(now.getFullYear(), now.getMonth() - 11, 1) } } },
+      {
+        $match: {
+          ...PAYMENT_STATUS_GROSS,
+          createdAt: { $gte: new Date(now.getFullYear(), now.getMonth() - 11, 1) },
+        },
+      },
       { $group: { _id: { year: { $year: "$createdAt" }, month: { $month: "$createdAt" } }, revenue: { $sum: "$total" }, orders: { $sum: 1 } } },
       { $sort: { "_id.year": 1, "_id.month": 1 } },
     ]),
@@ -66,7 +86,7 @@ export async function getDashboardAnalyticsData() {
       { $sort: { totalSold: -1 } },
       { $limit: 5 },
     ]),
-    Order.aggregate([{ $match: { paymentStatus: "paid" } }, { $group: { _id: null, avg: { $avg: "$total" } } }]),
+    Order.aggregate([{ $match: PAYMENT_STATUS_GROSS }, { $group: { _id: null, avg: { $avg: "$total" } } }]),
     Order.countDocuments({ createdAt: { $gte: startOfToday } }),
     Order.countDocuments({ status: { $in: ["pending", "confirmed", "processing"] } }),
     Order.countDocuments({ paymentStatus: "paid" }),
@@ -85,11 +105,15 @@ export async function getDashboardAnalyticsData() {
     ]),
     Order.aggregate([
       { $match: { "refundData.amount": { $exists: true } } },
-      { $group: { _id: null, total: { $sum: "$refundData.amount" }, count: { $sum: 1 } } }
+      { $group: { _id: null, total: { $sum: "$refundData.amount" }, count: { $sum: 1 } } },
     ]),
     Order.aggregate([
       { $match: { returnStatus: { $in: ["requested", "approved", "returned"] }, "returnRequest.reason": { $exists: true } } },
-      { $group: { _id: "$returnRequest.reason", count: { $sum: 1 } } }
+      { $group: { _id: "$returnRequest.reason", count: { $sum: 1 } } },
+    ]),
+    Order.aggregate([
+      { $match: { "refundData.nonRefundableFees": { $gt: 0 } } },
+      { $group: { _id: null, total: { $sum: "$refundData.nonRefundableFees" } } },
     ]),
   ]);
 
@@ -169,6 +193,8 @@ export async function getDashboardAnalyticsData() {
       reviewsThisMonth,
       refundedAmount: totalRefunds[0]?.total || 0,
       refundedOrdersCount: totalRefunds[0]?.count || 0,
+      /** Shipping + COD fees not returned to customer (subset of gross − refunds) */
+      nonRefundableFeesRetained: nonRefundableFeesRetained[0]?.total || 0,
     },
     refundsByReason,
     lowStockProducts,

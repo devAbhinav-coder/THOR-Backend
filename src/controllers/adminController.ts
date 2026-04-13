@@ -6,6 +6,7 @@ import User from '../models/User';
 import Product from '../models/Product';
 import Review from '../models/Review';
 import AppError from '../utils/AppError';
+import { getMaxRefundableInr, getNonRefundableFeesInr } from '../utils/orderRefundPolicy';
 import catchAsync from '../utils/catchAsync';
 import { emailTemplates } from '../services/emailService';
 import { enqueueBroadcastChunks, enqueueEmail } from '../queues/emailQueue';
@@ -506,6 +507,17 @@ export const processRefund = catchAsync(async (req: Request, res: Response, next
     return next(new AppError('Refund amount cannot exceed order total.', 400));
   }
 
+  const nonRefundable = getNonRefundableFeesInr(order);
+  const maxRefundable = getMaxRefundableInr(order);
+  if (amt > maxRefundable) {
+    return next(
+      new AppError(
+        `Refund cannot exceed ₹${maxRefundable.toFixed(2)} (order total minus non-refundable shipping ₹${(order.shippingCharge || 0).toFixed(2)} and COD fee ₹${(order.codFee || 0).toFixed(2)}).`,
+        400
+      )
+    );
+  }
+
   let methodToUse = refundMethod || 'cash';
   let gatewayRefundId: string | undefined = undefined;
 
@@ -542,6 +554,7 @@ export const processRefund = catchAsync(async (req: Request, res: Response, next
     gatewayRefundId,
     notes,
     processedAt: new Date(),
+    nonRefundableFees: nonRefundable > 0 ? nonRefundable : undefined,
   };
 
   order.status = 'refunded';

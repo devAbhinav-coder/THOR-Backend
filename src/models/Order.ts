@@ -125,6 +125,8 @@ const orderSchema = new Schema<IOrder>(
       gatewayRefundId: String,
       notes: String,
       processedAt: Date,
+      /** Shipping + COD fees not refunded (₹), snapshot at refund time */
+      nonRefundableFees: { type: Number },
     },
   },
   {
