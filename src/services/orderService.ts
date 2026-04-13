@@ -42,7 +42,7 @@ export function buildOrderItemsFromProducts(
   });
 }
 
-const SHIPPING_THRESHOLD = 1499;
+const SHIPPING_THRESHOLD = 1099;
 const SHIPPING_CHARGE = 99;
 const COD_HANDLING_FEE = 99;
 
