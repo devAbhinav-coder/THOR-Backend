@@ -57,6 +57,26 @@ async function deliverWelcomeEmail(
   }
 }
 
+/** Do not block auth response on email provider latency/timeouts. */
+function sendWelcomeEmailInBackground(
+  displayName: string,
+  emailLower: string,
+): void {
+  void (async () => {
+    try {
+      await deliverWelcomeEmail(displayName, emailLower);
+      await User.updateOne(
+        { email: emailLower, welcomeEmailAt: { $exists: false } },
+        { $set: { welcomeEmailAt: new Date() } },
+      );
+    } catch (err) {
+      logger.warn(
+        `Welcome email background send failed (${emailLower}): ${(err as Error).message}`,
+      );
+    }
+  })();
+}
+
 /** Step 1: collect details & send email OTP (account created only after verify). */
 export const signupStart = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
@@ -328,9 +348,7 @@ export const googleAuth = catchAsync(
         user = byEmail;
 
         if (!hadGoogleId && welcomeMissing && veryNewAccount) {
-          await deliverWelcomeEmail(user.name, user.email);
-          user.set("welcomeEmailAt", new Date());
-          await user.save({ validateModifiedOnly: true });
+          sendWelcomeEmailInBackground(user.name, user.email);
         }
       } else {
         const randomPassword = crypto.randomBytes(32).toString("hex");
@@ -357,9 +375,7 @@ export const googleAuth = catchAsync(
     }
 
     if (isNewGoogleSignup) {
-      await deliverWelcomeEmail(user.name, user.email);
-      user.set("welcomeEmailAt", new Date());
-      await user.save({ validateModifiedOnly: true });
+      sendWelcomeEmailInBackground(user.name, user.email);
     }
 
     await sendAuthResponse(res, user, 200);

@@ -4,6 +4,7 @@ import path from "path";
 import nodemailer from "nodemailer";
 import logger from "../utils/logger";
 import { htmlToPlainText } from "../utils/emailPlainText";
+import { sendViaResend } from "./emailDeliveryService";
 
 type EmailPayload = {
   to: string;
@@ -561,18 +562,10 @@ export const emailTemplates = {
 };
 
 export const sendEmailNow = async (payload: EmailPayload) => {
-  if (!smtpConfigured()) {
-    logger.warn(`SMTP_HOST missing, skipping email to ${payload.to}`);
-    return;
-  }
-
-  await sendViaSmtpWithRetry(
-    {
-      to: payload.to,
-      subject: payload.subject,
-      html: payload.html,
-      text: payload.text,
-    },
-    2,
-  );
+  await sendViaResend({
+    to: payload.to,
+    subject: payload.subject,
+    html: payload.html,
+    text: payload.text,
+  });
 };

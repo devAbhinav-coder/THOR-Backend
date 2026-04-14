@@ -1,7 +1,6 @@
 import { Resend } from "resend";
 import logger from "../utils/logger";
 import { htmlToPlainText } from "../utils/emailPlainText";
-import { sendViaSmtpWithRetry, smtpConfigured } from "./emailService";
 
 export type DeliverableEmail = {
   to: string;
@@ -53,52 +52,11 @@ function isRetryableError(msg: string): boolean {
   );
 }
 
-/**
- * Many cloud hosts block outbound SMTP (ports 25 / 587) to stop spam; your laptop does not.
- * Symptom: "Connection timeout" to smtp.zoho.in on the server, works locally. Resend uses HTTPS (443) so it still works.
- *
- * Set OTP_SMTP_ENABLED=0 on that host to skip SMTP for OTP and send via Resend only (no ~40s double-timeout wait).
- */
-function isOtpSmtpEnabled(): boolean {
-  const v = process.env.OTP_SMTP_ENABLED?.trim().toLowerCase();
-  if (v === "0" || v === "false" || v === "no" || v === "off") return false;
-  return true;
-}
-
-/**
- * Transactional OTP: Zoho (SMTP) first when allowed, then Resend if SMTP fails or is disabled.
- */
+/** Transactional OTP: Resend only (temporary migration away from SMTP). */
 export async function deliverOtpEmail(
   payload: DeliverableEmail,
 ): Promise<void> {
   const text = payload.text || htmlToPlainText(payload.html);
-
-  if (smtpConfigured() && isOtpSmtpEnabled()) {
-    try {
-      await sendViaSmtpWithRetry(
-        {
-          to: payload.to,
-          subject: payload.subject,
-          html: payload.html,
-          text,
-        },
-        2,
-      );
-      logger.info(`OTP email sent via SMTP to ${payload.to}`);
-      return;
-    } catch (smtpErr) {
-      logger.warn(
-        `SMTP OTP delivery failed (${payload.to}): ${(smtpErr as Error).message}; trying Resend`,
-      );
-    }
-  } else if (smtpConfigured() && !isOtpSmtpEnabled()) {
-    logger.info(
-      `OTP_SMTP_ENABLED off — skipping Zoho for OTP (${payload.to}); using Resend`,
-    );
-  } else {
-    logger.warn("SMTP not configured; sending OTP via Resend only");
-  }
-
   await sendViaResend({ ...payload, text });
   logger.info(`OTP email sent via Resend to ${payload.to}`);
 }
