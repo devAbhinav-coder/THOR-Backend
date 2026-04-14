@@ -55,6 +55,13 @@ const loginLimiter = createAdaptiveLimiter({
 const otpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 15,
+  keyGenerator: (req) => {
+    const body = (req.body || {}) as { email?: string; type?: string };
+    const email = String(body.email || '').toLowerCase().trim() || 'anon';
+    const type = String(body.type || req.path || 'otp').toLowerCase();
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    return `${type}:${email}:${ip}`;
+  },
   message: { status: 'error', message: 'Too many code requests. Try again later.' },
   standardHeaders: true,
   legacyHeaders: false,

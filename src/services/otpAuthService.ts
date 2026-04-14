@@ -114,8 +114,8 @@ export type VerifyOtpResult =
   | { ok: false; message: string; statusCode: number };
 
 /**
- * Sends a 6-digit OTP immediately via Zoho when possible, with Resend fallback.
- * Enforces: 60s resend cooldown, max 3 sends / 10 min per email (Redis or Mongo).
+ * Sends a 6-digit OTP via Resend.
+ * Enforces: 60s resend cooldown, max 3 sends / 10 min per email+flow (Redis or Mongo).
  */
 export async function sendOtp(params: {
   flow: OtpFlowType;
@@ -181,7 +181,7 @@ export async function sendOtp(params: {
     }
   }
 
-  await assertOtpSendAllowed(emailLower);
+  await assertOtpSendAllowed(emailLower, params.flow);
 
   const { plain, hash } = await issueOtpCode();
   const expiresAt = new Date(Date.now() + OTP_EXPIRY_MS);
@@ -206,7 +206,7 @@ export async function sendOtp(params: {
       { upsert: true, new: true, runValidators: true },
     );
     const tpl = emailTemplates.otpSignup(params.signup.name, plain);
-    await recordOtpSend(emailLower);
+    await recordOtpSend(emailLower, params.flow);
     await deliverOtpEmail({
       to: emailLower,
       subject: tpl.subject,
@@ -232,7 +232,7 @@ export async function sendOtp(params: {
       { upsert: true, new: true, runValidators: true },
     );
     const tpl = emailTemplates.otpLogin(user.name, plain);
-    await recordOtpSend(emailLower);
+    await recordOtpSend(emailLower, params.flow);
     await deliverOtpEmail({
       to: emailLower,
       subject: tpl.subject,
@@ -260,7 +260,7 @@ export async function sendOtp(params: {
     { upsert: true, new: true, runValidators: true },
   );
   const tpl = emailTemplates.otpPasswordReset(user.name, plain);
-  await recordOtpSend(emailLower);
+  await recordOtpSend(emailLower, params.flow);
   await deliverOtpEmail({
     to: emailLower,
     subject: tpl.subject,
@@ -297,7 +297,7 @@ export async function resendOtp(params: {
         429,
       );
     }
-    await assertOtpSendAllowed(emailLower);
+    await assertOtpSendAllowed(emailLower, params.flow);
     const { plain, hash } = await issueOtpCode();
     const expiresAt = new Date(Date.now() + OTP_EXPIRY_MS);
     const now = new Date();
@@ -314,7 +314,7 @@ export async function resendOtp(params: {
     );
     const name = (doc.signupPayload as SignupOtpPayload).name;
     const tpl = emailTemplates.otpSignup(name, plain);
-    await recordOtpSend(emailLower);
+    await recordOtpSend(emailLower, params.flow);
     await deliverOtpEmail({
       to: emailLower,
       subject: tpl.subject,
