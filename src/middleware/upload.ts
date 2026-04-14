@@ -30,13 +30,13 @@ export const uploadProductImages = multer({
 export const uploadAvatar = multer({
   storage: memoryStorage,
   fileFilter: imageFileFilter,
-  limits: { fileSize: 2 * 1024 * 1024, files: 1 },
+  limits: { fileSize: 8 * 1024 * 1024, files: 1 },
 }).single("avatar");
 
 export const uploadReviewImages = multer({
   storage: memoryStorage,
   fileFilter: imageFileFilter,
-  limits: { fileSize: 3 * 1024 * 1024, files: 3 },
+  limits: { fileSize: 8 * 1024 * 1024, files: 3 },
 }).array("images", 3);
 
 export const uploadGiftingImages = multer({
