@@ -22,7 +22,7 @@ async function cartForResponse(userId: string) {
   return Cart.findOne({ user: userId })
     .populate({
       path: 'items.product',
-      select: 'name images price isActive slug giftOccasions minOrderQty',
+      select: 'name images price isActive slug giftOccasions minOrderQty variants.sku variants.stock',
     })
     .populate({
       path: 'coupon',

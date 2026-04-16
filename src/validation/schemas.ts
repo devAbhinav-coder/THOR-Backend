@@ -159,7 +159,11 @@ export const addAddressSchema = z.object({
       .trim()
       .regex(/^(\+91)?[6-9]\d{9}$/, 'Invalid phone number'),
     label: z.string().optional(),
+    /** House / flat / building (optional, separate from street). */
+    house: z.string().max(120).optional(),
     street: z.string().min(5, 'Street address is required'),
+    /** Nearby landmark to help courier (optional). */
+    landmark: z.string().max(160).optional(),
     city: z.string().min(2, 'City is required'),
     state: z.string().min(2, 'State is required'),
     pincode: z.string().regex(/^\d{6}$/, 'Invalid pincode'),
@@ -298,7 +302,9 @@ export const createOrderSchema = z.object({
         // Allow 10-digit Indian mobile, or +91XXXXXXXXXX
         .regex(/^(\+91)?[6-9]\d{9}$/, 'Invalid phone number'),
       label: z.string().optional(),
+      house: z.string().max(120).optional(),
       street: z.string().min(5),
+      landmark: z.string().max(160).optional(),
       city: z.string().min(2),
       state: z.string().min(2),
       pincode: z.string().regex(/^\d{6}$/),
@@ -511,7 +517,9 @@ export const giftingRespondSchema = z.object({
         name: z.string().min(2).max(80),
         phone: z.string().trim().max(20).optional(),
         label: z.string().max(40).optional(),
+        house: z.string().max(120).optional(),
         street: z.string().min(5).max(250),
+        landmark: z.string().max(160).optional(),
         city: z.string().min(2).max(80),
         state: z.string().min(2).max(80),
         pincode: z.string().regex(/^\d{6}$/),

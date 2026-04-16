@@ -6,28 +6,20 @@ import catchAsync from "../utils/catchAsync";
 import { AuthRequest } from "../types";
 import { sendPaginated, sendSuccess } from "../utils/response";
 
-const maskName = (name: string): string => {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "Verified Buyer";
-  return parts
-    .map((part) =>
-      part.length <= 1 ?
-        `${part}*`
-      : `${part[0]}${"*".repeat(Math.min(part.length - 1, 4))}`,
-    )
-    .join(" ");
-};
-
 const sanitizeReviewForPublic = (review: {
   toObject: () => Record<string, unknown>;
 }): Record<string, unknown> => {
   const raw = review.toObject();
   const user = raw.user as { name?: string; avatar?: string } | undefined;
+  const safeName =
+    typeof user?.name === "string" && user.name.trim().length > 0 ?
+      user.name.trim()
+    : "Verified Buyer";
   return {
     ...raw,
     user: {
       ...(user || {}),
-      name: maskName(user?.name || ""),
+      name: safeName,
       badge: "Verified Buyer",
     },
   };

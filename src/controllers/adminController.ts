@@ -87,7 +87,7 @@ export const getAllOrders = catchAsync(async (req: Request, res: Response) => {
       .sort('-createdAt')
       .skip(skip)
       .limit(limit)
-      .select('orderNumber status paymentStatus total createdAt user shippingAddress.city shippingAddress.state')
+      .select('orderNumber status paymentStatus total createdAt user items shippingAddress')
       .populate('user', 'name email phone'),
     Order.countDocuments(filter),
   ]);

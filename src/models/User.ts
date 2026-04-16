@@ -6,6 +6,7 @@ import { IUser } from '../types';
 function isCompletePlainAddress(o: Record<string, unknown>): boolean {
   const name = typeof o.name === 'string' ? o.name.trim() : '';
   const phone = typeof o.phone === 'string' ? o.phone.replace(/\s/g, '') : '';
+  const house = typeof o.house === 'string' ? o.house.trim() : '';
   const street = typeof o.street === 'string' ? o.street.trim() : '';
   const city = typeof o.city === 'string' ? o.city.trim() : '';
   const state = typeof o.state === 'string' ? o.state.trim() : '';
@@ -26,7 +27,11 @@ const addressSchema = new Schema(
     name: { type: String, trim: true, maxlength: 80 },
     phone: { type: String, trim: true },
     label: { type: String, default: 'Home' },
+    /** House / flat / building, kept separate from street. */
+    house: { type: String, trim: true },
     street: { type: String, trim: true },
+    /** Nearby landmark to help couriers (optional). */
+    landmark: { type: String, trim: true },
     city: { type: String, trim: true },
     state: { type: String, trim: true },
     pincode: { type: String, trim: true },
@@ -40,6 +45,8 @@ addressSchema.pre('validate', function (next) {
   const a = this as mongoose.Document & {
     name?: string;
     phone?: string;
+    house?: string;
+    landmark?: string;
     street?: string;
     city?: string;
     state?: string;
@@ -47,11 +54,15 @@ addressSchema.pre('validate', function (next) {
   };
   const name = a.name?.trim();
   const phone = (a.phone || '').replace(/\s/g, '');
+  const house = a.house?.trim();
+  const landmark = a.landmark?.trim();
   const street = a.street?.trim();
   const city = a.city?.trim();
   const state = a.state?.trim();
   const pincode = a.pincode?.trim();
-  const hasAny = Boolean(name || phone || street || city || state || pincode);
+  const hasAny = Boolean(
+    name || phone || house || landmark || street || city || state || pincode
+  );
   if (!hasAny) {
     return next();
   }

@@ -30,7 +30,11 @@ export interface IAddress {
   name: string;
   phone: string;
   label: string;
+  /** House / flat / building details (separate from street/area). */
+  house?: string;
   street: string;
+  /** Nearby landmark to help couriers (optional, India-style). */
+  landmark?: string;
   city: string;
   state: string;
   pincode: string;

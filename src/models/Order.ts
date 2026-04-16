@@ -24,7 +24,11 @@ const addressSchema = new Schema({
   name: { type: String, required: true, trim: true },
   phone: { type: String, required: true, trim: true },
   label: String,
+  /** House / flat / building, kept separate from street. */
+  house: { type: String, trim: true },
   street: { type: String, required: true },
+  /** Nearby landmark to help couriers (optional). */
+  landmark: { type: String, trim: true },
   city: { type: String, required: true },
   state: { type: String, required: true },
   pincode: { type: String, required: true },

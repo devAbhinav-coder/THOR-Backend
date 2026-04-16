@@ -319,6 +319,10 @@ export const googleAuth = catchAsync(
     const sub = payload.sub;
     const email = payload.email.toLowerCase();
     const name = payload.name || email.split("@")[0];
+    const picture =
+      typeof payload.picture === "string" && payload.picture.trim().length > 0 ?
+        payload.picture.trim()
+      : undefined;
 
     let user = await User.findOne({ googleId: sub }).select(
       "+googleId +password +welcomeEmailAt",
@@ -344,6 +348,9 @@ export const googleAuth = catchAsync(
         const veryNewAccount = accountAgeMs < 5 * 60 * 1000;
 
         byEmail.googleId = sub;
+        if (picture && (!byEmail.avatar || !String(byEmail.avatar).trim())) {
+          byEmail.avatar = picture;
+        }
         await byEmail.save();
         user = byEmail;
 
@@ -359,10 +366,14 @@ export const googleAuth = catchAsync(
           password: randomPassword,
           googleId: sub,
           emailVerified: true,
+          ...(picture ? { avatar: picture } : {}),
           addresses: [],
         });
         isNewGoogleSignup = true;
       }
+    } else if (picture && (!user.avatar || !String(user.avatar).trim())) {
+      user.avatar = picture;
+      await user.save();
     }
 
     if (!user.isActive) {
@@ -454,7 +465,9 @@ export const addAddress = catchAsync(
     const {
       name,
       phone,
+      house,
       street,
+      landmark,
       city,
       state,
       pincode,
@@ -477,7 +490,9 @@ export const addAddress = catchAsync(
     user.addresses.push({
       name,
       phone,
+      house,
       street,
+      landmark,
       city,
       state,
       pincode,
