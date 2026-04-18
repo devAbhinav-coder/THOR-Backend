@@ -435,6 +435,65 @@ export const processRefundSchema = z.object({
   }),
 });
 
+export const delhiveryEstimateSchema = z.object({
+  body: z.object({
+    md: z.enum(['E', 'S']),
+    lengthCm: z.coerce.number().positive(),
+    breadthCm: z.coerce.number().positive(),
+    heightCm: z.coerce.number().positive(),
+    weightGm: z.coerce.number().positive(),
+    boxCount: z.coerce.number().int().min(1).max(5).optional(),
+    ipkg_type: z.enum(['box', 'flyer']).optional(),
+  }),
+  params: z.object({
+    id: z.string().regex(/^[a-fA-F0-9]{24}$/, 'Invalid order id'),
+  }),
+});
+
+export const delhiveryCreateShipmentSchema = z.object({
+  body: z.object({
+    shippingMode: z.enum(['Surface', 'Express']),
+    lengthCm: z.coerce.number().positive(),
+    breadthCm: z.coerce.number().positive(),
+    heightCm: z.coerce.number().positive(),
+    weightGm: z.coerce.number().positive(),
+    boxCount: z.coerce.number().int().min(1).max(5).optional(),
+    ipkg_type: z.enum(['box', 'flyer']).optional(),
+  }),
+  params: z.object({
+    id: z.string().regex(/^[a-fA-F0-9]{24}$/, 'Invalid order id'),
+  }),
+});
+
+export const delhiveryOrderIdParamsSchema = z.object({
+  params: z.object({
+    id: z.string().regex(/^[a-fA-F0-9]{24}$/, 'Invalid order id'),
+  }),
+});
+
+/** GET /admin/orders/:id/delhivery/packing-slip?pdf_size= */
+export const delhiveryPackingSlipQuerySchema = z.object({
+  params: z.object({
+    id: z.string().regex(/^[a-fA-F0-9]{24}$/, 'Invalid order id'),
+  }),
+  query: z.object({
+    pdf_size: z.enum(['4R', 'A4', '4r', 'a4']).optional(),
+  }),
+});
+
+/** GET /admin/delhivery/serviceability?pin= */
+export const delhiveryServiceabilityQuerySchema = z.object({
+  query: z.object({
+    pin: z.preprocess(
+      (v) => (Array.isArray(v) ? v[0] : v),
+      z
+        .string()
+        .trim()
+        .regex(/^\d{6}$/, 'Enter a valid 6-digit pincode'),
+    ),
+  }),
+});
+
 export const updateUserRoleSchema = z.object({
   body: z.object({
     role: z.enum(['user', 'admin']),

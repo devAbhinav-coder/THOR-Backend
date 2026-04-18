@@ -55,6 +55,8 @@ import {
   normalizeOriginUrl,
 } from "./config/allowedOrigins";
 import { csrfOriginGuard } from "./middleware/csrfOriginGuard";
+import { delhiveryIsConfigured } from "./config/delhivery";
+import { runDelhiveryTrackingSyncJob } from "./services/delhiveryTrackingSyncService";
 const app = express();
 
 if (process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true") {
@@ -265,6 +267,21 @@ const PORT = parseInt(process.env.PORT || "5000", 10);
 const server = app.listen(PORT, "0.0.0.0", () => {
   logger.info(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
 });
+
+const delhiverySyncMs = parseInt(
+  process.env.DELHIVERY_TRACK_SYNC_MS || String(20 * 60 * 1000),
+  10,
+);
+if (delhiveryIsConfigured() && delhiverySyncMs > 0) {
+  setInterval(() => {
+    runDelhiveryTrackingSyncJob().catch((e) =>
+      logger.error(`Delhivery tracking sync: ${(e as Error).message}`),
+    );
+  }, delhiverySyncMs);
+  setTimeout(() => {
+    runDelhiveryTrackingSyncJob().catch(() => {});
+  }, 20_000);
+}
 
 const shutdown = async (signal: string) => {
   logger.info(`${signal} received. Shutting down gracefully...`);

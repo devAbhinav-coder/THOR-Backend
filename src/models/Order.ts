@@ -132,6 +132,8 @@ const orderSchema = new Schema<IOrder>(
       /** Shipping + COD fees not refunded (₹), snapshot at refund time */
       nonRefundableFees: { type: Number },
     },
+    /** Delhivery automation: package snapshot, waybills, tracking sync cache */
+    delhivery: { type: Schema.Types.Mixed },
   },
   {
     timestamps: true,

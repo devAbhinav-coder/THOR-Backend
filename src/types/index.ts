@@ -203,6 +203,8 @@ export interface IOrder extends Document {
     processedAt: Date;
     nonRefundableFees?: number;
   };
+  /** Populated by Delhivery integration (Mixed in MongoDB) */
+  delhivery?: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
 }

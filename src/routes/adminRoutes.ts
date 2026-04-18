@@ -22,6 +22,17 @@ import {
   sendCustomMarketingEmail,
 } from '../controllers/adminController';
 import {
+  getDelhiveryIntegrationStatus,
+  checkOrderPinServiceability,
+  checkDelhiveryServiceabilityByPin,
+  estimateDelhiveryForOrder,
+  createDelhiveryShipmentForOrder,
+  syncDelhiveryTrackingForOrder,
+  getDelhiveryPackingSlip,
+  getDelhiveryPackingSlipJson,
+  downloadDelhiveryPackingSlipFile,
+} from '../controllers/delhiveryAdminController';
+import {
   getAdminStorefrontSettings,
   updateStorefrontSettings,
 } from '../controllers/storefrontController';
@@ -33,7 +44,19 @@ import {
 } from '../controllers/categoryController';
 import { protect, restrictTo } from '../middleware/auth';
 import { validate } from '../middleware/validate';
-import { updateOrderStatusSchema, processRefundSchema, createCategorySchema, sendMarketingEmailSchema, updateUserNoteSchema, updateUserRoleSchema } from '../validation/schemas';
+import {
+  updateOrderStatusSchema,
+  processRefundSchema,
+  createCategorySchema,
+  sendMarketingEmailSchema,
+  updateUserNoteSchema,
+  updateUserRoleSchema,
+  delhiveryEstimateSchema,
+  delhiveryCreateShipmentSchema,
+  delhiveryOrderIdParamsSchema,
+  delhiveryServiceabilityQuerySchema,
+  delhiveryPackingSlipQuerySchema,
+} from '../validation/schemas';
 import {
   uploadAvatar,
   processCategoryImage,
@@ -57,6 +80,31 @@ router.get('/security/audit', getAdminAuditLogs);
 
 router.get('/orders', getAllOrders);
 router.get('/orders/:id', getOrderDetails);
+router.get('/delhivery/status', getDelhiveryIntegrationStatus);
+router.get(
+  '/delhivery/serviceability',
+  validate(delhiveryServiceabilityQuerySchema),
+  checkDelhiveryServiceabilityByPin,
+);
+router.get('/orders/:id/delhivery/pin-check', validate(delhiveryOrderIdParamsSchema), checkOrderPinServiceability);
+router.post('/orders/:id/delhivery/estimate', validate(delhiveryEstimateSchema), estimateDelhiveryForOrder);
+router.post('/orders/:id/delhivery/create-shipment', validate(delhiveryCreateShipmentSchema), createDelhiveryShipmentForOrder);
+router.post('/orders/:id/delhivery/sync-tracking', validate(delhiveryOrderIdParamsSchema), syncDelhiveryTrackingForOrder);
+router.get(
+  '/orders/:id/delhivery/packing-slip',
+  validate(delhiveryPackingSlipQuerySchema),
+  getDelhiveryPackingSlip,
+);
+router.get(
+  '/orders/:id/delhivery/packing-slip/file',
+  validate(delhiveryPackingSlipQuerySchema),
+  downloadDelhiveryPackingSlipFile,
+);
+router.get(
+  '/orders/:id/delhivery/packing-slip/json',
+  validate(delhiveryPackingSlipQuerySchema),
+  getDelhiveryPackingSlipJson,
+);
 router.patch('/orders/:id/status', validate(updateOrderStatusSchema), updateOrderStatus);
 router.post('/orders/:id/generate-invoice', generateOrderInvoice);
 router.post('/orders/:id/refund', validate(processRefundSchema), processRefund);
