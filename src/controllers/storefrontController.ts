@@ -5,6 +5,15 @@ import { deleteMultipleImages } from "../services/cloudinary";
 import { deleteCache, getCache, setCache } from "../services/cacheService";
 import { storefrontRepository } from "../repositories/storefrontRepository";
 import { safeJsonParse } from "../utils/safeJson";
+import {
+  mergeBlogBanner,
+  mergeGiftingHeroBanners,
+  mergeGiftingSecondaryBanners,
+  mergeHeroSlides,
+  mergeHomeGiftCards,
+  mergePromoBanner,
+  mergeShopBanner,
+} from "../utils/storefrontImageMerge";
 import { sendSuccess } from "../utils/response";
 
 const FALLBACK_SETTINGS = {
@@ -245,76 +254,58 @@ export const updateStorefrontSettings = catchAsync(
       key: "default",
     }).lean();
 
-    const nextHeroSlides = (payload.heroSlides || []).map(
-      (slide: Record<string, unknown>, index: number) => {
-        const uploadedHero = uploaded?.hero?.[String(index)];
-        if (uploadedHero) {
-          return {
-            ...slide,
-            image: uploadedHero.url,
-            imagePublicId: uploadedHero.publicId,
-          };
-        }
-        return slide;
-      },
+    const prevHeroSlides = previous?.heroSlides as
+      | Array<{ image?: string; imagePublicId?: string }>
+      | undefined;
+
+    const nextHeroSlides = mergeHeroSlides(
+      payload.heroSlides as Record<string, unknown>[] | undefined,
+      uploaded,
+      prevHeroSlides,
     );
 
-    const nextShopBanner = { ...(payload.shopBanner || {}) };
-    if (uploaded?.shopBannerLeft) {
-      nextShopBanner.leftImage = uploaded.shopBannerLeft.url;
-      nextShopBanner.leftImagePublicId = uploaded.shopBannerLeft.publicId;
-    }
-    if (uploaded?.shopBannerCenter) {
-      nextShopBanner.centerImage = uploaded.shopBannerCenter.url;
-      nextShopBanner.centerImagePublicId = uploaded.shopBannerCenter.publicId;
-    }
-    if (uploaded?.shopBannerRight) {
-      nextShopBanner.rightImage = uploaded.shopBannerRight.url;
-      nextShopBanner.rightImagePublicId = uploaded.shopBannerRight.publicId;
-    }
-
-    const nextPromo = { ...(payload.promoBanner || {}) };
-    if (uploaded?.promo) {
-      nextPromo.backgroundImage = uploaded.promo.url;
-      nextPromo.backgroundImagePublicId = uploaded.promo.publicId;
-    }
-
-    const nextBlogBanner = { ...(payload.blogBanner || {}) };
-    if (uploaded?.blogMain) {
-      nextBlogBanner.mainImage = uploaded.blogMain.url;
-      nextBlogBanner.mainImagePublicId = uploaded.blogMain.publicId;
-    }
-    if (uploaded?.blogSide) {
-      nextBlogBanner.sideImage = uploaded.blogSide.url;
-      nextBlogBanner.sideImagePublicId = uploaded.blogSide.publicId;
-    }
-
-    const nextGiftingHero = (payload.giftingHeroBanners || []).map(
-      (banner: Record<string, unknown>, index: number) => {
-        const uploadedHero = uploaded?.giftingHero?.[String(index)];
-        if (uploadedHero) {
-          return {
-            ...banner,
-            backgroundImage: uploadedHero.url,
-            backgroundImagePublicId: uploadedHero.publicId,
-          };
-        }
-        return banner;
-      },
+    const prevShop = previous?.shopBanner as Record<string, unknown> | undefined;
+    const nextShopBanner = mergeShopBanner(
+      { ...(payload.shopBanner || {}) },
+      uploaded,
+      prevShop,
     );
 
-    const nextGiftingSecondary = (payload.giftingSecondaryBanners || []).map(
-      (banner: Record<string, unknown>, index: number) => {
-        const uploadedSecondary = uploaded?.giftingSecondary?.[String(index)];
-        if (uploadedSecondary) {
-          return {
-            ...banner,
-            image: uploadedSecondary.url,
-            imagePublicId: uploadedSecondary.publicId,
-          };
-        }
-        return banner;
-      },
+    const prevPromo = previous?.promoBanner as Record<string, unknown> | undefined;
+    const nextPromo = mergePromoBanner(
+      { ...(payload.promoBanner || {}) },
+      uploaded?.promo,
+      prevPromo,
+    );
+
+    const prevBlog = previous?.blogBanner as Record<string, unknown> | undefined;
+    const nextBlogBanner = mergeBlogBanner(
+      { ...(payload.blogBanner || {}) },
+      uploaded
+        ? {
+            blogMain: uploaded.blogMain,
+            blogSide: uploaded.blogSide,
+          }
+        : undefined,
+      prevBlog,
+    );
+
+    const prevGiftingHero = previous?.giftingHeroBanners as
+      | Array<{ backgroundImage?: string; backgroundImagePublicId?: string }>
+      | undefined;
+    const nextGiftingHero = mergeGiftingHeroBanners(
+      payload.giftingHeroBanners as Record<string, unknown>[] | undefined,
+      uploaded,
+      prevGiftingHero,
+    );
+
+    const prevGiftingSecondary = previous?.giftingSecondaryBanners as
+      | Array<{ image?: string; imagePublicId?: string }>
+      | undefined;
+    const nextGiftingSecondary = mergeGiftingSecondaryBanners(
+      payload.giftingSecondaryBanners as Record<string, unknown>[] | undefined,
+      uploaded,
+      prevGiftingSecondary,
     );
 
     const showcasePayload = (payload.homeGiftShowcase || {}) as Record<
@@ -325,18 +316,14 @@ export const updateStorefrontSettings = catchAsync(
       Array.isArray(showcasePayload.cards) ?
         (showcasePayload.cards as Record<string, unknown>[])
       : [];
-    const nextGiftCards = cardsIn.slice(0, 3).map((card, index) => {
-      const up = uploaded?.homeGiftCard?.[String(index)];
-      if (up) {
-        return { ...card, image: up.url, imagePublicId: up.publicId };
-      }
-      const img = typeof card.image === "string" ? card.image.trim() : "";
-      if (!img) {
-        const { imagePublicId: _removed, ...rest } = card;
-        return { ...rest, image: "" };
-      }
-      return card;
-    });
+    const prevGiftCards = (
+      previous?.homeGiftShowcase as { cards?: Array<{ image?: string; imagePublicId?: string }> } | undefined
+    )?.cards;
+    const nextGiftCards = mergeHomeGiftCards(
+      cardsIn.slice(0, 3),
+      uploaded,
+      prevGiftCards,
+    );
     const nextHomeGiftShowcase = {
       ...FALLBACK_SETTINGS.homeGiftShowcase,
       ...showcasePayload,
