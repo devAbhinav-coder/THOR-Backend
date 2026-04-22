@@ -20,6 +20,25 @@ import { getDashboardAnalyticsData } from '../services/adminAnalyticsService';
 import AdminAuditLog from '../models/AdminAuditLog';
 import { writeAdminAudit } from '../services/adminAuditService';
 
+type ManagedOrderStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'processing'
+  | 'shipped'
+  | 'delivered'
+  | 'cancelled'
+  | 'refunded';
+
+const ALLOWED_STATUS_TRANSITIONS: Record<ManagedOrderStatus, ManagedOrderStatus[]> = {
+  pending: ['confirmed', 'cancelled'],
+  confirmed: ['processing', 'cancelled'],
+  processing: ['shipped', 'cancelled'],
+  shipped: ['delivered', 'cancelled', 'refunded'],
+  delivered: ['refunded'],
+  cancelled: ['refunded'],
+  refunded: [],
+};
+
 export const getDashboardAnalytics = catchAsync(async (_req: Request, res: Response) => {
   const data = await getDashboardAnalyticsData();
   sendSuccess(res, data);
@@ -113,6 +132,8 @@ export const updateOrderStatus = catchAsync(async (req: Request, res: Response, 
 
   const previousStatus = order.status;
   const sameStatus = order.status === status;
+  const previous = String(previousStatus) as ManagedOrderStatus;
+  const requested = String(status) as ManagedOrderStatus;
 
   const carrierTrimmed = typeof shippingCarrier === 'string' ? shippingCarrier.trim() : undefined;
   const trackingTrimmed = typeof trackingNumber === 'string' ? trackingNumber.trim() : undefined;
@@ -126,6 +147,18 @@ export const updateOrderStatus = catchAsync(async (req: Request, res: Response, 
 
   if (sameStatus && !noteTrimmed && !hasTrackingUpdate) {
     return next(new AppError('No changes to update.', 400));
+  }
+
+  if (!sameStatus) {
+    const allowed = ALLOWED_STATUS_TRANSITIONS[previous];
+    if (!allowed || !allowed.includes(requested)) {
+      return next(
+        new AppError(
+          `Invalid status change from ${previousStatus} to ${status}.`,
+          400,
+        ),
+      );
+    }
   }
 
   order.status = status;
@@ -171,7 +204,7 @@ export const updateOrderStatus = catchAsync(async (req: Request, res: Response, 
 
   const populated = await Order.findById(order._id).populate('user', 'name email');
   const user = populated?.user as unknown as { name?: string; email?: string } | undefined;
-  if (populated && user?.email) {
+  if (!sameStatus && populated && user?.email) {
     // Smart email with tracking info for 'shipped'
     const trackingOpts = status === 'shipped' ? {
       carrier: order.shippingCarrier,
@@ -191,22 +224,24 @@ export const updateOrderStatus = catchAsync(async (req: Request, res: Response, 
       html: tpl.html,
     });
 
-    await notifyUser(
-      populated.user._id,
-      status === 'shipped' ? `📦 Order ${populated.orderNumber} is on its way!` :
-      status === 'delivered' ? `✅ Order ${populated.orderNumber} delivered!` :
-      status === 'cancelled' ? `❌ Order ${populated.orderNumber} cancelled` :
-      `Order ${populated.orderNumber} status update`,
-      status === 'shipped'
-        ? `Your order is on the way${order.shippingCarrier ? ` via ${order.shippingCarrier}` : ''}${order.trackingNumber ? `, AWB: ${order.trackingNumber}` : ''}.`
-        : status === 'delivered'
-          ? 'Your order has been delivered. We hope you love it!'
-          : status === 'cancelled'
-            ? 'Your order has been cancelled. Contact support if this was unexpected.'
-            : `Your order is now ${status}.`,
-      `/dashboard/orders/${populated._id}`,
-      status === 'delivered' ? 'success' : status === 'cancelled' ? 'error' : 'order'
-    );
+    if (populated.user?._id) {
+      await notifyUser(
+        populated.user._id,
+        status === 'shipped' ? `📦 Order ${populated.orderNumber} is on its way!` :
+        status === 'delivered' ? `✅ Order ${populated.orderNumber} delivered!` :
+        status === 'cancelled' ? `❌ Order ${populated.orderNumber} cancelled` :
+        `Order ${populated.orderNumber} status update`,
+        status === 'shipped'
+          ? `Your order is on the way${order.shippingCarrier ? ` via ${order.shippingCarrier}` : ''}${order.trackingNumber ? `, AWB: ${order.trackingNumber}` : ''}.`
+          : status === 'delivered'
+            ? 'Your order has been delivered. We hope you love it!'
+            : status === 'cancelled'
+              ? 'Your order has been cancelled. Contact support if this was unexpected.'
+              : `Your order is now ${status}.`,
+        `/dashboard/orders/${populated._id}`,
+        status === 'delivered' ? 'success' : status === 'cancelled' ? 'error' : 'order'
+      );
+    }
   }
 
   // Admin email only for critical status changes (cancelled)
