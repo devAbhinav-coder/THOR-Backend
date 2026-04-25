@@ -16,7 +16,7 @@ const commonOptions: RedisOptions = {
 
 type RedisLike = Pick<
   IORedis,
-  'call' | 'get' | 'set' | 'del' | 'incr' | 'expire' | 'ping' | 'quit' | 'on'
+  'call' | 'get' | 'set' | 'del' | 'incr' | 'expire' | 'ping' | 'quit' | 'on' | 'keys'
 >;
 
 const memoryStore = new Map<string, string>();
@@ -62,6 +62,16 @@ const fallbackRedis: RedisLike = {
       memoryExpiry.delete(k);
     });
     return count;
+  },
+  keys: async (pattern: string) => {
+    const regex = new RegExp(`^${pattern.replace(/\*/g, '.*')}$`);
+    const matched: string[] = [];
+    for (const key of memoryStore.keys()) {
+      if (!isExpired(key) && regex.test(key)) {
+        matched.push(key);
+      }
+    }
+    return matched;
   },
   incr: async (key: string) => {
     if (isExpired(key)) memoryCounters.delete(key);
