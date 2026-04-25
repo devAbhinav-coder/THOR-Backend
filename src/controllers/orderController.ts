@@ -44,6 +44,7 @@ import {
   computeOrderTotals,
   getGiftMinQty,
 } from "../services/orderService";
+import { sendPurchaseEvent } from "../services/metaCapiService";
 
 export const createOrder = catchAsync(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -382,6 +383,15 @@ export const createOrder = catchAsync(
         "order",
       ).catch(() => {});
 
+      // Fire Meta CAPI Purchase event
+      sendPurchaseEvent(
+        codOrder,
+        req.ip,
+        req.headers["user-agent"],
+        req.cookies?._fbp,
+        req.cookies?._fbc
+      ).catch(() => {});
+
       const codBody = {
         status: "success" as const,
         data: { order: codOrder.toJSON() },
@@ -570,6 +580,15 @@ export const verifyPayment = catchAsync(
           "order",
         );
       }
+
+      // Fire Meta CAPI Purchase event
+      sendPurchaseEvent(
+        updated!,
+        req.ip,
+        req.headers["user-agent"],
+        req.cookies?._fbp,
+        req.cookies?._fbc
+      ).catch(() => {});
 
       sendSuccess(res, { order: updated }, "Payment verified successfully");
     } catch (err) {

@@ -37,10 +37,12 @@ class APIFeatures<T> {
 
   search(fields: string[]): this {
     if (this.queryString.search) {
-      const searchRegex = new RegExp(this.queryString.search, 'i');
-      const searchConditions = fields.map((field) => ({ [field]: searchRegex }));
-      this.searchExpr = { $or: searchConditions };
+      // Use advanced MongoDB Text Search for pro-level relevance matching
+      this.searchExpr = { $text: { $search: this.queryString.search } };
       this.query = this.query.find(this.searchExpr as Parameters<typeof this.query.find>[0]);
+      
+      // Project the textScore metadata so we can sort by it
+      this.query = this.query.select({ score: { $meta: 'textScore' } });
     }
     return this;
   }
@@ -49,6 +51,10 @@ class APIFeatures<T> {
     if (this.queryString.sort) {
       const sortBy = this.queryString.sort.split(',').join(' ');
       this.query = this.query.sort(sortBy);
+    } else if (this.queryString.search) {
+      // If doing a text search and no specific sort is requested, 
+      // sort by the most relevant match first.
+      this.query = this.query.sort({ score: { $meta: 'textScore' } });
     } else {
       this.query = this.query.sort('-createdAt');
     }

@@ -1,274 +1,418 @@
-import { Request, Response, NextFunction } from 'express';
-import Product from '../models/Product';
-import { deleteMultipleImages } from '../services/cloudinary';
-import AppError from '../utils/AppError';
-import catchAsync from '../utils/catchAsync';
-import APIFeatures from '../utils/apiFeatures';
-import { IProduct } from '../types';
-import { reconcileProductJson, sumVariantStocks } from '../utils/productStock';
-import { getCache, setCache } from '../services/cacheService';
-import { productRepository } from '../repositories/productRepository';
-import { sendPaginated, sendSuccess } from '../utils/response';
-import { safeJsonParse } from '../utils/safeJson';
-
+import { Request, Response, NextFunction } from "express";
+import Product from "../models/Product";
+import { deleteMultipleImages } from "../services/cloudinary";
+import AppError from "../utils/AppError";
+import catchAsync from "../utils/catchAsync";
+import APIFeatures from "../utils/apiFeatures";
+import { IProduct } from "../types";
+import { reconcileProductJson, sumVariantStocks } from "../utils/productStock";
+import { getCache, setCache, clearCachePattern } from "../services/cacheService";
+import { productRepository } from "../repositories/productRepository";
+import { sendPaginated, sendSuccess } from "../utils/response";
+import { safeJsonParse } from "../utils/safeJson";
+import mongoose from "mongoose";
 function jsonProduct(p: { toJSON: () => Record<string, unknown> }) {
-  const raw = p.toJSON() as Record<string, unknown> & { variants?: { stock?: number }[] };
+  const raw = p.toJSON() as Record<string, unknown> & {
+    variants?: { stock?: number }[];
+  };
   return reconcileProductJson(raw);
 }
 
-export const getAllProducts = catchAsync(async (req: Request, res: Response) => {
-  const features = new APIFeatures<IProduct>(
-    Product.find({ isActive: true, category: { $ne: 'Gifting' } }),
-    req.query as Record<string, string>
-  )
-    .filter()
-    .search(['name', 'description', 'tags'])
-    .sort()
-    .limitFields()
-    .paginate();
+export const getAllProducts = catchAsync(
+  async (req: Request, res: Response) => {
+    const isRandom = req.query.isRandom === "true";
 
-  const [products, totalCount] = await Promise.all([
-    features.query,
-    // Must match chained query filter (base + URL filters + search) — getMongoFilter() omits constructor conditions.
-    Product.countDocuments(features.query.getFilter()),
-  ]);
-  sendPaginated(
-    res,
-    { products: products.map((p) => jsonProduct(p)) },
-    { page: features.getPage(), limit: features.getLimit(), total: totalCount }
-  );
-});
+    // ── Random mode: $sample for truly random product discovery ──────────────
+    if (isRandom) {
+      const maxLimit = parseInt(process.env.PAGINATION_MAX_LIMIT || "100", 10);
+      const requestedLimit = parseInt(
+        (req.query.limit as string) || "8",
+        10,
+      );
+      const limit = Math.min(Math.max(1, requestedLimit), maxLimit);
+
+      // Parse excludeIds safely — guard against malformed ObjectId strings
+      const excludeIds = (req.query.excludeIds as string | undefined)
+        ?.split(",")
+        .filter(Boolean)
+        .reduce<mongoose.Types.ObjectId[]>((acc, id) => {
+          try {
+            acc.push(new mongoose.Types.ObjectId(id));
+          } catch { /* skip invalid ids */ }
+          return acc;
+        }, []) ?? [];
+
+      const baseFilter: Record<string, unknown> = {
+        isActive: true,
+        category: { $ne: "Gifting" },
+        ...(excludeIds.length && { _id: { $nin: excludeIds } }),
+      };
+
+      // Run $sample + count in parallel
+      const [products, remaining] = await Promise.all([
+        Product.aggregate([
+          { $match: baseFilter },
+          { $sample: { size: limit } },
+          { $project: { __v: 0 } },
+        ]),
+        Product.countDocuments(baseFilter),
+      ]);
+
+      const normalized = products.map((p) =>
+        reconcileProductJson(
+          p as Parameters<typeof reconcileProductJson>[0],
+        ),
+      );
+
+      // Use sendPaginated so totalPages is always present → Zod schema passes
+      // total = remaining count so hasNextPage = true while catalog has more
+      sendPaginated(
+        res,
+        { products: normalized },
+        { page: 1, limit, total: remaining },
+      );
+      return;
+    }
+
+    // ── Normal mode: filter / search / sort / paginate ────────────────────────
+    const features = new APIFeatures<IProduct>(
+      Product.find({ isActive: true, category: { $ne: "Gifting" } }),
+      req.query as Record<string, string>,
+    )
+      .filter()
+      .search(["name", "description", "tags"])
+      .sort()
+      .limitFields()
+      .paginate();
+
+    const [products, totalCount] = await Promise.all([
+      features.query,
+      // Must match chained query filter (base + URL filters + search) — getMongoFilter() omits constructor conditions.
+      Product.countDocuments(features.query.getFilter()),
+    ]);
+    sendPaginated(
+      res,
+      { products: products.map((p) => jsonProduct(p)) },
+      {
+        page: features.getPage(),
+        limit: features.getLimit(),
+        total: totalCount,
+      },
+    );
+  },
+);
 
 /** Public: increment PDP view count (client dedupes per session). */
-export const recordProductView = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
-  const updated = await Product.findOneAndUpdate(
-    { slug: req.params.slug, isActive: true },
-    { $inc: { viewCount: 1 } },
-    { new: true, select: 'viewCount' }
-  );
-
-  if (!updated) {
-    return next(new AppError('No product found with that slug.', 404));
-  }
-
-  sendSuccess(res, { viewCount: updated.viewCount });
-});
-
-export const getProduct = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
-  const product = await Product.findOne({ slug: req.params.slug, isActive: true });
-
-  if (!product) {
-    return next(new AppError('No product found with that slug.', 404));
-  }
-
-  sendSuccess(res, { product: jsonProduct(product) });
-});
-
-export const getFeaturedProducts = catchAsync(async (_req: Request, res: Response) => {
-  const cacheKey = 'cache:products:featured';
-  const cached = await getCache<Record<string, unknown>[]>(cacheKey);
-  if (cached) {
-    const products = cached.map((p) =>
-      reconcileProductJson(p as Parameters<typeof reconcileProductJson>[0]),
+export const recordProductView = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const updated = await Product.findOneAndUpdate(
+      { slug: req.params.slug, isActive: true },
+      { $inc: { viewCount: 1 } },
+      { new: true, select: "viewCount" },
     );
-    sendSuccess(res, { products });
-    return;
-  }
 
-  const products = await productRepository.findFeatured();
-  const transformed = products.map((p) => jsonProduct(p));
-  await setCache(cacheKey, transformed, 120);
+    if (!updated) {
+      return next(new AppError("No product found with that slug.", 404));
+    }
 
-  sendSuccess(res, { products: transformed });
-});
+    sendSuccess(res, { viewCount: updated.viewCount });
+  },
+);
 
-export const getProductsByCategory = catchAsync(async (req: Request, res: Response) => {
-  const features = new APIFeatures<IProduct>(
-    Product.find({ category: req.params.category, isActive: true }),
-    req.query as Record<string, string>
-  )
-    .filter()
-    .sort()
-    .paginate();
+export const getProduct = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const product = await Product.findOne({
+      slug: req.params.slug,
+      isActive: true,
+    });
 
-  const [products, totalCount] = await Promise.all([
-    features.query,
-    Product.countDocuments(features.query.getFilter()),
-  ]);
-  sendPaginated(
-    res,
-    { products: products.map((p) => jsonProduct(p)) },
-    { page: features.getPage(), limit: features.getLimit(), total: totalCount }
-  );
-});
+    if (!product) {
+      return next(new AppError("No product found with that slug.", 404));
+    }
 
-export const createProduct = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
-  const uploadedImages = (req as Request & { uploadedImages?: { url: string; publicId: string }[] }).uploadedImages;
+    sendSuccess(res, { product: jsonProduct(product) });
+  },
+);
 
-  if (!uploadedImages || uploadedImages.length === 0) {
-    return next(new AppError('Please upload at least one product image.', 400));
-  }
+export const getFeaturedProducts = catchAsync(
+  async (_req: Request, res: Response) => {
+    const cacheKey = "cache:products:featured";
+    const cached = await getCache<Record<string, unknown>[]>(cacheKey);
+    if (cached) {
+      const products = cached.map((p) =>
+        reconcileProductJson(p as Parameters<typeof reconcileProductJson>[0]),
+      );
+      sendSuccess(res, { products });
+      return;
+    }
 
-  if (uploadedImages.length > 7) {
-    return next(new AppError('A product can have at most 7 images.', 400));
-  }
+    const products = await productRepository.findFeatured();
+    const transformed = products.map((p) => jsonProduct(p));
+    await setCache(cacheKey, transformed, 120);
 
-  const images = uploadedImages.map((img, index) => ({
-    url: img.url,
-    publicId: img.publicId,
-    alt: `${req.body.name} - Image ${index + 1}`,
-  }));
+    sendSuccess(res, { products: transformed });
+  },
+);
 
-  const variantsParsed = safeJsonParse(req.body.variants, req.body.variants, 'variants');
+export const getProductsByCategory = catchAsync(
+  async (req: Request, res: Response) => {
+    const features = new APIFeatures<IProduct>(
+      Product.find({ category: req.params.category, isActive: true }),
+      req.query as Record<string, string>,
+    )
+      .filter()
+      .sort()
+      .paginate();
 
-  const productData = {
-    ...req.body,
-    images,
-    variants: variantsParsed,
-    tags: safeJsonParse(req.body.tags, req.body.tags, 'tags'),
-    price: Number(req.body.price),
-    comparePrice: req.body.comparePrice ? Number(req.body.comparePrice) : undefined,
-    isFeatured: req.body.isFeatured === 'true' || req.body.isFeatured === true,
-    isActive: req.body.isActive !== 'false' && req.body.isActive !== false,
-    isGiftable: req.body.isGiftable === 'true' || req.body.isGiftable === true,
-    minOrderQty: req.body.minOrderQty ? Number(req.body.minOrderQty) : 1,
-    giftOccasions: safeJsonParse(req.body.giftOccasions, req.body.giftOccasions || [], 'giftOccasions'),
-    customFields: safeJsonParse(req.body.customFields, req.body.customFields || [], 'customFields'),
-    productDetails: safeJsonParse(req.body.productDetails, req.body.productDetails || [], 'productDetails'),
-  };
-  delete (productData as Record<string, unknown>).totalStock;
-  (productData as Record<string, unknown>).totalStock = sumVariantStocks(variantsParsed);
+    const [products, totalCount] = await Promise.all([
+      features.query,
+      Product.countDocuments(features.query.getFilter()),
+    ]);
+    sendPaginated(
+      res,
+      { products: products.map((p) => jsonProduct(p)) },
+      {
+        page: features.getPage(),
+        limit: features.getLimit(),
+        total: totalCount,
+      },
+    );
+  },
+);
 
-  const product = await Product.create(productData);
+export const createProduct = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const uploadedImages = (
+      req as Request & { uploadedImages?: { url: string; publicId: string }[] }
+    ).uploadedImages;
 
-  sendSuccess(res, { product: jsonProduct(product) }, 'Product created', 201);
-});
-
-export const updateProduct = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
-  const product = await Product.findById(req.params.id);
-  if (!product) return next(new AppError('No product found with that ID.', 404));
-
-  const updateData: Record<string, unknown> = { ...req.body };
-
-  const uploadedImages = (req as Request & { uploadedImages?: { url: string; publicId: string }[] }).uploadedImages;
-  if (uploadedImages && uploadedImages.length > 0) {
-    const combined = product.images.length + uploadedImages.length;
-    if (combined > 7) {
+    if (!uploadedImages || uploadedImages.length === 0) {
       return next(
-        new AppError(
-          `Cannot add ${uploadedImages.length} image(s): product already has ${product.images.length} (max 7 total).`,
-          400
-        )
+        new AppError("Please upload at least one product image.", 400),
       );
     }
-    const newImages = uploadedImages.map((img, index) => ({
+
+    if (uploadedImages.length > 7) {
+      return next(new AppError("A product can have at most 7 images.", 400));
+    }
+
+    const images = uploadedImages.map((img, index) => ({
       url: img.url,
       publicId: img.publicId,
-      alt: `${req.body.name || product.name} - Image ${index + 1}`,
+      alt: `${req.body.name} - Image ${index + 1}`,
     }));
-    updateData.images = [...product.images, ...newImages];
-  }
 
-  if (req.body.isFeatured !== undefined) {
-    updateData.isFeatured = req.body.isFeatured === 'true' || req.body.isFeatured === true;
-  }
-  if (req.body.isActive !== undefined) {
-    updateData.isActive = req.body.isActive !== 'false' && req.body.isActive !== false;
-  }
-
-  if (req.body.variants && typeof req.body.variants === 'string') {
-    updateData.variants = safeJsonParse(req.body.variants, req.body.variants, 'variants');
-  }
-  if (req.body.tags && typeof req.body.tags === 'string') {
-    updateData.tags = safeJsonParse(req.body.tags, req.body.tags, 'tags');
-  }
-  if (req.body.giftOccasions !== undefined) {
-    updateData.giftOccasions = safeJsonParse(
-      req.body.giftOccasions,
-      req.body.giftOccasions,
-      'giftOccasions'
+    const variantsParsed = safeJsonParse(
+      req.body.variants,
+      req.body.variants,
+      "variants",
     );
-  }
-  if (req.body.customFields !== undefined) {
-    updateData.customFields = safeJsonParse(
-      req.body.customFields,
-      req.body.customFields,
-      'customFields'
+
+    const productData = {
+      ...req.body,
+      images,
+      variants: variantsParsed,
+      tags: safeJsonParse(req.body.tags, req.body.tags, "tags"),
+      price: Number(req.body.price),
+      comparePrice:
+        req.body.comparePrice ? Number(req.body.comparePrice) : undefined,
+      isFeatured:
+        req.body.isFeatured === "true" || req.body.isFeatured === true,
+      isActive: req.body.isActive !== "false" && req.body.isActive !== false,
+      isGiftable:
+        req.body.isGiftable === "true" || req.body.isGiftable === true,
+      minOrderQty: req.body.minOrderQty ? Number(req.body.minOrderQty) : 1,
+      giftOccasions: safeJsonParse(
+        req.body.giftOccasions,
+        req.body.giftOccasions || [],
+        "giftOccasions",
+      ),
+      customFields: safeJsonParse(
+        req.body.customFields,
+        req.body.customFields || [],
+        "customFields",
+      ),
+      productDetails: safeJsonParse(
+        req.body.productDetails,
+        req.body.productDetails || [],
+        "productDetails",
+      ),
+    };
+    delete (productData as Record<string, unknown>).totalStock;
+    (productData as Record<string, unknown>).totalStock =
+      sumVariantStocks(variantsParsed);
+
+    const product = await Product.create(productData);
+
+    await clearCachePattern("cache:gifting:products:*");
+
+    sendSuccess(res, { product: jsonProduct(product) }, "Product created", 201);
+  },
+);
+
+export const updateProduct = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const product = await Product.findById(req.params.id);
+    if (!product)
+      return next(new AppError("No product found with that ID.", 404));
+
+    const updateData: Record<string, unknown> = { ...req.body };
+
+    const uploadedImages = (
+      req as Request & { uploadedImages?: { url: string; publicId: string }[] }
+    ).uploadedImages;
+    if (uploadedImages && uploadedImages.length > 0) {
+      const combined = product.images.length + uploadedImages.length;
+      if (combined > 7) {
+        return next(
+          new AppError(
+            `Cannot add ${uploadedImages.length} image(s): product already has ${product.images.length} (max 7 total).`,
+            400,
+          ),
+        );
+      }
+      const newImages = uploadedImages.map((img, index) => ({
+        url: img.url,
+        publicId: img.publicId,
+        alt: `${req.body.name || product.name} - Image ${index + 1}`,
+      }));
+      updateData.images = [...product.images, ...newImages];
+    }
+
+    if (req.body.isFeatured !== undefined) {
+      updateData.isFeatured =
+        req.body.isFeatured === "true" || req.body.isFeatured === true;
+    }
+    if (req.body.isActive !== undefined) {
+      updateData.isActive =
+        req.body.isActive !== "false" && req.body.isActive !== false;
+    }
+
+    if (req.body.variants && typeof req.body.variants === "string") {
+      updateData.variants = safeJsonParse(
+        req.body.variants,
+        req.body.variants,
+        "variants",
+      );
+    }
+    if (req.body.tags && typeof req.body.tags === "string") {
+      updateData.tags = safeJsonParse(req.body.tags, req.body.tags, "tags");
+    }
+    if (req.body.giftOccasions !== undefined) {
+      updateData.giftOccasions = safeJsonParse(
+        req.body.giftOccasions,
+        req.body.giftOccasions,
+        "giftOccasions",
+      );
+    }
+    if (req.body.customFields !== undefined) {
+      updateData.customFields = safeJsonParse(
+        req.body.customFields,
+        req.body.customFields,
+        "customFields",
+      );
+    }
+    if (req.body.productDetails !== undefined) {
+      updateData.productDetails = safeJsonParse(
+        req.body.productDetails,
+        req.body.productDetails,
+        "productDetails",
+      );
+    }
+    if (req.body.isGiftable !== undefined) {
+      updateData.isGiftable =
+        req.body.isGiftable === "true" || req.body.isGiftable === true;
+    }
+    if (req.body.minOrderQty !== undefined) {
+      updateData.minOrderQty = Number(req.body.minOrderQty);
+    }
+
+    delete updateData.totalStock;
+
+    // Apply all updates natively to the model via product.set() for Mongoose pre('save') triggers (e.g. slug generation)
+    product.set(updateData);
+    await product.save();
+
+    await clearCachePattern("cache:gifting:products:*");
+
+    sendSuccess(res, { product: jsonProduct(product) }, "Product updated");
+  },
+);
+
+export const deleteProduct = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const product = await Product.findById(req.params.id);
+    if (!product)
+      return next(new AppError("No product found with that ID.", 404));
+
+    const publicIds = product.images.map((img) => img.publicId);
+    await deleteMultipleImages(publicIds);
+
+    await Product.findByIdAndDelete(req.params.id);
+
+    await clearCachePattern("cache:gifting:products:*");
+
+    res.status(204).end();
+  },
+);
+
+export const deleteProductImage = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const { id } = req.params;
+    const rawParam = req.params.publicId;
+    const decodedId = decodeURIComponent(rawParam);
+    const product = await Product.findById(id);
+    if (!product)
+      return next(new AppError("No product found with that ID.", 404));
+
+    if (product.images.length <= 1) {
+      return next(new AppError("Product must have at least one image.", 400));
+    }
+
+    const match = product.images.find(
+      (img) => img.publicId === decodedId || img.publicId === rawParam,
     );
-  }
-  if (req.body.productDetails !== undefined) {
-    updateData.productDetails = safeJsonParse(
-      req.body.productDetails,
-      req.body.productDetails,
-      'productDetails'
+    if (!match) {
+      return next(new AppError("Image not found on this product.", 404));
+    }
+
+    await deleteMultipleImages([match.publicId]);
+    product.images = product.images.filter(
+      (img) => img.publicId !== match.publicId,
     );
-  }
-  if (req.body.isGiftable !== undefined) {
-    updateData.isGiftable = req.body.isGiftable === 'true' || req.body.isGiftable === true;
-  }
-  if (req.body.minOrderQty !== undefined) {
-    updateData.minOrderQty = Number(req.body.minOrderQty);
-  }
+    await product.save();
 
-  delete updateData.totalStock;
-  
-  // Apply all updates natively to the model via product.set() for Mongoose pre('save') triggers (e.g. slug generation)
-  product.set(updateData);
-  await product.save();
+    sendSuccess(res, { product: jsonProduct(product) });
+  },
+);
 
-  sendSuccess(res, { product: jsonProduct(product) }, 'Product updated');
-});
+export const getFilterOptions = catchAsync(
+  async (_req: Request, res: Response) => {
+    const [categories, fabrics, priceRange] = await Promise.all([
+      Product.distinct("category", {
+        isActive: true,
+        category: { $ne: "Gifting" },
+      }),
+      Product.distinct("fabric", {
+        isActive: true,
+        category: { $ne: "Gifting" },
+      }),
+      Product.aggregate([
+        { $match: { isActive: true, category: { $ne: "Gifting" } } },
+        {
+          $group: {
+            _id: null,
+            minPrice: { $min: "$price" },
+            maxPrice: { $max: "$price" },
+          },
+        },
+      ]),
+    ]);
 
-export const deleteProduct = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
-  const product = await Product.findById(req.params.id);
-  if (!product) return next(new AppError('No product found with that ID.', 404));
-
-  const publicIds = product.images.map((img) => img.publicId);
-  await deleteMultipleImages(publicIds);
-
-  await Product.findByIdAndDelete(req.params.id);
-
-  res.status(204).end();
-});
-
-export const deleteProductImage = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
-  const { id } = req.params;
-  const rawParam = req.params.publicId;
-  const decodedId = decodeURIComponent(rawParam);
-  const product = await Product.findById(id);
-  if (!product) return next(new AppError('No product found with that ID.', 404));
-
-  if (product.images.length <= 1) {
-    return next(new AppError('Product must have at least one image.', 400));
-  }
-
-  const match = product.images.find(
-    (img) => img.publicId === decodedId || img.publicId === rawParam
-  );
-  if (!match) {
-    return next(new AppError('Image not found on this product.', 404));
-  }
-
-  await deleteMultipleImages([match.publicId]);
-  product.images = product.images.filter((img) => img.publicId !== match.publicId);
-  await product.save();
-
-  sendSuccess(res, { product: jsonProduct(product) });
-});
-
-export const getFilterOptions = catchAsync(async (_req: Request, res: Response) => {
-  const [categories, fabrics, priceRange] = await Promise.all([
-    Product.distinct('category', { isActive: true, category: { $ne: 'Gifting' } }),
-    Product.distinct('fabric', { isActive: true, category: { $ne: 'Gifting' } }),
-    Product.aggregate([
-      { $match: { isActive: true, category: { $ne: 'Gifting' } } },
-      { $group: { _id: null, minPrice: { $min: '$price' }, maxPrice: { $max: '$price' } } },
-    ]),
-  ]);
-
-  sendSuccess(res, {
-    categories,
-    fabrics: fabrics.filter(Boolean),
-    priceRange: priceRange[0] || { minPrice: 0, maxPrice: 100000 },
-  });
-});
+    sendSuccess(res, {
+      categories,
+      fabrics: fabrics.filter(Boolean),
+      priceRange: priceRange[0] || { minPrice: 0, maxPrice: 100000 },
+    });
+  },
+);

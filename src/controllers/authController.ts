@@ -199,7 +199,11 @@ export const login = catchAsync(
 
 export const refresh = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
-    const raw = req.cookies?.refreshToken as string | undefined;
+    const raw =
+      (req.cookies?.refreshToken as string | undefined) ||
+      (typeof (req.body as { refreshToken?: string })?.refreshToken === "string" ?
+        (req.body as { refreshToken: string }).refreshToken
+      : undefined);
     if (!raw || raw === "loggedout") {
       return next(new AppError("Session expired. Please sign in again.", 401));
     }
@@ -394,9 +398,12 @@ export const googleAuth = catchAsync(
 );
 
 export const logout = catchAsync(async (req: Request, res: Response) => {
-  await revokeRefreshByRawCookie(
-    req.cookies?.refreshToken as string | undefined,
-  );
+  const raw =
+    (req.cookies?.refreshToken as string | undefined) ||
+    (typeof (req.body as { refreshToken?: string })?.refreshToken === "string" ?
+      (req.body as { refreshToken: string }).refreshToken
+    : undefined);
+  await revokeRefreshByRawCookie(raw);
   clearTokenCookies(res);
   sendSuccess(res, {}, "Logged out successfully");
 });

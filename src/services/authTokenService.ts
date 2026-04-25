@@ -87,6 +87,8 @@ export const sendAuthResponse = async (
     status: 'success',
     message: 'Authenticated successfully',
     token: accessToken,
+    /** Long-lived refresh (native apps cannot use httpOnly cookies — store in SecureStore). */
+    refreshToken: raw,
     data: { user: userObj },
   });
 };

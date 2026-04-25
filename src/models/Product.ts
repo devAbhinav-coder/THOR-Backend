@@ -128,7 +128,29 @@ productSchema.pre('findOneAndUpdate', function (next) {
   next();
 });
 
-productSchema.index({ name: 'text', description: 'text', tags: 'text' });
+productSchema.index(
+  {
+    name: 'text',
+    category: 'text',
+    subcategory: 'text',
+    fabric: 'text',
+    tags: 'text',
+    shortDescription: 'text',
+    description: 'text',
+  },
+  {
+    name: 'ProSearchTextIndex',
+    weights: {
+      name: 10,
+      category: 8,
+      subcategory: 6,
+      fabric: 6,
+      tags: 5,
+      shortDescription: 3,
+      description: 1,
+    },
+  }
+);
 productSchema.index({ isActive: 1, category: 1 });
 productSchema.index({ category: 1, fabric: 1, price: 1 });
 productSchema.index({ isFeatured: 1, isActive: 1 });

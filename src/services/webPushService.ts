@@ -1,6 +1,7 @@
 import webpush from "web-push";
 import { PushSubscriptionModel } from "../models/PushSubscription";
 import logger from "../utils/logger";
+import { sendExpoPushToUser } from "./expoPushService";
 
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "";
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "";
@@ -25,6 +26,10 @@ export async function sendWebPushToUser(
   userId: string,
   payload: { title: string; body: string; link?: string; tag?: string },
 ): Promise<void> {
+  await sendExpoPushToUser(userId, payload).catch((err) =>
+    logger.error("Expo push send failed", { userId, err }),
+  );
+
   if (!configured) return;
   const subs = await PushSubscriptionModel.find({
     user: userId,

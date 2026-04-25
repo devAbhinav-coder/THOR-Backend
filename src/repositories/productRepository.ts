@@ -11,11 +11,17 @@ export const productRepository = {
       );
   },
 
-  findGiftable(filter: Record<string, unknown>, skip: number, limit: number) {
-    return Product.find(filter)
-      .sort({ isFeatured: -1, createdAt: -1 })
+  findGiftable(filter: Record<string, unknown>, skip: number, limit: number, customSort?: Record<string, unknown>) {
+    const query = Product.find(filter);
+    if (filter.$text) {
+      query.select({ score: { $meta: "textScore" } });
+    }
+    const sortParams = customSort || (filter.$text ? { score: { $meta: "textScore" } } : { isFeatured: -1, createdAt: -1 });
+    
+    return query
+      .sort(sortParams as Parameters<typeof query.sort>[0])
       .skip(skip)
       .limit(limit)
-      .select("name slug price comparePrice images category description shortDescription tags giftOccasions isFeatured isActive minOrderQty isCustomizable customFields productDetails");
+      .select("name slug price comparePrice images category description shortDescription tags giftOccasions isFeatured isActive minOrderQty isCustomizable customFields productDetails variants");
   },
 };

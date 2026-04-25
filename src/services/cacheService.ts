@@ -13,3 +13,10 @@ export async function setCache<T>(key: string, value: T, ttlSeconds: number): Pr
 export async function deleteCache(key: string): Promise<void> {
   await redisConnection.del(key);
 }
+
+export async function clearCachePattern(pattern: string): Promise<void> {
+  const keys = await redisConnection.keys(pattern);
+  if (keys.length > 0) {
+    await redisConnection.del(...keys);
+  }
+}

@@ -7,6 +7,8 @@ import {
   getPushPublicKey,
   subscribePush,
   unsubscribePush,
+  subscribeExpoPush,
+  unsubscribeExpoPush,
   sendTestPushToSelf,
 } from '../controllers/notificationController';
 import { protect } from '../middleware/auth';
@@ -21,6 +23,8 @@ router.delete('/clear-all', clearAll);
 router.get('/push/public-key', getPushPublicKey);
 router.post('/push/subscribe', subscribePush);
 router.post('/push/unsubscribe', unsubscribePush);
+router.post('/push/expo', subscribeExpoPush);
+router.delete('/push/expo', unsubscribeExpoPush);
 router.post('/push/test-self', sendTestPushToSelf);
 router.patch('/:id/read', markAsRead);
 

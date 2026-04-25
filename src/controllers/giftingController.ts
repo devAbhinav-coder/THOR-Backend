@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import mongoose from "mongoose";
 import catchAsync from "../utils/catchAsync";
 import AppError from "../utils/AppError";
 import GiftingRequest from "../models/GiftingRequest";
@@ -34,65 +35,77 @@ export const getGiftableProducts = catchAsync(
       giftOccasion,
       category,
       search,
-      page = 1,
-      limit = 24,
+      isRandom,
+      excludeIds: excludeIdsStr,
+      page = "1",
+      limit: limitStr = "12",
     } = req.query as Record<string, string>;
 
-    const filter: Record<string, unknown> = {
-      isGiftable: true,
-      isActive: true,
-    };
+    const limit = Math.min(Math.max(1, parseInt(limitStr, 10)), 60);
+
+    // ── Base filter (common to both random and normal modes) ──────────────────
+    const filter: Record<string, unknown> = { isGiftable: true, isActive: true };
     if (giftOccasion) filter.giftOccasions = { $in: [giftOccasion] };
     if (category) filter.category = category;
     if (search?.trim()) {
-      const safe = search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const tokens = safe.split(/\s+/).filter(Boolean);
-      const tokenRegex = tokens.map((t) => new RegExp(t, "i"));
-      filter.$or = [
-        { name: { $regex: safe, $options: "i" } },
-        { shortDescription: { $regex: safe, $options: "i" } },
-        { description: { $regex: safe, $options: "i" } },
-        { category: { $regex: safe, $options: "i" } },
-        { tags: { $in: tokenRegex } },
-        { giftOccasions: { $in: tokenRegex } },
-      ];
+      filter.$text = { $search: search.trim() };
     }
 
-    const skip = (Number(page) - 1) * Number(limit);
+    // ── Random mode: $sample + excludeIds (no duplicates, true randomness) ────
+    if (isRandom === "true") {
+      const excludeIds = (excludeIdsStr || "")
+        .split(",")
+        .filter(Boolean)
+        .reduce<mongoose.Types.ObjectId[]>((acc, id) => {
+          try {
+            acc.push(new mongoose.Types.ObjectId(id));
+          } catch { /* skip invalid */ }
+          return acc;
+        }, []);
+
+      const randomFilter = {
+        ...filter,
+        ...(excludeIds.length && { _id: { $nin: excludeIds } }),
+      };
+
+      const [products, remaining] = await Promise.all([
+        Product.aggregate([
+          { $match: randomFilter },
+          { $sample: { size: limit } },
+          { $project: { __v: 0 } },
+        ]),
+        Product.countDocuments(randomFilter),
+      ]);
+
+      const normalized = products.map((p) =>
+        reconcileProductJson(p as Parameters<typeof reconcileProductJson>[0]),
+      );
+
+      sendPaginated(res, { products: normalized }, { page: 1, limit, total: remaining });
+      return;
+    }
+
+    // ── Normal mode: deterministic sort + pagination ───────────────────────────
+    const skip = (Number(page) - 1) * limit;
     const cacheKey = `cache:gifting:products:${JSON.stringify({ giftOccasion, category, search, page, limit })}`;
-    const cached = await getCache<{ products: unknown[]; total: number }>(
-      cacheKey,
-    );
+    const cached = await getCache<{ products: unknown[]; total: number }>(cacheKey);
     if (cached) {
       const products = cached.products.map((p) =>
         reconcileProductJson(p as Parameters<typeof reconcileProductJson>[0]),
       );
-      sendSuccess(res, {
-        products,
-        total: cached.total,
-        page: Number(page),
-        limit: Number(limit),
-      });
+      sendPaginated(res, { products }, { page: Number(page), limit, total: cached.total });
       return;
     }
 
     const [products, total] = await Promise.all([
-      productRepository.findGiftable(filter, skip, Number(limit)),
+      productRepository.findGiftable(filter, skip, limit),
       Product.countDocuments(filter),
     ]);
     const normalized = products.map((p) =>
-      reconcileProductJson(
-        p.toJSON() as Parameters<typeof reconcileProductJson>[0],
-      ),
+      reconcileProductJson(p.toJSON() as Parameters<typeof reconcileProductJson>[0]),
     );
     await setCache(cacheKey, { products: normalized, total }, 120);
-
-    sendSuccess(res, {
-      products: normalized,
-      total,
-      page: Number(page),
-      limit: Number(limit),
-    });
+    sendPaginated(res, { products: normalized }, { page: Number(page), limit, total });
   },
 );
 

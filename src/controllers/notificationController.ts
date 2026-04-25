@@ -1,12 +1,14 @@
 import { Response, NextFunction } from 'express';
 import { Notification } from '../models/Notification';
 import { PushSubscriptionModel } from '../models/PushSubscription';
+import ExpoPushToken from '../models/ExpoPushToken';
 import catchAsync from '../utils/catchAsync';
 import AppError from '../utils/AppError';
 import { AuthRequest } from '../types';
 import { sendPaginated, sendSuccess } from '../utils/response';
 import { getVapidPublicKey, isWebPushConfigured } from '../services/webPushService';
 import { enqueuePush } from '../queues/pushQueue';
+import { isExpoPushToken } from '../utils/isExpoPushToken';
 
 export const getMyNotifications = catchAsync(async (req: AuthRequest, res: Response) => {
   const page = parseInt(req.query.page as string) || 1;
@@ -105,21 +107,42 @@ export const unsubscribePush = catchAsync(async (req: AuthRequest, res: Response
   sendSuccess(res, {}, 'Push subscription removed.');
 });
 
+/** Native apps (Expo) — store Expo push token for FCM/APNs delivery via Expo. */
+export const subscribeExpoPush = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const raw = String(req.body?.expoPushToken ?? req.body?.token ?? '').trim();
+  if (!raw || !isExpoPushToken(raw)) {
+    return next(new AppError('Invalid Expo push token.', 400));
+  }
+
+  await ExpoPushToken.findOneAndUpdate(
+    { user: req.user!._id, token: raw },
+    { user: req.user!._id, token: raw },
+    { upsert: true, new: true, runValidators: true },
+  );
+
+  sendSuccess(res, {}, 'Expo push token saved.');
+});
+
+export const unsubscribeExpoPush = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const raw = String(req.body?.expoPushToken ?? req.body?.token ?? '').trim();
+  if (!raw) {
+    return next(new AppError('Expo push token is required.', 400));
+  }
+  await ExpoPushToken.deleteMany({ user: req.user!._id, token: raw });
+  sendSuccess(res, {}, 'Expo push token removed.');
+});
+
 export const sendTestPushToSelf = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
   if (req.user?.role !== 'admin') {
     return next(new AppError('Only admins can send test push notifications.', 403));
   }
 
-  if (!isWebPushConfigured()) {
-    return next(new AppError('Web push is not configured on server.', 503));
-  }
-
   await enqueuePush({
     userId: String(req.user!._id),
     title: 'Test Push Notification',
-    body: 'If you received this, browser push is working correctly.',
+    body: 'If you received this, push delivery is working for your registered devices.',
     link: '/admin',
   });
 
-  sendSuccess(res, {}, 'Test push sent to your active devices.');
+  sendSuccess(res, {}, 'Test push queued for your devices.');
 });
