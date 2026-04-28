@@ -6,11 +6,12 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "npm run build && node dist/index.js",
     "lint": "eslint src --ext .ts",
     "backfill:delivered-at": "ts-node --transpile-only scripts/backfill-delivered-at.ts"
   },
   "dependencies": {
+    "@opentelemetry/instrumentation": "^0.215.0",
     "@sentry/node": "^10.46.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/compression": "^1.7.5",
