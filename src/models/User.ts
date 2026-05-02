@@ -135,6 +135,11 @@ const userSchema = new Schema<IUser>(
       default: [],
     },
     isActive: { type: Boolean, default: true },
+    /**
+     * True when the account was auto-created from an admin offline/POS order.
+     * Cleared when the customer completes signup, sets a password (reset), or links Google.
+     */
+    offlineLead: { type: Boolean, default: false },
     passwordChangedAt: Date,
     passwordResetToken: String,
     passwordResetExpires: Date,

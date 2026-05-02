@@ -25,6 +25,7 @@ import {
 import { assertRefreshAllowed } from "../services/refreshRateLimiter";
 import { sendSuccess } from "../utils/response";
 import { writeAdminAudit } from "../services/adminAuditService";
+import { removeOfflineCustomerByEmail } from "../services/offlineCustomerService";
 
 const MAX_OTP_ATTEMPTS = 5;
 
@@ -292,9 +293,11 @@ export const resetPassword = catchAsync(
     }
 
     user.password = newPassword;
+    user.offlineLead = false;
     await user.save();
     await AuthOtp.deleteOne({ _id: doc._id });
     await RefreshToken.deleteMany({ user: user._id });
+    await removeOfflineCustomerByEmail(emailLower);
 
     await sendAuthResponse(res, user, 200);
   },
@@ -335,7 +338,7 @@ export const googleAuth = catchAsync(
 
     if (!user) {
       const byEmail = await User.findOne({ email }).select(
-        "+googleId +password +welcomeEmailAt",
+        "+googleId +password +welcomeEmailAt offlineLead",
       );
       if (byEmail) {
         if (byEmail.googleId && byEmail.googleId !== sub) {
@@ -352,11 +355,15 @@ export const googleAuth = catchAsync(
         const veryNewAccount = accountAgeMs < 5 * 60 * 1000;
 
         byEmail.googleId = sub;
+        if (byEmail.offlineLead) {
+          byEmail.offlineLead = false;
+        }
         if (picture && (!byEmail.avatar || !String(byEmail.avatar).trim())) {
           byEmail.avatar = picture;
         }
         await byEmail.save();
         user = byEmail;
+        await removeOfflineCustomerByEmail(email);
 
         if (!hadGoogleId && welcomeMissing && veryNewAccount) {
           sendWelcomeEmailInBackground(user.name, user.email);
@@ -373,6 +380,7 @@ export const googleAuth = catchAsync(
           ...(picture ? { avatar: picture } : {}),
           addresses: [],
         });
+        await removeOfflineCustomerByEmail(email);
         isNewGoogleSignup = true;
       }
     } else if (picture && (!user.avatar || !String(user.avatar).trim())) {

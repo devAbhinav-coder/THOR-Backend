@@ -11,6 +11,7 @@ import {
   getReturnsInsights,
   resolveReturn,
   getAllUsers,
+  getOfflineCustomers,
   getUserDirectoryStats,
   getUserInsights,
   toggleUserStatus,
@@ -122,6 +123,7 @@ router.get('/returns/insights', getReturnsInsights);
 router.get('/returns', getReturns);
 
 router.get('/users/stats', getUserDirectoryStats);
+router.get('/offline-customers', getOfflineCustomers);
 router.get('/users', getAllUsers);
 router.get('/users/:id/insights', getUserInsights);
 router.patch('/users/:id/toggle-status', toggleUserStatus);

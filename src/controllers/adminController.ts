@@ -3,6 +3,7 @@ import { AuthRequest } from '../types';
 import { Types } from 'mongoose';
 import Order from '../models/Order';
 import User from '../models/User';
+import OfflineCustomer from '../models/OfflineCustomer';
 import Product from '../models/Product';
 import Review from '../models/Review';
 import AppError from '../utils/AppError';
@@ -380,6 +381,25 @@ export const getUserDirectoryStats = catchAsync(async (_req: Request, res: Respo
     users: { total: totalUsers, active: activeUsers, inactive: inactiveUsers },
     admins: { total: totalAdmins, active: activeAdmins, inactive: inactiveAdmins },
   });
+});
+
+/** POS / offline-sale leads (one row per email). Dropped when the customer claims the account. */
+export const getOfflineCustomers = catchAsync(async (req: Request, res: Response) => {
+  const page = parseInt((req.query.page as string) || '1', 10);
+  const limit = Math.min(100, Math.max(1, parseInt((req.query.limit as string) || '20', 10)));
+  const skip = (page - 1) * limit;
+
+  const [offlineCustomers, total] = await Promise.all([
+    OfflineCustomer.find({})
+      .sort({ lastOfflineOrderAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .select('email phone name lastOfflineOrderAt offlineOrderCount createdAt updatedAt')
+      .lean(),
+    OfflineCustomer.countDocuments({}),
+  ]);
+
+  sendPaginated(res, { offlineCustomers }, { page, limit, total });
 });
 
 export const toggleUserStatus = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {

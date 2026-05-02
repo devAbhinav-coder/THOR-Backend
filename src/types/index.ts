@@ -16,6 +16,8 @@ export interface IUser extends Document {
   adminNote?: string;
   addresses: IAddress[];
   isActive: boolean;
+  /** Auto-created from offline order; cleared when the customer claims the account. */
+  offlineLead?: boolean;
   passwordChangedAt?: Date;
   passwordResetToken?: string;
   passwordResetExpires?: Date;

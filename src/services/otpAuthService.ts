@@ -2,6 +2,7 @@ import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import AuthOtp, { AuthOtpPurpose } from "../models/AuthOtp";
 import User from "../models/User";
+import { removeOfflineCustomerByEmail } from "./offlineCustomerService";
 import { emailTemplates } from "./emailService";
 import { deliverOtpEmail } from "./emailDeliveryService";
 import { assertOtpSendAllowed, recordOtpSend } from "./otpRateLimitService";
@@ -76,6 +77,26 @@ export async function createVerifiedSignupUser(
   emailLower: string,
   signupPayload: SignupOtpPayload,
 ): Promise<InstanceType<typeof User>> {
+  const claim = await User.findOne({ email: emailLower, offlineLead: true }).select(
+    "+password",
+  );
+  if (claim) {
+    claim.name = signupPayload.name.trim().slice(0, 50);
+    claim.password = signupPayload.password;
+    if (signupPayload.phone?.trim()) {
+      const p10 = signupPayload.phone.replace(/\D/g, "").slice(-10);
+      if (/^[6-9]\d{9}$/.test(p10)) {
+        claim.phone = p10;
+      }
+    }
+    claim.offlineLead = false;
+    claim.emailVerified = true;
+    await claim.save();
+    await removeOfflineCustomerByEmail(emailLower);
+    scheduleWelcomeEmail(String(claim._id), emailLower, signupPayload.name);
+    return claim;
+  }
+
   const user = await User.create({
     name: signupPayload.name,
     email: emailLower,
@@ -85,6 +106,7 @@ export async function createVerifiedSignupUser(
     addresses: [],
   });
 
+  await removeOfflineCustomerByEmail(emailLower);
   scheduleWelcomeEmail(String(user._id), emailLower, signupPayload.name);
   return user;
 }
@@ -146,8 +168,8 @@ export async function sendOtp(params: {
     if (!s?.name || !s.password || !s.phone) {
       throw err("Name, password, and phone are required for signup.", 400);
     }
-    const taken = await User.findOne({ email: emailLower });
-    if (taken) {
+    const taken = await User.findOne({ email: emailLower }).select("offlineLead");
+    if (taken && !taken.offlineLead) {
       throw err("An account with this email already exists.", 409);
     }
   } else if (params.flow === "login") {

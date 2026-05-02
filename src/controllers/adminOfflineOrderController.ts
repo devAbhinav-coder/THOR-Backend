@@ -26,6 +26,10 @@ import {
   isOfflineManualProductId,
   OFFLINE_MANUAL_VARIANT_SKU,
 } from "../services/offlineManualProductService";
+import {
+  removeOfflineCustomerByEmail,
+  upsertOfflineCustomerRecord,
+} from "../services/offlineCustomerService";
 function normalizeInPhone(raw: string): string {
   const d = raw.replace(/\D/g, "");
   if (d.length === 12 && d.startsWith("91")) return d.slice(2);
@@ -299,6 +303,7 @@ export const createOfflineOrder = catchAsync(
           email: emailNorm,
           password: randomStrongPassword(),
           phone: phone10,
+          offlineLead: true,
         });
       } catch (err: unknown) {
         const code = (err as { code?: number })?.code;
@@ -315,6 +320,13 @@ export const createOfflineOrder = catchAsync(
     user.name = customerName.trim().slice(0, 50);
     user.phone = phone10;
     await user.save();
+
+    const isOfflineMarketingLead = Boolean(
+      (user as { offlineLead?: boolean }).offlineLead,
+    );
+    if (!isOfflineMarketingLead) {
+      await removeOfflineCustomerByEmail(emailNorm);
+    }
 
     const shipAddr =
       fulfillment === "delhivery" && shipIn ?
@@ -450,6 +462,14 @@ export const createOfflineOrder = catchAsync(
         `/dashboard/orders/${order._id}`,
         "order",
       ).catch(() => {});
+
+      if (isOfflineMarketingLead) {
+        await upsertOfflineCustomerRecord({
+          email: emailNorm,
+          phone: phone10,
+          name: customerName.trim().slice(0, 50),
+        });
+      }
 
       sendSuccess(
         res,
