@@ -21,6 +21,7 @@ import {
   replyToReview,
   sendCustomMarketingEmail,
 } from '../controllers/adminController';
+import { createOfflineOrder } from '../controllers/adminOfflineOrderController';
 import {
   getDelhiveryIntegrationStatus,
   checkOrderPinServiceability,
@@ -56,6 +57,7 @@ import {
   delhiveryOrderIdParamsSchema,
   delhiveryServiceabilityQuerySchema,
   delhiveryPackingSlipQuerySchema,
+  createOfflineOrderSchema,
 } from '../validation/schemas';
 import {
   uploadAvatar,
@@ -79,6 +81,12 @@ router.get('/analytics', getDashboardAnalytics);
 router.get('/security/audit', getAdminAuditLogs);
 
 router.get('/orders', getAllOrders);
+router.post(
+  '/orders/offline',
+  adminSensitiveLimiter,
+  validate(createOfflineOrderSchema),
+  createOfflineOrder,
+);
 router.get('/orders/:id', getOrderDetails);
 router.get('/delhivery/status', getDelhiveryIntegrationStatus);
 router.get(

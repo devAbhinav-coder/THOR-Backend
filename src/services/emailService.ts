@@ -159,6 +159,15 @@ export async function sendViaSmtpWithRetry(
   throw lastErr || new Error("SMTP send failed");
 }
 
+/** Minimal HTML escape for user-controlled strings inside email bodies. */
+function escEmail(s: string): string {
+  return String(s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 const shell = (
   title: string,
   body: string,
@@ -241,6 +250,58 @@ export const emailTemplates = {
       `${frontendUrl}/dashboard/orders`,
     ),
   }),
+  /** Richer confirmation for admin-recorded offline / POS orders (email + item table + deep link). */
+  offlineOrderThankYou: (
+    name: string,
+    orderNumber: string,
+    total: number,
+    opts: {
+      orderId: string;
+      fulfillment: "delhivery" | "offline_handover";
+      paymentLabel: string;
+      items: { name: string; qty: number; lineTotal: number }[];
+    },
+  ) => {
+    const rows = opts.items
+      .map(
+        (r) =>
+          `<tr>
+            <td style="padding:10px 12px;border:1px solid #e5e7eb;">${escEmail(r.name)}</td>
+            <td style="padding:10px 12px;border:1px solid #e5e7eb;text-align:center;">${r.qty}</td>
+            <td style="padding:10px 12px;border:1px solid #e5e7eb;text-align:right;">₹${r.lineTotal.toFixed(2)}</td>
+          </tr>`,
+      )
+      .join("");
+    const fulfilNote =
+      opts.fulfillment === "offline_handover" ?
+        "Your purchase was completed <b>in person</b> at the time of sale — nothing will be shipped to this address for this order."
+      : "We will arrange <b>courier delivery</b> as usual. You will receive updates when your order ships.";
+
+    const body = `Hi ${escEmail(name)},<br/><br/>
+      Thank you for choosing <b>The House of Rani</b>.<br/><br/>
+      Your order <b>${escEmail(orderNumber)}</b> is confirmed and recorded in your account.<br/>
+      <b>Payment:</b> ${escEmail(opts.paymentLabel)}<br/><br/>
+      ${fulfilNote}<br/><br/>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:520px;border-collapse:collapse;margin:12px 0;font-size:14px;">
+        <thead>
+          <tr style="background:#f9fafb;">
+            <th align="left" style="padding:10px 12px;border:1px solid #e5e7eb;">Item</th>
+            <th align="center" style="padding:10px 12px;border:1px solid #e5e7eb;">Qty</th>
+            <th align="right" style="padding:10px 12px;border:1px solid #e5e7eb;">Amount</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <p style="margin:16px 0 0;font-size:15px;"><b>Order total:</b> ₹${total.toFixed(2)}</p>
+      <p style="margin:12px 0 0;font-size:13px;color:#6b7280;">You can open this email again anytime — the link below always shows your latest order status.</p>`;
+
+    const orderUrl = `${frontendUrl}/dashboard/orders/${encodeURIComponent(opts.orderId)}`;
+
+    return {
+      subject: `Thank you — your order ${orderNumber} is confirmed`,
+      html: shell("Thank you for your purchase", body, "View your order", orderUrl),
+    };
+  },
   orderStatusUpdate: (name: string, orderNumber: string, status: string, opts?: { carrier?: string; awb?: string; trackingUrl?: string }) => ({
     subject: `Order ${orderNumber} — ${status}`,
     html: shell(

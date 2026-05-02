@@ -155,7 +155,12 @@ export interface IOrder extends Document {
   shippingAddress: IAddress;
   status: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded';
   paymentStatus: 'pending' | 'paid' | 'failed' | 'refunded';
-  paymentMethod: 'razorpay' | 'cod';
+  paymentMethod: 'razorpay' | 'cod' | 'offline_upi' | 'offline_cash';
+  offlineMeta?: {
+    source: 'stall' | 'personal_contact';
+    fulfillment: 'delhivery' | 'offline_handover';
+    createdByAdmin?: Types.ObjectId;
+  };
   razorpayOrderId?: string;
   razorpayPaymentId?: string;
   razorpaySignature?: string;

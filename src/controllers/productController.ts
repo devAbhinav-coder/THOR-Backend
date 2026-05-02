@@ -9,6 +9,7 @@ import { reconcileProductJson, sumVariantStocks } from "../utils/productStock";
 import { getCache, setCache, clearCachePattern } from "../services/cacheService";
 import { productRepository } from "../repositories/productRepository";
 import { sendPaginated, sendSuccess } from "../utils/response";
+import { OFFLINE_MANUAL_PRODUCT_TAG } from "../constants/offlineOrder";
 import { safeJsonParse } from "../utils/safeJson";
 import mongoose from "mongoose";
 function jsonProduct(p: { toJSON: () => Record<string, unknown> }) {
@@ -21,6 +22,11 @@ function jsonProduct(p: { toJSON: () => Record<string, unknown> }) {
 export const getAllProducts = catchAsync(
   async (req: Request, res: Response) => {
     const isRandom = req.query.isRandom === "true";
+    const storefrontBaseFilter: Record<string, unknown> = {
+      isActive: true,
+      category: { $ne: "Gifting" },
+      tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
+    };
 
     // ── Random mode: $sample for truly random product discovery ──────────────
     if (isRandom) {
@@ -43,8 +49,7 @@ export const getAllProducts = catchAsync(
         }, []) ?? [];
 
       const baseFilter: Record<string, unknown> = {
-        isActive: true,
-        category: { $ne: "Gifting" },
+        ...storefrontBaseFilter,
         ...(excludeIds.length && { _id: { $nin: excludeIds } }),
       };
 
@@ -76,7 +81,7 @@ export const getAllProducts = catchAsync(
 
     // ── Normal mode: filter / search / sort / paginate ────────────────────────
     const features = new APIFeatures<IProduct>(
-      Product.find({ isActive: true, category: { $ne: "Gifting" } }),
+      Product.find(storefrontBaseFilter),
       req.query as Record<string, string>,
     )
       .filter()
@@ -87,8 +92,11 @@ export const getAllProducts = catchAsync(
 
     const [products, totalCount] = await Promise.all([
       features.query,
-      // Must match chained query filter (base + URL filters + search) — getMongoFilter() omits constructor conditions.
-      Product.countDocuments(features.query.getFilter()),
+      // Count must include the same base storefront constraints + URL/search filters.
+      Product.countDocuments({
+        ...storefrontBaseFilter,
+        ...features.getMongoFilter(),
+      }),
     ]);
     sendPaginated(
       res,
@@ -106,7 +114,7 @@ export const getAllProducts = catchAsync(
 export const recordProductView = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const updated = await Product.findOneAndUpdate(
-      { slug: req.params.slug, isActive: true },
+      { slug: req.params.slug, isActive: true, tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] } },
       { $inc: { viewCount: 1 } },
       { new: true, select: "viewCount" },
     );
@@ -124,6 +132,7 @@ export const getProduct = catchAsync(
     const product = await Product.findOne({
       slug: req.params.slug,
       isActive: true,
+      tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
     });
 
     if (!product) {
@@ -156,8 +165,13 @@ export const getFeaturedProducts = catchAsync(
 
 export const getProductsByCategory = catchAsync(
   async (req: Request, res: Response) => {
+    const categoryBaseFilter: Record<string, unknown> = {
+      category: req.params.category,
+      isActive: true,
+      tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
+    };
     const features = new APIFeatures<IProduct>(
-      Product.find({ category: req.params.category, isActive: true }),
+      Product.find(categoryBaseFilter),
       req.query as Record<string, string>,
     )
       .filter()
@@ -166,7 +180,10 @@ export const getProductsByCategory = catchAsync(
 
     const [products, totalCount] = await Promise.all([
       features.query,
-      Product.countDocuments(features.query.getFilter()),
+      Product.countDocuments({
+        ...categoryBaseFilter,
+        ...features.getMongoFilter(),
+      }),
     ]);
     sendPaginated(
       res,
@@ -392,13 +409,21 @@ export const getFilterOptions = catchAsync(
       Product.distinct("category", {
         isActive: true,
         category: { $ne: "Gifting" },
+        tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
       }),
       Product.distinct("fabric", {
         isActive: true,
         category: { $ne: "Gifting" },
+        tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
       }),
       Product.aggregate([
-        { $match: { isActive: true, category: { $ne: "Gifting" } } },
+        {
+          $match: {
+            isActive: true,
+            category: { $ne: "Gifting" },
+            tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
+          },
+        },
         {
           $group: {
             _id: null,

@@ -1,9 +1,15 @@
 import Product from "../models/Product";
+import { OFFLINE_MANUAL_PRODUCT_TAG } from "../constants/offlineOrder";
 
 export const productRepository = {
   findFeatured() {
     // Include `variants` (at least stock) so storefront cards can show correct sold-out state.
-    return Product.find({ isFeatured: true, isActive: true, category: { $ne: "Gifting" } })
+    return Product.find({
+      isFeatured: true,
+      isActive: true,
+      category: { $ne: "Gifting" },
+      tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
+    })
       .sort("-createdAt")
       .limit(8)
       .select(

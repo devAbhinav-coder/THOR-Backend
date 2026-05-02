@@ -494,6 +494,76 @@ export const delhiveryServiceabilityQuerySchema = z.object({
   }),
 });
 
+const offlineShippingAddressSchema = z.object({
+  name: z.string().min(1).max(80).optional(),
+  phone: z.string().min(8).max(20).optional(),
+  house: z.string().max(120).optional(),
+  street: z.string().min(1).max(200),
+  landmark: z.string().max(200).optional(),
+  city: z.string().min(1).max(80),
+  state: z.string().min(1).max(80),
+  pincode: z.string().regex(/^\d{6}$/, 'Enter a valid 6-digit pincode'),
+  country: z.string().max(60).optional(),
+});
+
+const offlineCatalogLineSchema = z.object({
+  type: z.literal('catalog'),
+  productId: z.string().regex(/^[a-fA-F0-9]{24}$/, 'Invalid product id'),
+  variantSku: z.string().min(1).max(80),
+  quantity: z.coerce.number().int().min(1).max(50),
+  unitPrice: z.coerce.number().min(0).optional(),
+});
+
+const offlineManualLineSchema = z
+  .object({
+    type: z.literal('manual'),
+    /** When set, line uses category display name + image (shop / non-gift categories only). */
+    categoryId: z.string().regex(/^[a-fA-F0-9]{24}$/).optional(),
+    /** Free-text line when categoryId is omitted. */
+    title: z.string().max(200).optional(),
+    quantity: z.coerce.number().int().min(1).max(50),
+    unitPrice: z.coerce.number().min(0),
+  })
+  .superRefine((d, ctx) => {
+    const hasCat = Boolean(d.categoryId?.trim());
+    const hasTitle = Boolean(d.title?.trim());
+    if (!hasCat && !hasTitle) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Select a shop category or enter a custom line description.',
+        path: ['title'],
+      });
+    }
+  });
+
+export const createOfflineOrderSchema = z.object({
+  body: z
+    .object({
+      customerName: z.string().min(2).max(50),
+      email: z.string().email(),
+      phone: z.string().min(8).max(20),
+      orderSource: z.enum(['stall', 'personal_contact']),
+      fulfillment: z.enum(['delhivery', 'offline_handover']),
+      paymentMethod: z.enum(['offline_upi', 'offline_cash']),
+      shippingAddress: offlineShippingAddressSchema.optional(),
+      // `discriminatedUnion` cannot mix a plain object with `.superRefine()` (ZodEffects) — use `union`.
+      lineItems: z
+        .array(z.union([offlineCatalogLineSchema, offlineManualLineSchema]))
+        .min(1)
+        .max(30),
+      notes: z.string().max(2000).optional(),
+    })
+    .superRefine((data, ctx) => {
+      if (data.fulfillment === 'delhivery' && !data.shippingAddress) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Shipping address is required when fulfillment is Delhivery.',
+          path: ['shippingAddress'],
+        });
+      }
+    }),
+});
+
 export const updateUserRoleSchema = z.object({
   body: z.object({
     role: z.enum(['user', 'admin']),

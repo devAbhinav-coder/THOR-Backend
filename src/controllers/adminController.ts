@@ -192,7 +192,9 @@ export const updateOrderStatus = catchAsync(async (req: Request, res: Response, 
   if (status === 'cancelled' && previousStatus !== 'cancelled') {
     const shouldRestock =
       order.paymentMethod === 'cod' ||
-      (order.paymentMethod === 'razorpay' && order.paymentStatus === 'paid');
+      (order.paymentMethod === 'razorpay' && order.paymentStatus === 'paid') ||
+      order.paymentMethod === 'offline_upi' ||
+      order.paymentMethod === 'offline_cash';
     if (shouldRestock) {
       for (const item of order.items) {
         await incrementVariantStock(refProductId(item.product), item.variant.sku, item.quantity);

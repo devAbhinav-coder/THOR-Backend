@@ -60,7 +60,7 @@ const orderSchema = new Schema<IOrder>(
     },
     paymentMethod: {
       type: String,
-      enum: ['razorpay', 'cod'],
+      enum: ['razorpay', 'cod', 'offline_upi', 'offline_cash'],
       required: true,
     },
     razorpayOrderId: String,
@@ -75,6 +75,12 @@ const orderSchema = new Schema<IOrder>(
     total: { type: Number, required: true },
     coupon: { type: Schema.Types.ObjectId, ref: 'Coupon' },
     notes: String,
+    /** Admin-recorded offline sale (stall / contact); optional on normal checkout orders */
+    offlineMeta: {
+      source: { type: String, enum: ['stall', 'personal_contact'] },
+      fulfillment: { type: String, enum: ['delhivery', 'offline_handover'] },
+      createdByAdmin: { type: Schema.Types.ObjectId, ref: 'User' },
+    },
     statusHistory: [
       {
         status: String,

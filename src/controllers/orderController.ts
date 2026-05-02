@@ -698,7 +698,9 @@ export const cancelOrder = catchAsync(
 
     const shouldRestock =
       order.paymentMethod === "cod" ||
-      (order.paymentMethod === "razorpay" && order.paymentStatus === "paid");
+      (order.paymentMethod === "razorpay" && order.paymentStatus === "paid") ||
+      order.paymentMethod === "offline_upi" ||
+      order.paymentMethod === "offline_cash";
 
     order.status = "cancelled";
     order.statusHistory.push({
