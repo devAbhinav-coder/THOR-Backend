@@ -337,8 +337,10 @@ export const googleAuth = catchAsync(
     let isNewGoogleSignup = false;
 
     if (!user) {
+      // Do not add plain field names beside `+…` paths — Mongoose switches to an
+      // inclusive projection and drops `isActive`, so `!user.isActive` wrongly blocks.
       const byEmail = await User.findOne({ email }).select(
-        "+googleId +password +welcomeEmailAt offlineLead",
+        "+googleId +password +welcomeEmailAt",
       );
       if (byEmail) {
         if (byEmail.googleId && byEmail.googleId !== sub) {
@@ -388,7 +390,7 @@ export const googleAuth = catchAsync(
       await user.save();
     }
 
-    if (!user.isActive) {
+    if (user.isActive === false) {
       return next(
         new AppError(
           "Your account has been deactivated. Please contact support.",
