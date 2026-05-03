@@ -12,6 +12,19 @@ import { sendPaginated, sendSuccess } from "../utils/response";
 import { OFFLINE_MANUAL_PRODUCT_TAG } from "../constants/offlineOrder";
 import { safeJsonParse } from "../utils/safeJson";
 import mongoose from "mongoose";
+
+/** `minRating` uses a dot-free query key so express-mongo-sanitize does not strip it (unlike `ratings.average[gte]`). */
+function minRatingMongoFilter(query: Request["query"]): Record<string, unknown> {
+  const raw = query.minRating;
+  const s =
+    typeof raw === "string" ? raw.trim()
+    : Array.isArray(raw) && typeof raw[0] === "string" ? raw[0].trim()
+    : "";
+  if (!s) return {};
+  const n = Number.parseInt(s, 10);
+  if (!Number.isFinite(n) || n < 1 || n > 5) return {};
+  return { "ratings.average": { $gte: n } };
+}
 function jsonProduct(p: { toJSON: () => Record<string, unknown> }) {
   const raw = p.toJSON() as Record<string, unknown> & {
     variants?: { stock?: number }[];
@@ -80,8 +93,9 @@ export const getAllProducts = catchAsync(
     }
 
     // ── Normal mode: filter / search / sort / paginate ────────────────────────
+    const ratingFilter = minRatingMongoFilter(req.query);
     const features = new APIFeatures<IProduct>(
-      Product.find(storefrontBaseFilter),
+      Product.find({ ...storefrontBaseFilter, ...ratingFilter }),
       req.query as Record<string, string>,
     )
       .filter()
@@ -95,6 +109,7 @@ export const getAllProducts = catchAsync(
       // Count must include the same base storefront constraints + URL/search filters.
       Product.countDocuments({
         ...storefrontBaseFilter,
+        ...ratingFilter,
         ...features.getMongoFilter(),
       }),
     ]);
@@ -170,8 +185,9 @@ export const getProductsByCategory = catchAsync(
       isActive: true,
       tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
     };
+    const ratingFilter = minRatingMongoFilter(req.query);
     const features = new APIFeatures<IProduct>(
-      Product.find(categoryBaseFilter),
+      Product.find({ ...categoryBaseFilter, ...ratingFilter }),
       req.query as Record<string, string>,
     )
       .filter()
@@ -182,6 +198,7 @@ export const getProductsByCategory = catchAsync(
       features.query,
       Product.countDocuments({
         ...categoryBaseFilter,
+        ...ratingFilter,
         ...features.getMongoFilter(),
       }),
     ]);
