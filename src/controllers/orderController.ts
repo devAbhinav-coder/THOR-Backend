@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { Response, NextFunction } from "express";
 import Order from "../models/Order";
+import CheckoutPaymentIntent from "../models/CheckoutPaymentIntent";
 import Cart from "../models/Cart";
 import Product from "../models/Product";
 import Coupon from "../models/Coupon";
@@ -45,6 +46,22 @@ import {
   getGiftMinQty,
 } from "../services/orderService";
 import { sendPurchaseEvent } from "../services/metaCapiService";
+
+function normalizeOrderItemsForCreate(
+  raw: unknown[],
+): Array<Record<string, unknown>> {
+  return raw.map((row) => {
+    const it = row as Record<string, unknown> & {
+      product?: mongoose.Types.ObjectId | string | { toString: () => string };
+    };
+    const productRef = it.product;
+    const pid =
+      productRef instanceof mongoose.Types.ObjectId ?
+        productRef
+      : new mongoose.Types.ObjectId(String(productRef));
+    return { ...it, product: pid };
+  });
+}
 
 export const createOrder = catchAsync(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -236,25 +253,44 @@ export const createOrder = catchAsync(
       };
 
       if (paymentMethod === "razorpay") {
-        const order = await orderRepository.createOrder(orderPayload);
-
+        const intentId = new mongoose.Types.ObjectId();
         const razorpayOrder = await createRazorpayOrder({
           amount: total,
-          receipt: order.orderNumber,
-          notes: { orderId: String(order._id) },
+          receipt: `CI_${intentId.toHexString()}`,
+          notes: { checkoutIntentId: String(intentId) },
         });
 
-        order.razorpayOrderId = razorpayOrder.id;
-        await order.save();
+        const stockLines = checkoutItems.map((item) => ({
+          productId: refProductId(item.product),
+          sku: item.variant.sku,
+          quantity: item.quantity,
+        }));
 
-        if (cartIdToDelete) {
-          await orderRepository.deleteCartById(cartIdToDelete);
-        }
+        await CheckoutPaymentIntent.create({
+          _id: intentId,
+          user: req.user!._id,
+          razorpayOrderId: razorpayOrder.id,
+          expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
+          snapshot: {
+            shippingAddress,
+            items: orderItems as unknown[],
+            stockLines,
+            subtotal: checkoutSubtotal,
+            discount,
+            shippingCharge,
+            codFee,
+            tax,
+            total,
+            coupon: couponId,
+            notes,
+            cartIdToDelete: cartIdToDelete ?? undefined,
+          },
+        });
 
         const razorpayBody = {
           status: "success" as const,
           data: {
-            order: order.toJSON(),
+            checkoutIntentId: String(intentId),
             razorpayOrder: {
               id: razorpayOrder.id,
               amount: razorpayOrder.amount,
@@ -274,7 +310,7 @@ export const createOrder = catchAsync(
         sendSuccess(
           res,
           razorpayBody.data as Record<string, unknown>,
-          "Order created",
+          "Payment session started",
           201,
         );
         return;
@@ -411,10 +447,361 @@ export const createOrder = catchAsync(
   },
 );
 
+async function sendVerifiedOrderSideEffects(
+  updated: InstanceType<typeof Order>,
+  req: AuthRequest,
+  razorpayPaymentId: string,
+) {
+  const notifyOnce =
+    await tryClaimPaymentPlacedNotification(razorpayPaymentId);
+  if (notifyOnce) {
+    const userTemplate = emailTemplates.orderPlacedUser(
+      req.user?.name || "Customer",
+      updated.orderNumber,
+      updated.total,
+    );
+    await enqueueEmail({
+      to: req.user?.email || "",
+      subject: userTemplate.subject,
+      html: userTemplate.html,
+    });
+
+    const adminTemplate = emailTemplates.adminNewOrder(
+      updated.orderNumber,
+      updated.total,
+      req.user?.name || "Customer",
+      req.user?.email || "",
+    );
+    await notifyAdminsEmail(adminTemplate.subject, adminTemplate.html);
+
+    notifyUser(
+      String(req.user!._id),
+      `Payment confirmed — ${updated.orderNumber}`,
+      `Your payment was successful! Order ${updated.orderNumber} is now confirmed and being processed.`,
+      `/dashboard/orders/${updated._id}`,
+      "success",
+    ).catch(() => {});
+
+    await notifyAdmins(
+      "New Order Received",
+      `Order ${updated.orderNumber} verified by ${req.user?.name || "Customer"}.`,
+      `/admin/orders/${updated._id}`,
+      "order",
+    );
+  }
+
+  sendPurchaseEvent(
+    updated,
+    req.ip,
+    req.headers["user-agent"],
+    req.cookies?._fbp,
+    req.cookies?._fbc
+  ).catch(() => {});
+}
+
 export const verifyPayment = catchAsync(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
-    const { razorpayOrderId, razorpayPaymentId, razorpaySignature, orderId } =
-      req.body;
+    const {
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
+      orderId,
+      checkoutIntentId,
+    } = req.body as {
+      razorpayOrderId: string;
+      razorpayPaymentId: string;
+      razorpaySignature: string;
+      orderId?: string;
+      checkoutIntentId?: string;
+    };
+
+    let payLockKey = "";
+
+    const paidDuplicate = await Order.findOne({
+      user: req.user!._id,
+      razorpayPaymentId,
+      paymentStatus: "paid",
+    }).populate("items.product", "name images");
+
+    if (paidDuplicate) {
+      sendSuccess(res, { order: paidDuplicate }, "Payment already verified");
+      return;
+    }
+
+    if (checkoutIntentId) {
+      payLockKey = `intent:${checkoutIntentId}`;
+      const gotPayLock = await acquirePaymentVerifyLock(payLockKey);
+      if (!gotPayLock) {
+        securityLog("payment.verify_lock_busy", { orderId: payLockKey });
+        return next(
+          new AppError(
+            "Payment verification in progress. Please retry in a few seconds.",
+            429,
+          ),
+        );
+      }
+
+      try {
+        const intent = await CheckoutPaymentIntent.findOne({
+          _id: checkoutIntentId,
+          user: req.user!._id,
+        });
+        if (!intent) {
+          return next(new AppError("Checkout session not found.", 404));
+        }
+
+        if (intent.consumedAt && intent.createdOrderId) {
+          verifyPaymentAndThrow(
+            razorpayOrderId,
+            razorpayPaymentId,
+            razorpaySignature,
+          );
+          await assertRazorpayPaymentMatchesOrder(
+            razorpayOrderId,
+            razorpayPaymentId,
+            intent.snapshot.total,
+          );
+          const replayOrder = await Order.findOne({
+            _id: intent.createdOrderId,
+            user: req.user!._id,
+            razorpayPaymentId,
+            paymentStatus: "paid",
+          }).populate("items.product", "name images");
+          if (!replayOrder) {
+            return next(
+              new AppError(
+                "This checkout session is closed. If you were charged, contact support with your payment ID.",
+                400,
+              ),
+            );
+          }
+          sendSuccess(res, { order: replayOrder }, "Payment already verified");
+          return;
+        }
+
+        if (intent.expiresAt < new Date()) {
+          return next(
+            new AppError(
+              "Checkout session expired. Please return to your cart and try again.",
+              400,
+            ),
+          );
+        }
+
+        if (intent.razorpayOrderId !== razorpayOrderId) {
+          return next(
+            new AppError("Payment session does not match this checkout.", 400),
+          );
+        }
+
+        verifyPaymentAndThrow(
+          razorpayOrderId,
+          razorpayPaymentId,
+          razorpaySignature,
+        );
+        await assertRazorpayPaymentMatchesOrder(
+          razorpayOrderId,
+          razorpayPaymentId,
+          intent.snapshot.total,
+        );
+
+        const session = await mongoose.startSession();
+        try {
+          await session.withTransaction(async () => {
+            const existingForRz = await Order.findOne({ razorpayOrderId }).session(
+              session,
+            );
+            if (existingForRz) {
+              if (
+                String(existingForRz.user) !== String(req.user!._id) ||
+                existingForRz.paymentStatus !== "paid"
+              ) {
+                throw new AppError(
+                  "Payment could not be linked to your account.",
+                  400,
+                );
+              }
+              await CheckoutPaymentIntent.updateOne(
+                { _id: intent._id },
+                {
+                  $set: {
+                    consumedAt: new Date(),
+                    createdOrderId: existingForRz._id,
+                  },
+                },
+                { session },
+              );
+              return;
+            }
+
+            const freshIntent = await CheckoutPaymentIntent.findById(
+              intent._id,
+            ).session(session);
+            if (!freshIntent) throw new AppError("Checkout session not found.", 404);
+            if (freshIntent.consumedAt) {
+              return;
+            }
+            if (freshIntent.expiresAt < new Date()) {
+              throw new AppError(
+                "Checkout session expired. Please return to your cart and try again.",
+                400,
+              );
+            }
+
+            const snap = freshIntent.snapshot;
+            const orderPayload = {
+              user: req.user!._id,
+              items: normalizeOrderItemsForCreate(snap.items as unknown[]),
+              shippingAddress: snap.shippingAddress,
+              paymentMethod: "razorpay" as const,
+              subtotal: snap.subtotal,
+              discount: snap.discount,
+              shippingCharge: snap.shippingCharge,
+              codFee: snap.codFee,
+              tax: snap.tax,
+              total: snap.total,
+              coupon: snap.coupon,
+              notes: snap.notes,
+              paymentStatus: "paid" as const,
+              status: "confirmed" as const,
+              razorpayOrderId,
+              razorpayPaymentId,
+              razorpaySignature,
+              invoice: { isGenerated: true, generatedAt: new Date() },
+            };
+
+            const createdArr = await Order.create([orderPayload], { session });
+            const newOrder = createdArr[0] as InstanceType<typeof Order>;
+
+            for (const line of snap.stockLines) {
+              const ok = await decrementVariantStock(
+                line.productId,
+                line.sku,
+                line.quantity,
+                { session },
+              );
+              if (!ok) {
+                logger.error(
+                  `verifyPayment intent: insufficient stock rz=${razorpayOrderId} sku=${line.sku}`,
+                );
+                throw new AppError(
+                  "Inventory changed before we could confirm your payment. Please contact support with your payment ID.",
+                  409,
+                );
+              }
+            }
+
+            if (snap.coupon) {
+              const coupon = await Coupon.findById(snap.coupon).session(session);
+              if (coupon) {
+                const validity = coupon.isValid(
+                  String(req.user!._id),
+                  snap.subtotal,
+                );
+                if (!validity.valid) {
+                  logger.warn(
+                    `verifyPayment intent: coupon invalid post-payment intent=${String(intent._id)}`,
+                  );
+                } else {
+                  const applied = await Coupon.updateOne(
+                    { _id: coupon._id, usedCount: coupon.usedCount },
+                    {
+                      $inc: { usedCount: 1 },
+                      $push: {
+                        usedBy: { user: req.user!._id, usedAt: new Date() },
+                      },
+                    },
+                    { session },
+                  );
+                  if (applied.modifiedCount !== 1) {
+                    logger.warn(
+                      `verifyPayment intent: coupon usage race intent=${String(intent._id)}`,
+                    );
+                  }
+                }
+              }
+            }
+
+            if (snap.cartIdToDelete) {
+              await orderRepository.deleteCartByIdInSession(
+                snap.cartIdToDelete,
+                session,
+              );
+            }
+
+            const mark = await CheckoutPaymentIntent.updateOne(
+              { _id: intent._id, consumedAt: null },
+              {
+                $set: {
+                  consumedAt: new Date(),
+                  createdOrderId: newOrder._id,
+                },
+              },
+              { session },
+            );
+            if (mark.modifiedCount !== 1) {
+              throw new AppError(
+                "Could not finalize checkout. Please retry or contact support.",
+                409,
+              );
+            }
+          });
+        } finally {
+          await session.endSession();
+        }
+
+        const intentReload = await CheckoutPaymentIntent.findById(
+          checkoutIntentId,
+        ).lean();
+        const finalOrderId = intentReload?.createdOrderId;
+        if (!finalOrderId) {
+          return next(
+            new AppError(
+              "Order was not recorded after payment. Please contact support with your payment ID.",
+              500,
+            ),
+          );
+        }
+
+        const updated = await Order.findById(finalOrderId).populate(
+          "items.product",
+          "name images",
+        );
+        if (!updated) {
+          return next(
+            new AppError(
+              "Order was not found after payment. Please contact support with your payment ID.",
+              500,
+            ),
+          );
+        }
+
+        await sendVerifiedOrderSideEffects(
+          updated,
+          req,
+          razorpayPaymentId,
+        );
+        sendSuccess(res, { order: updated }, "Payment verified successfully");
+        return;
+      } catch (err) {
+        if (err instanceof AppError && err.statusCode < 500) {
+          securityLog("payment.verify_failed", {
+            orderId: payLockKey,
+            statusCode: err.statusCode,
+            message: err.message,
+          });
+        }
+        throw err;
+      } finally {
+        await releasePaymentVerifyLock(payLockKey);
+      }
+    }
+
+    if (!orderId) {
+      return next(
+        new AppError("Either orderId or checkoutIntentId is required.", 400),
+      );
+    }
 
     const order = await Order.findOne({ _id: orderId, user: req.user!._id });
     if (!order) return next(new AppError("Order not found.", 404));
@@ -434,10 +821,10 @@ export const verifyPayment = catchAsync(
       return;
     }
 
-    const payLockOrderId = String(order._id);
-    const gotPayLock = await acquirePaymentVerifyLock(payLockOrderId);
+    payLockKey = String(order._id);
+    const gotPayLock = await acquirePaymentVerifyLock(payLockKey);
     if (!gotPayLock) {
-      securityLog("payment.verify_lock_busy", { orderId: payLockOrderId });
+      securityLog("payment.verify_lock_busy", { orderId: payLockKey });
       return next(
         new AppError(
           "Payment verification in progress. Please retry in a few seconds.",
@@ -541,67 +928,24 @@ export const verifyPayment = catchAsync(
         "name images",
       );
 
-      const notifyOnce =
-        await tryClaimPaymentPlacedNotification(razorpayPaymentId);
-      if (notifyOnce) {
-        const userTemplate = emailTemplates.orderPlacedUser(
-          req.user?.name || "Customer",
-          updated!.orderNumber,
-          updated!.total,
-        );
-        await enqueueEmail({
-          to: req.user?.email || "",
-          subject: userTemplate.subject,
-          html: userTemplate.html,
-        });
-
-        const adminTemplate = emailTemplates.adminNewOrder(
-          updated!.orderNumber,
-          updated!.total,
-          req.user?.name || "Customer",
-          req.user?.email || "",
-        );
-        await notifyAdminsEmail(adminTemplate.subject, adminTemplate.html);
-
-        // In-App + Push Notification for user
-        notifyUser(
-          String(req.user!._id),
-          `Payment confirmed — ${updated!.orderNumber}`,
-          `Your payment was successful! Order ${updated!.orderNumber} is now confirmed and being processed.`,
-          `/dashboard/orders/${updated!._id}`,
-          "success",
-        ).catch(() => {});
-
-        // In-App Notification for admins
-        await notifyAdmins(
-          "New Order Received",
-          `Order ${updated!.orderNumber} verified by ${req.user?.name || "Customer"}.`,
-          `/admin/orders/${updated!._id}`,
-          "order",
-        );
-      }
-
-      // Fire Meta CAPI Purchase event
-      sendPurchaseEvent(
+      await sendVerifiedOrderSideEffects(
         updated!,
-        req.ip,
-        req.headers["user-agent"],
-        req.cookies?._fbp,
-        req.cookies?._fbc
-      ).catch(() => {});
+        req,
+        razorpayPaymentId,
+      );
 
       sendSuccess(res, { order: updated }, "Payment verified successfully");
     } catch (err) {
       if (err instanceof AppError && err.statusCode < 500) {
         securityLog("payment.verify_failed", {
-          orderId: payLockOrderId,
+          orderId: payLockKey,
           statusCode: err.statusCode,
           message: err.message,
         });
       }
       throw err;
     } finally {
-      await releasePaymentVerifyLock(payLockOrderId);
+      await releasePaymentVerifyLock(payLockKey);
     }
   },
 );

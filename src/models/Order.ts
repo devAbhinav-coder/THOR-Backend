@@ -172,7 +172,9 @@ orderSchema.pre<IOrder>('save', async function (next) {
 
 orderSchema.index({ user: 1, createdAt: -1 });
 orderSchema.index({ status: 1 });
-orderSchema.index({ razorpayOrderId: 1 });
+/** At most one shop order per Razorpay order id (prevents duplicate confirms). */
+orderSchema.index({ razorpayOrderId: 1 }, { unique: true, sparse: true });
+orderSchema.index({ razorpayPaymentId: 1 }, { unique: true, sparse: true });
 // orderNumber index is already created by unique:true on the field
 
 const Order = model<IOrder>('Order', orderSchema);

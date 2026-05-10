@@ -337,12 +337,24 @@ export const createOrderSchema = z.object({
 });
 
 export const verifyPaymentSchema = z.object({
-  body: z.object({
-    razorpayOrderId: z.string().min(1).max(64),
-    razorpayPaymentId: z.string().min(1).max(64),
-    razorpaySignature: z.string().min(1).max(256),
-    orderId: z.string().regex(/^[a-fA-F0-9]{24}$/, 'Invalid order id'),
-  }),
+  body: z
+    .object({
+      razorpayOrderId: z.string().min(1).max(64),
+      razorpayPaymentId: z.string().min(1).max(64),
+      razorpaySignature: z.string().min(1).max(256),
+      orderId: z
+        .string()
+        .regex(/^[a-fA-F0-9]{24}$/, 'Invalid order id')
+        .optional(),
+      checkoutIntentId: z
+        .string()
+        .regex(/^[a-fA-F0-9]{24}$/, 'Invalid checkout intent id')
+        .optional(),
+    })
+    .refine((b) => Boolean(b.orderId || b.checkoutIntentId), {
+      message: 'Either orderId or checkoutIntentId is required',
+      path: ['orderId'],
+    }),
 });
 
 // ─── Reviews ──────────────────────────────────────────────────────────────────
