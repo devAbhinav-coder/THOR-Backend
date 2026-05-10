@@ -24,6 +24,13 @@ import {
 } from '../controllers/adminController';
 import { createOfflineOrder } from '../controllers/adminOfflineOrderController';
 import {
+  listSalesInvoices,
+  getSalesInvoice,
+  createSalesInvoice,
+  updateSalesInvoice,
+  deleteSalesInvoice,
+} from '../controllers/adminSalesInvoiceController';
+import {
   getDelhiveryIntegrationStatus,
   checkOrderPinServiceability,
   checkDelhiveryServiceabilityByPin,
@@ -137,6 +144,13 @@ router.post('/emails/send', adminSensitiveLimiter, validate(sendMarketingEmailSc
 
 router.get('/storefront/settings', getAdminStorefrontSettings);
 router.patch('/storefront/settings', uploadStorefrontAssets, processStorefrontAssets, updateStorefrontSettings);
+
+// Sales invoices (admin-only B2B / bulk-order tax invoices)
+router.get('/invoices', listSalesInvoices);
+router.post('/invoices', adminSensitiveLimiter, createSalesInvoice);
+router.get('/invoices/:id', getSalesInvoice);
+router.put('/invoices/:id', adminSensitiveLimiter, updateSalesInvoice);
+router.delete('/invoices/:id', adminSensitiveLimiter, deleteSalesInvoice);
 
 // Category management
 router.get('/categories', getAllCategories);
