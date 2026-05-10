@@ -7,12 +7,48 @@ import { LOW_STOCK_ALERT_EXCLUSIVE_MAX } from "../constants/inventory";
 /** Paid + refunded: both represent checkout totals we recognised; refunds are subtracted separately. */
 const PAYMENT_STATUS_GROSS = { paymentStatus: { $in: ["paid", "refunded"] as const } };
 
+/**
+ * All "today / this month" boundaries are computed in **Asia/Kolkata** so
+ * the dashboard reads the same regardless of where the API host is running
+ * (Render/Fly/Vercel can be UTC, US-East, etc.). India never observes DST,
+ * so a fixed +05:30 offset is correct year-round.
+ */
+const IST_TZ = "Asia/Kolkata";
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+/** Extract IST wall-clock components for an instant. */
+function istParts(date: Date): { year: number; month: number; day: number } {
+  const shifted = new Date(date.getTime() + IST_OFFSET_MS);
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth(), // 0-indexed
+    day: shifted.getUTCDate(),
+  };
+}
+
+/**
+ * Build a UTC `Date` representing **midnight in IST** on the given calendar
+ * day. We pass these directly to MongoDB which compares stored UTC `Date`
+ * fields by absolute instant — `Date.UTC(...) - IST_OFFSET_MS` is the
+ * UTC instant that Asia/Kolkata sees as 00:00 on (year, monthIdx, day).
+ */
+function istMidnight(year: number, monthIdx: number, day: number): Date {
+  return new Date(Date.UTC(year, monthIdx, day) - IST_OFFSET_MS);
+}
+
 export async function getDashboardAnalyticsData() {
   const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const ist = istParts(now);
+  const startOfToday = istMidnight(ist.year, ist.month, ist.day);
+  const startOfMonth = istMidnight(ist.year, ist.month, 1);
+  const startOfThisMonthIst = startOfMonth;
+  const startOfLastMonth = istMidnight(ist.year, ist.month - 1, 1);
+  /** End of last month = exact instant before this month begins (inclusive end). */
+  const endOfLastMonth = new Date(startOfThisMonthIst.getTime() - 1);
+  /** 30-day window of IST calendar days; pad −2 for time-zone edge safety. */
+  const startOfDailyWindow = istMidnight(ist.year, ist.month, ist.day - 32);
+  /** Trailing 12-month lookback for the monthly chart, anchored to IST. */
+  const startOfYearWindow = istMidnight(ist.year, ist.month - 11, 1);
 
   const [
     totalRevenue,
@@ -39,6 +75,8 @@ export async function getDashboardAnalyticsData() {
     totalRefunds,
     refundsByReason,
     nonRefundableFeesRetained,
+    revenueTodayAgg,
+    revenueByDaySparse,
   ] = await Promise.all([
     Order.aggregate([{ $match: PAYMENT_STATUS_GROSS }, { $group: { _id: null, total: { $sum: "$total" } } }]),
     Order.aggregate([
@@ -73,10 +111,19 @@ export async function getDashboardAnalyticsData() {
       {
         $match: {
           ...PAYMENT_STATUS_GROSS,
-          createdAt: { $gte: new Date(now.getFullYear(), now.getMonth() - 11, 1) },
+          createdAt: { $gte: startOfYearWindow },
         },
       },
-      { $group: { _id: { year: { $year: "$createdAt" }, month: { $month: "$createdAt" } }, revenue: { $sum: "$total" }, orders: { $sum: 1 } } },
+      {
+        $group: {
+          _id: {
+            year: { $year: { date: "$createdAt", timezone: IST_TZ } },
+            month: { $month: { date: "$createdAt", timezone: IST_TZ } },
+          },
+          revenue: { $sum: "$total" },
+          orders: { $sum: 1 },
+        },
+      },
       { $sort: { "_id.year": 1, "_id.month": 1 } },
     ]),
     Order.aggregate([
@@ -114,6 +161,32 @@ export async function getDashboardAnalyticsData() {
     Order.aggregate([
       { $match: { "refundData.nonRefundableFees": { $gt: 0 } } },
       { $group: { _id: null, total: { $sum: "$refundData.nonRefundableFees" } } },
+    ]),
+    Order.aggregate([
+      { $match: { ...PAYMENT_STATUS_GROSS, createdAt: { $gte: startOfToday } } },
+      { $group: { _id: null, total: { $sum: "$total" } } },
+    ]),
+    Order.aggregate([
+      {
+        $match: {
+          ...PAYMENT_STATUS_GROSS,
+          createdAt: { $gte: startOfDailyWindow },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            $dateToString: {
+              format: "%Y-%m-%d",
+              date: "$createdAt",
+              timezone: IST_TZ,
+            },
+          },
+          revenue: { $sum: "$total" },
+          orders: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: 1 } },
     ]),
   ]);
 
@@ -175,6 +248,32 @@ export async function getDashboardAnalyticsData() {
     });
   }
 
+  const sparseDaily = (revenueByDaySparse || []) as {
+    _id: string;
+    revenue: number;
+    orders: number;
+  }[];
+  const dailyMap = new Map(sparseDaily.map((r) => [r._id, r]));
+  const fmtIso = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: IST_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const istTodayStr = fmtIso.format(now);
+  const anchor = new Date(`${istTodayStr}T12:00:00+05:30`);
+  const revenueByDay: { date: string; revenue: number; orders: number }[] = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(anchor.getTime() - (29 - i) * 86400000);
+    const date = fmtIso.format(d);
+    const row = dailyMap.get(date);
+    revenueByDay.push({
+      date,
+      revenue: row?.revenue ?? 0,
+      orders: row?.orders ?? 0,
+    });
+  }
+
   return {
     overview: {
       totalRevenue: totalRevenue[0]?.total || 0,
@@ -187,6 +286,7 @@ export async function getDashboardAnalyticsData() {
       totalProducts,
       avgOrderValue: Math.round((avgOrderValue[0]?.avg || 0) * 100) / 100,
       ordersToday,
+      revenueToday: Math.round((revenueTodayAgg[0]?.total || 0) * 100) / 100,
       pendingFulfillmentCount,
       paidOrdersCount,
       totalReviews,
@@ -204,5 +304,6 @@ export async function getDashboardAnalyticsData() {
     topProducts,
     topViewedProducts,
     revenueByCategory,
+    revenueByDay,
   };
 }
