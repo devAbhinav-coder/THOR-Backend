@@ -23,6 +23,13 @@ const memoryStore = new Map<string, string>();
 const memoryExpiry = new Map<string, number>();
 const memoryCounters = new Map<string, number>();
 
+/** In-memory KEYS fallback: only `*` is treated as a glob segment; other regex metacharacters are escaped. */
+function redisGlobPatternToRegExp(pattern: string): RegExp {
+  const escapeRe = (s: string) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  const body = pattern.split('*').map(escapeRe).join('.*');
+  return new RegExp(`^${body}$`);
+}
+
 const isExpired = (key: string): boolean => {
   const exp = memoryExpiry.get(key);
   if (!exp) return false;
@@ -64,7 +71,7 @@ const fallbackRedis: RedisLike = {
     return count;
   },
   keys: async (pattern: string) => {
-    const regex = new RegExp(`^${pattern.replace(/\*/g, '.*')}$`);
+    const regex = redisGlobPatternToRegExp(pattern);
     const matched: string[] = [];
     for (const key of memoryStore.keys()) {
       if (!isExpired(key) && regex.test(key)) {
@@ -115,5 +122,40 @@ if (redisEnabled) {
   });
 } else {
   logger.warn('Redis not configured. Running with in-memory fallbacks for cache/locks/limits.');
+}
+
+/**
+ * BullMQ must not share the app `redisConnection` — workers use blocking commands and will
+ * break other callers ("Connection is closed"). Use one duplicate per Queue / Worker.
+ */
+export function duplicateRedisForBullMq(): IORedis {
+  if (!redisEnabled) {
+    throw new Error('duplicateRedisForBullMq: Redis is not configured');
+  }
+  if (!(redisConnection instanceof IORedis)) {
+    throw new Error('duplicateRedisForBullMq: in-memory Redis cannot run BullMQ');
+  }
+  const dup = redisConnection.duplicate();
+  let lastDupWarnTs = 0;
+  dup.on('error', (err: Error) => {
+    const now = Date.now();
+    if (now - lastDupWarnTs > 15000) {
+      lastDupWarnTs = now;
+      logger.warn(`Redis (BullMQ): ${err.message || 'connection error'}`);
+    }
+  });
+  return dup;
+}
+
+/**
+ * BullMQ runs INFO and warns if maxmemory-policy is not noeviction. In development, managed
+ * Redis often uses volatile-lru — skip those checks by default. In production, checks stay on
+ * unless BULLMQ_SKIP_REDIS_VERSION_CHECK=true (not recommended).
+ */
+export function bullmqSkipRedisVersionChecks(): boolean {
+  if (process.env.NODE_ENV === 'production') {
+    return process.env.BULLMQ_SKIP_REDIS_VERSION_CHECK === 'true';
+  }
+  return process.env.BULLMQ_SKIP_REDIS_VERSION_CHECK !== 'false';
 }
 

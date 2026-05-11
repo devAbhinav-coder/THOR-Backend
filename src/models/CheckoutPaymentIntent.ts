@@ -7,10 +7,26 @@ export type CheckoutIntentStockLine = {
   quantity: number;
 };
 
+/** Matches `buildOrderItemsFromProducts` output — persisted on the intent for post-pay Order.create. */
+export type CheckoutIntentSnapshotItem = {
+  product: Types.ObjectId;
+  name: string;
+  image: string;
+  variant: {
+    sku: string;
+    size?: string;
+    color?: string;
+    colorCode?: string;
+  };
+  quantity: number;
+  price: number;
+  customFieldAnswers?: { label: string; value: string }[];
+};
+
 /** Snapshot persisted until Razorpay payment succeeds — no Order row until then. */
 export type CheckoutIntentSnapshot = {
   shippingAddress: Record<string, unknown>;
-  items: unknown[];
+  items: CheckoutIntentSnapshotItem[];
   stockLines: CheckoutIntentStockLine[];
   subtotal: number;
   discount: number;
@@ -44,6 +60,34 @@ const stockLineSchema = new Schema(
   { _id: false },
 );
 
+const snapshotVariantSchema = new Schema(
+  {
+    size: { type: String },
+    color: { type: String },
+    colorCode: { type: String },
+    sku: { type: String, required: true },
+  },
+  { _id: false },
+);
+
+const snapshotItemSchema = new Schema(
+  {
+    product: { type: Schema.Types.ObjectId, ref: "Product", required: true },
+    name: { type: String, required: true },
+    image: { type: String, required: true },
+    variant: { type: snapshotVariantSchema, required: true },
+    quantity: { type: Number, required: true, min: 1 },
+    price: { type: Number, required: true },
+    customFieldAnswers: [
+      {
+        label: { type: String, required: true },
+        value: { type: String, required: true },
+      },
+    ],
+  },
+  { _id: false },
+);
+
 const checkoutPaymentIntentSchema = new Schema<ICheckoutPaymentIntent>(
   {
     user: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
@@ -55,7 +99,7 @@ const checkoutPaymentIntentSchema = new Schema<ICheckoutPaymentIntent>(
       type: new Schema(
         {
           shippingAddress: { type: Schema.Types.Mixed, required: true },
-          items: { type: [Schema.Types.Mixed], required: true },
+          items: { type: [snapshotItemSchema], required: true },
           stockLines: { type: [stockLineSchema], required: true },
           subtotal: { type: Number, required: true },
           discount: { type: Number, default: 0 },

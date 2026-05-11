@@ -65,12 +65,22 @@ export async function setIdempotentCheckoutResponse(
   );
 }
 
+function isNonEmptyPayVerifyKey(orderId: string): boolean {
+  return typeof orderId === "string" && orderId.trim().length > 0;
+}
+
 export async function acquirePaymentVerifyLock(orderId: string, ttlSec = 45): Promise<boolean> {
+  if (!isNonEmptyPayVerifyKey(orderId)) {
+    return false;
+  }
   const r = await redisConnection.set(`${PAY_VERIFY_PREFIX}${orderId}`, "1", "EX", ttlSec, "NX");
   return r === "OK";
 }
 
 export async function releasePaymentVerifyLock(orderId: string): Promise<void> {
+  if (!isNonEmptyPayVerifyKey(orderId)) {
+    return;
+  }
   await redisConnection.del(`${PAY_VERIFY_PREFIX}${orderId}`);
 }
 

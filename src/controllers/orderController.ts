@@ -46,19 +46,72 @@ import {
   getGiftMinQty,
 } from "../services/orderService";
 import { sendPurchaseEvent } from "../services/metaCapiService";
+import type { CheckoutIntentSnapshotItem } from "../models/CheckoutPaymentIntent";
+
+async function verifyRazorpayGatewayForTotal(
+  razorpayOrderId: string,
+  razorpayPaymentId: string,
+  razorpaySignature: string,
+  expectedOrderTotalRupees: number,
+): Promise<void> {
+  verifyPaymentAndThrow(
+    razorpayOrderId,
+    razorpayPaymentId,
+    razorpaySignature,
+  );
+  await assertRazorpayPaymentMatchesOrder(
+    razorpayOrderId,
+    razorpayPaymentId,
+    expectedOrderTotalRupees,
+  );
+}
+
+/** Best-effort coupon usage increment inside a transaction (matches legacy + intent verify flows). */
+async function applyCouponUsageIncrementIfValid(
+  session: mongoose.ClientSession,
+  userId: mongoose.Types.ObjectId,
+  couponRef: mongoose.Types.ObjectId | undefined | null,
+  subtotal: number,
+  logCtx: string,
+): Promise<void> {
+  if (!couponRef) return;
+  const coupon = await Coupon.findById(couponRef).session(session);
+  if (!coupon) return;
+  const validity = coupon.isValid(String(userId), subtotal);
+  if (!validity.valid) {
+    logger.warn(`verifyPayment: coupon invalid post-payment ${logCtx}`);
+    return;
+  }
+  const applied = await Coupon.updateOne(
+    { _id: coupon._id, usedCount: coupon.usedCount },
+    {
+      $inc: { usedCount: 1 },
+      $push: {
+        usedBy: { user: userId, usedAt: new Date() },
+      },
+    },
+    { session },
+  );
+  if (applied.modifiedCount !== 1) {
+    logger.warn(`verifyPayment: coupon usage race ${logCtx}`);
+  }
+}
 
 function normalizeOrderItemsForCreate(
   raw: unknown[],
 ): Array<Record<string, unknown>> {
-  return raw.map((row) => {
+  return raw.map((row, idx) => {
     const it = row as Record<string, unknown> & {
-      product?: mongoose.Types.ObjectId | string | { toString: () => string };
+      product?: Parameters<typeof refProductId>[0];
     };
-    const productRef = it.product;
-    const pid =
-      productRef instanceof mongoose.Types.ObjectId ?
-        productRef
-      : new mongoose.Types.ObjectId(String(productRef));
+    const sid = refProductId(it.product);
+    if (!sid || !mongoose.Types.ObjectId.isValid(sid)) {
+      throw new AppError(
+        `Checkout snapshot has an invalid product reference (line ${idx + 1}). Please contact support with your payment ID.`,
+        500,
+      );
+    }
+    const pid = new mongoose.Types.ObjectId(sid);
     return { ...it, product: pid };
   });
 }
@@ -273,7 +326,7 @@ export const createOrder = catchAsync(
           expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
           snapshot: {
             shippingAddress,
-            items: orderItems as unknown[],
+            items: orderItems as CheckoutIntentSnapshotItem[],
             stockLines,
             subtotal: checkoutSubtotal,
             discount,
@@ -551,14 +604,10 @@ export const verifyPayment = catchAsync(
         }
 
         if (intent.consumedAt && intent.createdOrderId) {
-          verifyPaymentAndThrow(
+          await verifyRazorpayGatewayForTotal(
             razorpayOrderId,
             razorpayPaymentId,
             razorpaySignature,
-          );
-          await assertRazorpayPaymentMatchesOrder(
-            razorpayOrderId,
-            razorpayPaymentId,
             intent.snapshot.total,
           );
           const replayOrder = await Order.findOne({
@@ -594,14 +643,10 @@ export const verifyPayment = catchAsync(
           );
         }
 
-        verifyPaymentAndThrow(
+        await verifyRazorpayGatewayForTotal(
           razorpayOrderId,
           razorpayPaymentId,
           razorpaySignature,
-        );
-        await assertRazorpayPaymentMatchesOrder(
-          razorpayOrderId,
-          razorpayPaymentId,
           intent.snapshot.total,
         );
 
@@ -634,21 +679,38 @@ export const verifyPayment = catchAsync(
               return;
             }
 
-            const freshIntent = await CheckoutPaymentIntent.findById(
-              intent._id,
-            ).session(session);
-            if (!freshIntent) throw new AppError("Checkout session not found.", 404);
-            if (freshIntent.consumedAt) {
-              return;
+            const claimedIntent = await CheckoutPaymentIntent.findOneAndUpdate(
+              { _id: intent._id, consumedAt: null },
+              { $set: { consumedAt: new Date() } },
+              { session, new: true },
+            );
+            if (!claimedIntent) {
+              const peer = await CheckoutPaymentIntent.findById(
+                intent._id,
+              ).session(session);
+              if (!peer) throw new AppError("Checkout session not found.", 404);
+              if (peer.createdOrderId) {
+                return;
+              }
+              if (peer.consumedAt && !peer.createdOrderId) {
+                throw new AppError(
+                  "Checkout is in an inconsistent state. Please contact support with your payment ID.",
+                  409,
+                );
+              }
+              throw new AppError(
+                "Could not finalize checkout. Please retry or contact support.",
+                409,
+              );
             }
-            if (freshIntent.expiresAt < new Date()) {
+            if (claimedIntent.expiresAt < new Date()) {
               throw new AppError(
                 "Checkout session expired. Please return to your cart and try again.",
                 400,
               );
             }
 
-            const snap = freshIntent.snapshot;
+            const snap = claimedIntent.snapshot;
             const orderPayload = {
               user: req.user!._id,
               items: normalizeOrderItemsForCreate(snap.items as unknown[]),
@@ -691,36 +753,13 @@ export const verifyPayment = catchAsync(
               }
             }
 
-            if (snap.coupon) {
-              const coupon = await Coupon.findById(snap.coupon).session(session);
-              if (coupon) {
-                const validity = coupon.isValid(
-                  String(req.user!._id),
-                  snap.subtotal,
-                );
-                if (!validity.valid) {
-                  logger.warn(
-                    `verifyPayment intent: coupon invalid post-payment intent=${String(intent._id)}`,
-                  );
-                } else {
-                  const applied = await Coupon.updateOne(
-                    { _id: coupon._id, usedCount: coupon.usedCount },
-                    {
-                      $inc: { usedCount: 1 },
-                      $push: {
-                        usedBy: { user: req.user!._id, usedAt: new Date() },
-                      },
-                    },
-                    { session },
-                  );
-                  if (applied.modifiedCount !== 1) {
-                    logger.warn(
-                      `verifyPayment intent: coupon usage race intent=${String(intent._id)}`,
-                    );
-                  }
-                }
-              }
-            }
+            await applyCouponUsageIncrementIfValid(
+              session,
+              req.user!._id as mongoose.Types.ObjectId,
+              snap.coupon,
+              snap.subtotal,
+              `intent=${String(intent._id)}`,
+            );
 
             if (snap.cartIdToDelete) {
               await orderRepository.deleteCartByIdInSession(
@@ -729,17 +768,12 @@ export const verifyPayment = catchAsync(
               );
             }
 
-            const mark = await CheckoutPaymentIntent.updateOne(
-              { _id: intent._id, consumedAt: null },
-              {
-                $set: {
-                  consumedAt: new Date(),
-                  createdOrderId: newOrder._id,
-                },
-              },
+            const linkIntent = await CheckoutPaymentIntent.updateOne(
+              { _id: intent._id, createdOrderId: null },
+              { $set: { createdOrderId: newOrder._id } },
               { session },
             );
-            if (mark.modifiedCount !== 1) {
+            if (linkIntent.modifiedCount !== 1) {
               throw new AppError(
                 "Could not finalize checkout. Please retry or contact support.",
                 409,
@@ -793,7 +827,9 @@ export const verifyPayment = catchAsync(
         }
         throw err;
       } finally {
-        await releasePaymentVerifyLock(payLockKey);
+        if (payLockKey) {
+          await releasePaymentVerifyLock(payLockKey);
+        }
       }
     }
 
@@ -834,15 +870,10 @@ export const verifyPayment = catchAsync(
     }
 
     try {
-      verifyPaymentAndThrow(
+      await verifyRazorpayGatewayForTotal(
         razorpayOrderId,
         razorpayPaymentId,
         razorpaySignature,
-      );
-
-      await assertRazorpayPaymentMatchesOrder(
-        razorpayOrderId,
-        razorpayPaymentId,
         order.total,
       );
 
@@ -876,36 +907,13 @@ export const verifyPayment = catchAsync(
             }
           }
 
-          if (fresh.coupon) {
-            const coupon = await Coupon.findById(fresh.coupon).session(session);
-            if (coupon) {
-              const validity = coupon.isValid(
-                String(req.user!._id),
-                fresh.subtotal,
-              );
-              if (!validity.valid) {
-                logger.warn(
-                  `verifyPayment: coupon invalid post-payment order=${orderId}`,
-                );
-              } else {
-                const applied = await Coupon.updateOne(
-                  { _id: coupon._id, usedCount: coupon.usedCount },
-                  {
-                    $inc: { usedCount: 1 },
-                    $push: {
-                      usedBy: { user: req.user!._id, usedAt: new Date() },
-                    },
-                  },
-                  { session },
-                );
-                if (applied.modifiedCount !== 1) {
-                  logger.warn(
-                    `verifyPayment: coupon usage race order=${orderId}`,
-                  );
-                }
-              }
-            }
-          }
+          await applyCouponUsageIncrementIfValid(
+            session,
+            req.user!._id as mongoose.Types.ObjectId,
+            fresh.coupon,
+            fresh.subtotal,
+            `order=${orderId}`,
+          );
 
           fresh.paymentStatus = "paid";
           fresh.status = "confirmed";
@@ -945,7 +953,9 @@ export const verifyPayment = catchAsync(
       }
       throw err;
     } finally {
-      await releasePaymentVerifyLock(payLockKey);
+      if (payLockKey) {
+        await releasePaymentVerifyLock(payLockKey);
+      }
     }
   },
 );

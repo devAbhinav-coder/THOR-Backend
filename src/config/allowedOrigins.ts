@@ -11,8 +11,9 @@ export function normalizeOriginUrl(origin: string): string {
 
 /**
  * Browsers send `Origin` as the exact site the user opened (e.g. https://www.site.com vs https://site.com).
- * If only one is listed in env, CORS + csrfOriginGuard reject the other — feels "random" when users/bookmarks
- * switch host. Mirror www ↔ apex for simple `name.tld` hosts and strip/add `www.` when already present.
+ * Optional: when `CORS_MIRROR_WWW_APEX=true`, mirror www ↔ apex for simple `name.tld` hosts so a single
+ * listed origin also allows the www (or bare) variant. **Default is off** — only origins you list (or
+ * FRONTEND_URL fallback) are trusted unless you opt in.
  */
 function expandWwwApexMirror(allowed: Set<string>): void {
   const additions: string[] = [];
@@ -56,6 +57,8 @@ export function getCorsAllowedOriginSet(): Set<string> {
       .map((s) => normalizeOriginUrl(s.trim()))
       .filter(Boolean),
   );
-  expandWwwApexMirror(set);
+  if (process.env.CORS_MIRROR_WWW_APEX === "true") {
+    expandWwwApexMirror(set);
+  }
   return set;
 }

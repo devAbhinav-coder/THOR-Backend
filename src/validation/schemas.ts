@@ -353,7 +353,7 @@ export const verifyPaymentSchema = z.object({
     })
     .refine((b) => Boolean(b.orderId || b.checkoutIntentId), {
       message: 'Either orderId or checkoutIntentId is required',
-      path: ['orderId'],
+      path: [],
     }),
 });
 

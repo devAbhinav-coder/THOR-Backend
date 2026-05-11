@@ -1,6 +1,10 @@
 import { Queue, Worker, JobsOptions } from 'bullmq';
 import { ConnectionOptions } from 'bullmq';
-import { redisConnection, redisEnabled } from '../config/redis';
+import {
+  bullmqSkipRedisVersionChecks,
+  duplicateRedisForBullMq,
+  redisEnabled,
+} from '../config/redis';
 import logger from '../utils/logger';
 import { sendWebPushToUser } from '../services/webPushService';
 
@@ -13,9 +17,13 @@ export type PushJobData = {
 };
 
 const queueName = 'push-notification-jobs';
-export const pushQueue = redisEnabled
+const skipBullMqRedisChecks = bullmqSkipRedisVersionChecks();
+const pushQueueRedis = redisEnabled ? duplicateRedisForBullMq() : null;
+
+export const pushQueue = pushQueueRedis
   ? new Queue<PushJobData>(queueName, {
-      connection: redisConnection as unknown as ConnectionOptions,
+      connection: pushQueueRedis as unknown as ConnectionOptions,
+      skipVersionCheck: skipBullMqRedisChecks,
     })
   : null;
 
@@ -54,6 +62,8 @@ export const startPushWorker = (): void => {
   if (workerStarted || !redisEnabled) return;
   workerStarted = true;
 
+  const pushWorkerRedis = duplicateRedisForBullMq();
+
   pushWorker = new Worker<PushJobData>(
     queueName,
     async (job) => {
@@ -65,7 +75,8 @@ export const startPushWorker = (): void => {
       });
     },
     {
-      connection: redisConnection as unknown as ConnectionOptions,
+      connection: pushWorkerRedis as unknown as ConnectionOptions,
+      skipVersionCheck: skipBullMqRedisChecks,
       concurrency: 10,
       limiter: { max: 100, duration: 1000 },
     }

@@ -27,7 +27,7 @@ export const getCategoryStats = catchAsync(
     ]);
 
     const countMap = new Map<string, number>(
-      productCounts.map((c) => [c._id as string, c.count as number]),
+      productCounts.map((c) => [String(c._id), c.count as number]),
     );
 
     // Get all active categories and merge with counts
@@ -37,7 +37,7 @@ export const getCategoryStats = catchAsync(
 
     const result = categories.map((cat) => ({
       ...cat,
-      productCount: countMap.get(cat.name) || 0,
+      productCount: countMap.get(String(cat._id)) || 0,
     }));
 
     sendSuccess(res, { categories: result });

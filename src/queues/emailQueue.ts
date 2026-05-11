@@ -1,5 +1,9 @@
 import { Queue, Worker, JobsOptions } from "bullmq";
-import { redisConnection, redisEnabled } from "../config/redis";
+import {
+  bullmqSkipRedisVersionChecks,
+  duplicateRedisForBullMq,
+  redisEnabled,
+} from "../config/redis";
 import logger from "../utils/logger";
 import { sendEmailNow } from "../services/emailService";
 import { deliverBroadcastEmailWithRetries } from "../services/emailDeliveryService";
@@ -23,15 +27,21 @@ const transactionalQueueName = "email-jobs-transactional";
 const broadcastChunkQueueName = "email-broadcast-chunks";
 const BROADCAST_CHUNK_SIZE = 10;
 
-export const emailQueue = redisEnabled
+const skipBullMqRedisChecks = bullmqSkipRedisVersionChecks();
+const transactionalQueueRedis = redisEnabled ? duplicateRedisForBullMq() : null;
+const broadcastChunkQueueRedis = redisEnabled ? duplicateRedisForBullMq() : null;
+
+export const emailQueue = transactionalQueueRedis
   ? new Queue<EmailJobData>(transactionalQueueName, {
-      connection: redisConnection as unknown as ConnectionOptions,
+      connection: transactionalQueueRedis as unknown as ConnectionOptions,
+      skipVersionCheck: skipBullMqRedisChecks,
     })
   : null;
 
-export const broadcastChunkQueue = redisEnabled
+export const broadcastChunkQueue = broadcastChunkQueueRedis
   ? new Queue<BroadcastChunkJobData>(broadcastChunkQueueName, {
-      connection: redisConnection as unknown as ConnectionOptions,
+      connection: broadcastChunkQueueRedis as unknown as ConnectionOptions,
+      skipVersionCheck: skipBullMqRedisChecks,
     })
   : null;
 
@@ -143,13 +153,17 @@ export const startEmailWorker = (): void => {
   if (workerStarted || !redisEnabled) return;
   workerStarted = true;
 
+  const emailWorkerRedis = duplicateRedisForBullMq();
+  const broadcastWorkerRedis = duplicateRedisForBullMq();
+
   emailWorker = new Worker<EmailJobData>(
     transactionalQueueName,
     async (job) => {
       await sendEmailNow(job.data);
     },
     {
-      connection: redisConnection as unknown as ConnectionOptions,
+      connection: emailWorkerRedis as unknown as ConnectionOptions,
+      skipVersionCheck: skipBullMqRedisChecks,
       concurrency: 6,
       limiter: { max: 50, duration: 1000 },
     },
@@ -162,7 +176,8 @@ export const startEmailWorker = (): void => {
       await runBroadcastChunk(recipients, subject, html);
     },
     {
-      connection: redisConnection as unknown as ConnectionOptions,
+      connection: broadcastWorkerRedis as unknown as ConnectionOptions,
+      skipVersionCheck: skipBullMqRedisChecks,
       concurrency: 1,
     },
   );

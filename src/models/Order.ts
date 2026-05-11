@@ -172,9 +172,30 @@ orderSchema.pre<IOrder>('save', async function (next) {
 
 orderSchema.index({ user: 1, createdAt: -1 });
 orderSchema.index({ status: 1 });
-/** At most one shop order per Razorpay order id (prevents duplicate confirms). */
-orderSchema.index({ razorpayOrderId: 1 }, { unique: true, sparse: true });
-orderSchema.index({ razorpayPaymentId: 1 }, { unique: true, sparse: true });
+/**
+ * Paid orders: at most one per Razorpay order / payment id (prevents duplicate confirms).
+ * Partial index avoids unique collisions on legacy unpaid or duplicate-pending rows.
+ */
+orderSchema.index(
+  { razorpayOrderId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      paymentStatus: 'paid',
+      razorpayOrderId: { $type: 'string', $gt: '' },
+    },
+  }
+);
+orderSchema.index(
+  { razorpayPaymentId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      paymentStatus: 'paid',
+      razorpayPaymentId: { $type: 'string', $gt: '' },
+    },
+  }
+);
 // orderNumber index is already created by unique:true on the field
 
 const Order = model<IOrder>('Order', orderSchema);
