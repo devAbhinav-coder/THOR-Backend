@@ -11,7 +11,7 @@ import { getMaxRefundableInr, getNonRefundableFeesInr } from '../utils/orderRefu
 import catchAsync from '../utils/catchAsync';
 import { emailTemplates } from '../services/emailService';
 import { enqueueBroadcastChunks, enqueueEmail } from '../queues/emailQueue';
-import { incrementVariantStock } from '../services/inventoryService';
+import { incrementVariantStock, logStockMovement } from '../services/inventoryService';
 import { refProductId } from '../utils/productStock';
 import { sanitizeMarketingEmailHtml } from '../utils/sanitizeMarketingHtml';
 import { notifyUser, notifyAdmins, notifyAdminsEmail } from '../services/notificationService';
@@ -199,6 +199,13 @@ export const updateOrderStatus = catchAsync(async (req: Request, res: Response, 
     if (shouldRestock) {
       for (const item of order.items) {
         await incrementVariantStock(refProductId(item.product), item.variant.sku, item.quantity);
+        await logStockMovement(refProductId(item.product), item.variant.sku, item.quantity, {
+          reason: 'sale_return',
+          referenceId: String(order._id),
+          referenceType: 'order',
+          actor: (req as AuthRequest).user?._id,
+          note: `Order ${order.orderNumber} cancelled`,
+        });
       }
     }
   }
@@ -629,6 +636,13 @@ export const processRefund = catchAsync(async (req: Request, res: Response, next
   if (previousStatus !== 'cancelled') {
     for (const item of order.items) {
       await incrementVariantStock(refProductId(item.product), item.variant.sku, item.quantity);
+      await logStockMovement(refProductId(item.product), item.variant.sku, item.quantity, {
+        reason: 'sale_return',
+        referenceId: String(order._id),
+        referenceType: 'order',
+        actor: (req as AuthRequest).user?._id,
+        note: `Order ${order.orderNumber} refunded`,
+      });
     }
   }
 

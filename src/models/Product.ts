@@ -28,6 +28,8 @@ const variantSchema = new Schema({
   stock: { type: Number, required: true, min: 0, default: 0 },
   sku: { type: String, required: true },
   price: Number,
+  /** Purchase / landed cost per unit — for margin & inventory valuation. */
+  costPrice: { type: Number, min: 0 },
 });
 
 const productSchema = new Schema<IProduct>(
@@ -95,6 +97,7 @@ const productSchema = new Schema<IProduct>(
     },
     viewCount: { type: Number, default: 0, min: 0 },
     soldCount: { type: Number, default: 0, min: 0 },
+    hsnCode: { type: String, trim: true },
     seoTitle: String,
     seoDescription: String,
   },

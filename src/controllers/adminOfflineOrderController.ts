@@ -11,6 +11,7 @@ import { computeOrderTotals } from "../services/orderService";
 import {
   decrementVariantStock,
   incrementVariantStock,
+  logStockMovement,
 } from "../services/inventoryService";
 import { sendSuccess } from "../utils/response";
 import { writeAdminAudit } from "../services/adminAuditService";
@@ -375,6 +376,12 @@ export const createOfflineOrder = catchAsync(
           sku: op.sku,
           qty: op.qty,
         });
+        
+        // Audit: Log the stock movement
+        await logStockMovement(op.productId, op.sku, -op.qty, {
+          reason: "sale",
+          note: "Offline sale recorded by admin",
+        }).catch((err) => console.error("Stock ledger fail (sale):", err));
       }
 
       const adminId = req.user?._id as mongoose.Types.ObjectId | undefined;
@@ -480,6 +487,11 @@ export const createOfflineOrder = catchAsync(
     } catch (err) {
       for (const d of decremented.reverse()) {
         await incrementVariantStock(d.productId, d.sku, d.qty).catch(() => {});
+        // Audit: Log the rollback
+        await logStockMovement(d.productId, d.sku, d.qty, {
+          reason: "manual_correction",
+          note: "Offline order creation rollback",
+        }).catch(() => {});
       }
       throw err;
     }

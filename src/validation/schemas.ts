@@ -672,3 +672,64 @@ export const giftingRespondSchema = z.object({
     id: z.string().regex(/^[a-fA-F0-9]{24}$/),
   }),
 });
+
+// ─── Inventory ────────────────────────────────────────────────────────────────
+
+export const stockAdjustmentSchema = z.object({
+  body: z.object({
+    delta: z.coerce.number().refine((n) => n !== 0, 'delta must be non-zero'),
+    reason: z.enum(['purchase', 'sale_return', 'damage', 'manual_correction', 'opening_stock']),
+    note: z.string().max(1000).optional(),
+  }),
+  params: z.object({
+    id: z.string().regex(/^[a-fA-F0-9]{24}$/, 'Invalid product id'),
+    sku: z.string().min(1),
+  }),
+});
+
+const purchaseLineItemSchema = z.object({
+  product: z.string().regex(/^[a-fA-F0-9]{24}$/).optional(),
+  productName: z.string().min(1).max(200),
+  sku: z.string().min(1).max(80),
+  variantLabel: z.string().max(100).optional(),
+  quantity: z.coerce.number().int().min(1),
+  unitCost: z.coerce.number().min(0),
+  hsn: z.string().max(20).optional(),
+  gstRate: z.coerce.number().min(0).max(100).default(0),
+});
+
+export const createPurchaseInvoiceSchema = z.object({
+  body: z.object({
+    invoiceNumber: z.string().min(1).max(80),
+    supplierName: z.string().min(1).max(200),
+    supplierGstin: z
+      .string()
+      .max(15)
+      .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/, 'Invalid GSTIN')
+      .optional()
+      .or(z.literal('')),
+    supplyType: z.enum(['intra', 'inter']).default('intra'),
+    invoiceDate: z.string().min(1, 'Invoice date is required'),
+    lineItems: z.array(purchaseLineItemSchema).min(1, 'At least one line item required').max(50),
+    paymentStatus: z.enum(['unpaid', 'paid', 'partial']).default('unpaid'),
+    paidAmount: z.coerce.number().min(0).default(0),
+    notes: z.string().max(2000).optional(),
+    updateCostPrice: z.boolean().optional().default(true),
+  }),
+});
+
+export const updatePurchaseInvoiceSchema = z.object({
+  body: z.object({
+    invoiceNumber: z.string().min(1).max(80).optional(),
+    supplierName: z.string().min(1).max(200).optional(),
+    supplierGstin: z.string().max(15).optional().or(z.literal('')),
+    supplyType: z.enum(['intra', 'inter']).optional(),
+    invoiceDate: z.string().optional(),
+    paymentStatus: z.enum(['unpaid', 'paid', 'partial']).optional(),
+    paidAmount: z.coerce.number().min(0).optional(),
+    notes: z.string().max(2000).optional(),
+  }),
+  params: z.object({
+    id: z.string().regex(/^[a-fA-F0-9]{24}$/, 'Invalid invoice id'),
+  }),
+});

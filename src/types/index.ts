@@ -51,6 +51,8 @@ export interface IProductVariant {
   stock: number;
   sku: string;
   price?: number;
+  /** Purchase / landed cost per unit — used for margin calculation in inventory hub. */
+  costPrice?: number;
 }
 
 export interface IProductCustomField {
@@ -99,6 +101,7 @@ export interface IProduct extends Document {
   viewCount: number;
   /** Checkout frequency tracker */
   soldCount: number;
+  hsnCode?: string;
   seoTitle?: string;
   seoDescription?: string;
   createdAt: Date;

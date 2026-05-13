@@ -31,6 +31,18 @@ import {
   deleteSalesInvoice,
 } from '../controllers/adminSalesInvoiceController';
 import {
+  getInventoryOverview,
+  adjustVariantStock,
+  getStockLedger,
+  getInventoryValuation,
+  listPurchaseInvoices,
+  getPurchaseInvoice,
+  createPurchaseInvoice,
+  updatePurchaseInvoice,
+  deletePurchaseInvoice,
+  getGstPurchaseSummary,
+} from '../controllers/inventoryController';
+import {
   getDelhiveryIntegrationStatus,
   checkOrderPinServiceability,
   checkDelhiveryServiceabilityByPin,
@@ -66,6 +78,9 @@ import {
   delhiveryServiceabilityQuerySchema,
   delhiveryPackingSlipQuerySchema,
   createOfflineOrderSchema,
+  stockAdjustmentSchema,
+  createPurchaseInvoiceSchema,
+  updatePurchaseInvoiceSchema,
 } from '../validation/schemas';
 import {
   uploadAvatar,
@@ -157,5 +172,17 @@ router.get('/categories', getAllCategories);
 router.post('/categories', uploadAvatar, processCategoryImage, validate(createCategorySchema), createCategory);
 router.patch('/categories/:id', uploadAvatar, processCategoryImage, updateCategory);
 router.delete('/categories/:id', deleteCategory);
+
+// ─── Inventory Management ─────────────────────────────────────────────────────
+router.get('/inventory', getInventoryOverview);
+router.patch('/inventory/products/:id/variants/:sku/stock', adminSensitiveLimiter, validate(stockAdjustmentSchema), adjustVariantStock);
+router.get('/inventory/ledger', getStockLedger);
+router.get('/inventory/valuation', getInventoryValuation);
+router.get('/inventory/purchase-invoices', listPurchaseInvoices);
+router.post('/inventory/purchase-invoices', adminSensitiveLimiter, validate(createPurchaseInvoiceSchema), createPurchaseInvoice);
+router.get('/inventory/purchase-invoices/:id', getPurchaseInvoice);
+router.put('/inventory/purchase-invoices/:id', adminSensitiveLimiter, validate(updatePurchaseInvoiceSchema), updatePurchaseInvoice);
+router.delete('/inventory/purchase-invoices/:id', adminSensitiveLimiter, deletePurchaseInvoice);
+router.get('/inventory/gst-summary', getGstPurchaseSummary);
 
 export default router;

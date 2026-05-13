@@ -9,29 +9,20 @@ const PAYMENT_STATUS_GROSS = { paymentStatus: { $in: ["paid", "refunded"] as con
 
 /**
  * All "today / this month" boundaries are computed in **Asia/Kolkata** so
- * the dashboard reads the same regardless of where the API host is running
- * (Render/Fly/Vercel can be UTC, US-East, etc.). India never observes DST,
- * so a fixed +05:30 offset is correct year-round.
+ * the dashboard reads the same regardless of where the API host is running.
  */
 const IST_TZ = "Asia/Kolkata";
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
-/** Extract IST wall-clock components for an instant. */
 function istParts(date: Date): { year: number; month: number; day: number } {
   const shifted = new Date(date.getTime() + IST_OFFSET_MS);
   return {
     year: shifted.getUTCFullYear(),
-    month: shifted.getUTCMonth(), // 0-indexed
+    month: shifted.getUTCMonth(),
     day: shifted.getUTCDate(),
   };
 }
 
-/**
- * Build a UTC `Date` representing **midnight in IST** on the given calendar
- * day. We pass these directly to MongoDB which compares stored UTC `Date`
- * fields by absolute instant — `Date.UTC(...) - IST_OFFSET_MS` is the
- * UTC instant that Asia/Kolkata sees as 00:00 on (year, monthIdx, day).
- */
 function istMidnight(year: number, monthIdx: number, day: number): Date {
   return new Date(Date.UTC(year, monthIdx, day) - IST_OFFSET_MS);
 }
@@ -43,11 +34,8 @@ export async function getDashboardAnalyticsData() {
   const startOfMonth = istMidnight(ist.year, ist.month, 1);
   const startOfThisMonthIst = startOfMonth;
   const startOfLastMonth = istMidnight(ist.year, ist.month - 1, 1);
-  /** End of last month = exact instant before this month begins (inclusive end). */
   const endOfLastMonth = new Date(startOfThisMonthIst.getTime() - 1);
-  /** 30-day window of IST calendar days; pad −2 for time-zone edge safety. */
   const startOfDailyWindow = istMidnight(ist.year, ist.month, ist.day - 32);
-  /** Trailing 12-month lookback for the monthly chart, anchored to IST. */
   const startOfYearWindow = istMidnight(ist.year, ist.month - 11, 1);
 
   const [
@@ -77,19 +65,27 @@ export async function getDashboardAnalyticsData() {
     nonRefundableFeesRetained,
     revenueTodayAgg,
     revenueByDaySparse,
+    // ── New entrepreneur-level aggregations ──────────────────────────────────
+    couponDiscountTotal,
+    couponDiscountMTD,
+    paymentMethodMix,
+    onlineVsOfflineMix,
+    shippingCollected,
+    codFeeCollected,
+    taxCollected,
+    cancellationCount,
+    ordersByHour,
+    topVariantSizes,
+    repeatCustomersAgg,
   ] = await Promise.all([
+    // ── Existing ────────────────────────────────────────────────────────────
     Order.aggregate([{ $match: PAYMENT_STATUS_GROSS }, { $group: { _id: null, total: { $sum: "$total" } } }]),
     Order.aggregate([
       { $match: { ...PAYMENT_STATUS_GROSS, createdAt: { $gte: startOfMonth } } },
       { $group: { _id: null, total: { $sum: "$total" } } },
     ]),
     Order.aggregate([
-      {
-        $match: {
-          ...PAYMENT_STATUS_GROSS,
-          createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth },
-        },
-      },
+      { $match: { ...PAYMENT_STATUS_GROSS, createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth } } },
       { $group: { _id: null, total: { $sum: "$total" } } },
     ]),
     Order.countDocuments(),
@@ -108,12 +104,7 @@ export async function getDashboardAnalyticsData() {
     Order.find().sort("-createdAt").limit(10).populate("user", "name email"),
     Order.aggregate([{ $group: { _id: "$status", count: { $sum: 1 } } }]),
     Order.aggregate([
-      {
-        $match: {
-          ...PAYMENT_STATUS_GROSS,
-          createdAt: { $gte: startOfYearWindow },
-        },
-      },
+      { $match: { ...PAYMENT_STATUS_GROSS, createdAt: { $gte: startOfYearWindow } } },
       {
         $group: {
           _id: {
@@ -167,34 +158,120 @@ export async function getDashboardAnalyticsData() {
       { $group: { _id: null, total: { $sum: "$total" } } },
     ]),
     Order.aggregate([
-      {
-        $match: {
-          ...PAYMENT_STATUS_GROSS,
-          createdAt: { $gte: startOfDailyWindow },
-        },
-      },
+      { $match: { ...PAYMENT_STATUS_GROSS, createdAt: { $gte: startOfDailyWindow } } },
       {
         $group: {
-          _id: {
-            $dateToString: {
-              format: "%Y-%m-%d",
-              date: "$createdAt",
-              timezone: IST_TZ,
-            },
-          },
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt", timezone: IST_TZ } },
           revenue: { $sum: "$total" },
           orders: { $sum: 1 },
         },
       },
       { $sort: { _id: 1 } },
     ]),
+
+    // ── NEW: Coupon discount totals ─────────────────────────────────────────
+    Order.aggregate([
+      { $match: { ...PAYMENT_STATUS_GROSS, discount: { $gt: 0 } } },
+      { $group: { _id: null, totalDiscount: { $sum: "$discount" }, count: { $sum: 1 } } },
+    ]),
+    Order.aggregate([
+      { $match: { ...PAYMENT_STATUS_GROSS, discount: { $gt: 0 }, createdAt: { $gte: startOfMonth } } },
+      { $group: { _id: null, totalDiscount: { $sum: "$discount" }, count: { $sum: 1 } } },
+    ]),
+
+    // ── NEW: Payment method revenue mix ────────────────────────────────────
+    Order.aggregate([
+      { $match: PAYMENT_STATUS_GROSS },
+      {
+        $group: {
+          _id: "$paymentMethod",
+          revenue: { $sum: "$total" },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { revenue: -1 } },
+    ]),
+
+    // ── NEW: Online vs Offline revenue split ────────────────────────────────
+    Order.aggregate([
+      { $match: PAYMENT_STATUS_GROSS },
+      {
+        $group: {
+          _id: {
+            $cond: [{ $ifNull: ["$offlineMeta", false] }, "offline", "online"],
+          },
+          revenue: { $sum: "$total" },
+          count: { $sum: 1 },
+        },
+      },
+    ]),
+
+    // ── NEW: Shipping charges collected ────────────────────────────────────
+    Order.aggregate([
+      { $match: PAYMENT_STATUS_GROSS },
+      { $group: { _id: null, total: { $sum: "$shippingCharge" } } },
+    ]),
+
+    // ── NEW: COD fees collected ─────────────────────────────────────────────
+    Order.aggregate([
+      { $match: PAYMENT_STATUS_GROSS },
+      { $group: { _id: null, total: { $sum: "$codFee" } } },
+    ]),
+
+    // ── NEW: GST (output tax) collected on paid orders ──────────────────────
+    Order.aggregate([
+      { $match: { paymentStatus: "paid" } },
+      { $group: { _id: null, total: { $sum: "$tax" } } },
+    ]),
+
+    // ── NEW: Cancellation count ─────────────────────────────────────────────
+    Order.countDocuments({ status: "cancelled" }),
+
+    // ── NEW: Hour-of-day order distribution (IST) ──────────────────────────
+    Order.aggregate([
+      { $match: PAYMENT_STATUS_GROSS },
+      {
+        $group: {
+          _id: { $hour: { date: "$createdAt", timezone: IST_TZ } },
+          orders: { $sum: 1 },
+          revenue: { $sum: "$total" },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]),
+
+    // ── NEW: Top variant sizes / labels sold ────────────────────────────────
+    Order.aggregate([
+      { $match: { paymentStatus: "paid" } },
+      { $unwind: "$items" },
+      { $match: { "items.variant.size": { $exists: true, $nin: [null, ""] } } },
+      {
+        $group: {
+          _id: "$items.variant.size",
+          units: { $sum: "$items.quantity" },
+          revenue: { $sum: { $multiply: ["$items.price", "$items.quantity"] } },
+        },
+      },
+      { $sort: { units: -1 } },
+      { $limit: 10 },
+    ]),
+
+    // ── NEW: Repeat customers (users with >1 paid order) ────────────────────
+    Order.aggregate([
+      { $match: { paymentStatus: "paid", user: { $exists: true, $ne: null } } },
+      { $group: { _id: "$user", orderCount: { $sum: 1 }, totalSpent: { $sum: "$total" } } },
+      {
+        $group: {
+          _id: null,
+          totalCustomers: { $sum: 1 },
+          repeatCustomers: { $sum: { $cond: [{ $gt: ["$orderCount", 1] }, 1, 0] } },
+          totalLtv: { $sum: "$totalSpent" },
+        },
+      },
+    ]),
   ]);
 
-  const currentMonthRevenue = monthRevenue[0]?.total || 0;
-  const prevMonthRevenue = lastMonthRevenue[0]?.total || 0;
-  const revenueGrowth =
-    prevMonthRevenue > 0 ? ((currentMonthRevenue - prevMonthRevenue) / prevMonthRevenue) * 100 : 100;
-
+  // ── Post-processing: topViewedProducts ────────────────────────────────────
   type LeanProduct = {
     _id: unknown;
     name: string;
@@ -248,11 +325,8 @@ export async function getDashboardAnalyticsData() {
     });
   }
 
-  const sparseDaily = (revenueByDaySparse || []) as {
-    _id: string;
-    revenue: number;
-    orders: number;
-  }[];
+  // ── Post-processing: revenueByDay dense fill ──────────────────────────────
+  const sparseDaily = (revenueByDaySparse || []) as { _id: string; revenue: number; orders: number }[];
   const dailyMap = new Map(sparseDaily.map((r) => [r._id, r]));
   const fmtIso = new Intl.DateTimeFormat("sv-SE", {
     timeZone: IST_TZ,
@@ -267,12 +341,43 @@ export async function getDashboardAnalyticsData() {
     const d = new Date(anchor.getTime() - (29 - i) * 86400000);
     const date = fmtIso.format(d);
     const row = dailyMap.get(date);
-    revenueByDay.push({
-      date,
-      revenue: row?.revenue ?? 0,
-      orders: row?.orders ?? 0,
-    });
+    revenueByDay.push({ date, revenue: row?.revenue ?? 0, orders: row?.orders ?? 0 });
   }
+
+  // ── Post-processing: hour heatmap (fill 0-23) ─────────────────────────────
+  const hourMap = new Map<number, { orders: number; revenue: number }>(
+    (ordersByHour as { _id: number; orders: number; revenue: number }[]).map((r) => [r._id, r])
+  );
+  const ordersByHourFull = Array.from({ length: 24 }, (_, h) => ({
+    hour: h,
+    orders: hourMap.get(h)?.orders ?? 0,
+    revenue: hourMap.get(h)?.revenue ?? 0,
+  }));
+
+  // ── Post-processing: repeat customer metrics ──────────────────────────────
+  const rcAgg = (repeatCustomersAgg as { _id: null; totalCustomers: number; repeatCustomers: number; totalLtv: number }[])[0];
+  const totalCustomers = rcAgg?.totalCustomers ?? 0;
+  const repeatCustomers = rcAgg?.repeatCustomers ?? 0;
+  const totalLtv = rcAgg?.totalLtv ?? 0;
+  const avgLtv = totalCustomers > 0 ? Math.round((totalLtv / totalCustomers) * 100) / 100 : 0;
+  const repeatRate = totalCustomers > 0 ? Math.round((repeatCustomers / totalCustomers) * 1000) / 10 : 0;
+
+  // ── Post-processing: online vs offline ────────────────────────────────────
+  type ChannelRow = { _id: "online" | "offline"; revenue: number; count: number };
+  const channelMap = new Map<string, ChannelRow>(
+    (onlineVsOfflineMix as ChannelRow[]).map((r) => [r._id, r])
+  );
+  const onlineRevenue = channelMap.get("online")?.revenue ?? 0;
+  const offlineRevenue = channelMap.get("offline")?.revenue ?? 0;
+  const onlineCount = channelMap.get("online")?.count ?? 0;
+  const offlineCount = channelMap.get("offline")?.count ?? 0;
+
+  // ── Revenue growth ────────────────────────────────────────────────────────
+  const currentMonthRevenue = monthRevenue[0]?.total || 0;
+  const prevMonthRevenue = lastMonthRevenue[0]?.total || 0;
+  const revenueGrowth = prevMonthRevenue > 0
+    ? ((currentMonthRevenue - prevMonthRevenue) / prevMonthRevenue) * 100
+    : 100;
 
   return {
     overview: {
@@ -293,8 +398,24 @@ export async function getDashboardAnalyticsData() {
       reviewsThisMonth,
       refundedAmount: totalRefunds[0]?.total || 0,
       refundedOrdersCount: totalRefunds[0]?.count || 0,
-      /** Shipping + COD fees not returned to customer (subset of gross − refunds) */
       nonRefundableFeesRetained: nonRefundableFeesRetained[0]?.total || 0,
+      // ── New fields ───────────────────────────────────────────────────────
+      cancellationCount,
+      cancellationRate: totalOrders > 0 ? Math.round((cancellationCount / totalOrders) * 1000) / 10 : 0,
+      couponDiscountTotal: couponDiscountTotal[0]?.totalDiscount || 0,
+      couponDiscountMTD: couponDiscountMTD[0]?.totalDiscount || 0,
+      couponOrdersTotal: couponDiscountTotal[0]?.count || 0,
+      shippingCollected: shippingCollected[0]?.total || 0,
+      codFeeCollected: codFeeCollected[0]?.total || 0,
+      taxCollected: taxCollected[0]?.total || 0,
+      onlineRevenue,
+      offlineRevenue,
+      onlineCount,
+      offlineCount,
+      repeatCustomers,
+      totalCustomersWithOrders: totalCustomers,
+      repeatRate,
+      avgLtv,
     },
     refundsByReason,
     lowStockProducts,
@@ -305,5 +426,8 @@ export async function getDashboardAnalyticsData() {
     topViewedProducts,
     revenueByCategory,
     revenueByDay,
+    paymentMethodMix: (paymentMethodMix as { _id: string; revenue: number; count: number }[]),
+    ordersByHour: ordersByHourFull,
+    topVariantSizes: (topVariantSizes as { _id: string; units: number; revenue: number }[]),
   };
 }
