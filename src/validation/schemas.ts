@@ -257,6 +257,12 @@ export const adminProductListQuerySchema = productListQuerySchema;
 
 export const adminProductSearchQuerySchema = productSearchQuerySchema;
 
+export const adminProductIdParamSchema = z.object({
+  params: z.object({
+    id: z.string().regex(/^[a-fA-F0-9]{24}$/, 'Invalid product id'),
+  }),
+});
+
 export const productAutocompleteQuerySchema = z.object({
   query: z.object({
     q: z.string().max(30).optional(),
@@ -291,6 +297,7 @@ const variantSchema = z.object({
   stock: z.coerce.number().min(0, 'Stock cannot be negative'),
   sku: z.string().min(1, 'SKU is required'),
   price: z.coerce.number().positive().optional(),
+  costPrice: z.coerce.number().min(0).optional(),
 });
 
 const productDetailSchema = z.object({
@@ -333,6 +340,11 @@ export const createProductSchema = z.object({
     }, z.array(z.string())).optional(),
     isFeatured: optionalBooleanFromString,
     isActive: optionalBooleanFromString,
+    isGiftable: optionalBooleanFromString,
+    isCustomizable: optionalBooleanFromString,
+    minOrderQty: z.coerce.number().int().min(1).optional(),
+    giftOccasions: jsonStringToArray(z.string()).optional(),
+    hsnCode: z.string().max(32).optional(),
     seoTitle: z.string().optional(),
     seoDescription: z.string().optional(),
     customFields: jsonStringToArray(productCustomFieldSchema).optional(),
@@ -365,6 +377,11 @@ export const updateProductSchema = z.object({
     }, z.array(z.string()).optional()),
     isFeatured: optionalBooleanFromString,
     isActive: optionalBooleanFromString,
+    isGiftable: optionalBooleanFromString,
+    isCustomizable: optionalBooleanFromString,
+    minOrderQty: z.coerce.number().int().min(1).optional(),
+    giftOccasions: jsonStringToArray(z.string()).optional(),
+    hsnCode: z.string().max(32).optional(),
     seoTitle: z.string().optional(),
     seoDescription: z.string().optional(),
     customFields: jsonStringToArray(productCustomFieldSchema).optional(),
@@ -572,6 +589,27 @@ const optionalHttpsUrl = z
     message: 'Link must be a valid HTTPS URL',
   });
 
+const optionalMarketingCtaLink = z
+  .string()
+  .max(2000)
+  .optional()
+  .refine(
+    (u) => {
+      if (!u?.trim()) return true;
+      const v = u.trim();
+      return /^https:\/\/.+/i.test(v) || (v.startsWith('/') && !v.startsWith('//'));
+    },
+    { message: 'Link must be HTTPS or a site path starting with /' },
+  );
+
+export const marketingAudiencePreviewQuerySchema = z.object({
+  query: z.object({
+    audience: z.enum(['all', 'users', 'admins', 'selected']).optional(),
+    channels: z.string().max(200).optional(),
+    includeOfflineLeads: z.enum(['true', 'false']).optional(),
+  }),
+});
+
 export const sendMarketingEmailSchema = z.object({
   body: z.object({
     subject: z.string().min(1).max(200),
@@ -579,7 +617,13 @@ export const sendMarketingEmailSchema = z.object({
     audience: z.enum(['all', 'users', 'admins', 'selected']).optional(),
     userIds: z.array(z.string().regex(/^[a-fA-F0-9]{24}$/)).max(5000).optional(),
     ctaText: z.string().max(120).optional(),
-    ctaLink: optionalHttpsUrl,
+    ctaLink: optionalMarketingCtaLink,
+    channels: z
+      .array(z.enum(['email', 'in_app', 'push']))
+      .min(1)
+      .max(3)
+      .optional(),
+    includeOfflineLeads: z.coerce.boolean().optional(),
   }),
 });
 

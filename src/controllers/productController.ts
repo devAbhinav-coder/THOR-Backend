@@ -28,6 +28,7 @@ import {
 import { getCachedProductCount } from "../services/productCountService";
 import { LISTING_PROJECTION } from "../constants/productListing";
 import { OFFLINE_MANUAL_PRODUCT_TAG } from "../constants/offlineOrder";
+import { invalidateGiftingProductCache } from "../services/gifting/giftingProductDiscoveryService";
 const PDP_CACHE_TTL = 600;
 const FILTERS_CACHE_TTL = 300;
 
@@ -376,6 +377,8 @@ export const createProduct = catchAsync(
       isFeatured: req.body.isFeatured === "true" || req.body.isFeatured === true,
       isActive: req.body.isActive !== "false" && req.body.isActive !== false,
       isGiftable: req.body.isGiftable === "true" || req.body.isGiftable === true,
+      isCustomizable:
+        req.body.isCustomizable === "true" || req.body.isCustomizable === true,
       minOrderQty: req.body.minOrderQty ? Number(req.body.minOrderQty) : 1,
       giftOccasions: safeJsonParse(
         req.body.giftOccasions,
@@ -397,8 +400,15 @@ export const createProduct = catchAsync(
     (productData as Record<string, unknown>).totalStock =
       sumVariantStocks(variantsParsed);
 
+    if (productData.category === "Gifting") {
+      productData.isGiftable = true;
+    }
+
     const product = await Product.create(productData);
     await invalidateProductCaches();
+    if (productData.isGiftable || productData.category === "Gifting") {
+      invalidateGiftingProductCache();
+    }
 
     const lean = await Product.findById(product._id).lean<Record<string, unknown>>();
     if (!lean) {
@@ -482,8 +492,16 @@ export const updateProduct = catchAsync(
       updateData.isGiftable =
         req.body.isGiftable === "true" || req.body.isGiftable === true;
     }
+    if (req.body.isCustomizable !== undefined) {
+      updateData.isCustomizable =
+        req.body.isCustomizable === "true" || req.body.isCustomizable === true;
+    }
     if (req.body.minOrderQty !== undefined) {
       updateData.minOrderQty = Number(req.body.minOrderQty);
+    }
+    if (req.body.hsnCode !== undefined) {
+      updateData.hsnCode =
+        typeof req.body.hsnCode === "string" ? req.body.hsnCode.trim() : req.body.hsnCode;
     }
     if (req.body.price !== undefined) {
       updateData.price = Number(req.body.price);
@@ -492,7 +510,11 @@ export const updateProduct = catchAsync(
       updateData.comparePrice = Number(req.body.comparePrice);
     }
 
+    delete updateData.updatedAt;
     delete updateData.totalStock;
+    if (updateData.category === "Gifting" || currentProduct.category === "Gifting") {
+      updateData.isGiftable = true;
+    }
     if (updateData.variants) {
       updateData.totalStock = sumVariantStocks(
         updateData.variants as { stock?: number }[],
@@ -521,6 +543,12 @@ export const updateProduct = catchAsync(
 
     const slug = String(updatedProduct.slug || currentProduct.slug);
     await invalidateProductCaches({ slug });
+    const giftable =
+      updateData.isGiftable === true ||
+      updateData.category === "Gifting" ||
+      currentProduct.isGiftable ||
+      currentProduct.category === "Gifting";
+    if (giftable) invalidateGiftingProductCache();
 
     sendSuccess(res, { product: leanProduct(updatedProduct) }, "Product updated");
   },

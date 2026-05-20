@@ -1,7 +1,9 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 import catchAsync from "../utils/catchAsync";
-import { sendPaginated } from "../utils/response";
+import AppError from "../utils/AppError";
+import { sendPaginated, sendSuccess } from "../utils/response";
 import { reconcileProductJson } from "../utils/productStock";
+import Product from "../models/Product";
 import {
   parseProductListQuery,
   mapSortToAdvanced,
@@ -13,6 +15,20 @@ import { advancedSearchService } from "../services/advancedSearchService";
 function leanProduct(p: Record<string, unknown>) {
   return reconcileProductJson(p as Parameters<typeof reconcileProductJson>[0]);
 }
+
+/**
+ * GET /api/admin/products/:id
+ * Full product document for admin edit forms (list projection is intentionally lean).
+ */
+export const getAdminProductById = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const product = await Product.findById(req.params.id).lean<Record<string, unknown>>();
+    if (!product) {
+      return next(new AppError("No product found with that ID.", 404));
+    }
+    sendSuccess(res, { product: leanProduct(product) });
+  },
+);
 
 /**
  * GET /api/admin/products

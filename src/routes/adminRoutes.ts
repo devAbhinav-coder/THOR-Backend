@@ -34,7 +34,10 @@ import {
   adminReplyReviewSchema,
   adminReviewIdParamSchema,
 } from '../validation/reviewSchemas';
-import { sendCustomMarketingEmail } from '../controllers/admin/adminMarketingController';
+import {
+  getMarketingAudiencePreview,
+  sendCustomMarketingEmail,
+} from '../controllers/admin/adminMarketingController';
 import { createOfflineOrder } from '../controllers/adminOfflineOrderController';
 import {
   listSalesInvoices,
@@ -45,6 +48,7 @@ import {
 } from '../controllers/adminSalesInvoiceController';
 import {
   getAdminProducts,
+  getAdminProductById,
   searchAdminProducts,
 } from '../controllers/adminProductsController';
 import {
@@ -100,6 +104,8 @@ import {
   updatePurchaseInvoiceSchema,
   adminProductListQuerySchema,
   adminProductSearchQuerySchema,
+  adminProductIdParamSchema,
+  marketingAudiencePreviewQuerySchema,
 } from '../validation/schemas';
 import {
   uploadAvatar,
@@ -124,6 +130,7 @@ router.get('/security/audit', getAdminAuditLogs);
 
 router.get('/products', validate(adminProductListQuerySchema), getAdminProducts);
 router.get('/products/search', validate(adminProductSearchQuerySchema), searchAdminProducts);
+router.get('/products/:id', validate(adminProductIdParamSchema), getAdminProductById);
 
 router.get('/orders', getAllOrders);
 router.post(
@@ -191,6 +198,11 @@ router.patch(
   adminSensitiveLimiter,
   validate(adminModerateReviewSchema),
   moderateReview
+);
+router.get(
+  '/emails/audience-preview',
+  validate(marketingAudiencePreviewQuerySchema),
+  getMarketingAudiencePreview,
 );
 router.post('/emails/send', adminSensitiveLimiter, validate(sendMarketingEmailSchema), sendCustomMarketingEmail);
 

@@ -2,63 +2,118 @@ import { Request, Response, NextFunction } from 'express';
 import User from '../../models/User';
 import AppError from '../../utils/AppError';
 import catchAsync from '../../utils/catchAsync';
-import { emailTemplates } from '../../services/emailService';
-import { enqueueBroadcastChunks } from '../../queues/emailQueue';
 import { sendSuccess } from '../../utils/response';
-import { sanitizeMarketingEmailHtml } from '../../utils/sanitizeMarketingHtml';
-import { enqueueBroadcastByUserFilter } from '../../services/broadcastService';
+import {
+  getMarketingAudienceStats,
+  marketingDeliveryConfigured,
+  sendMarketingCampaign,
+  type MarketingAudience,
+  type MarketingChannel,
+} from '../../services/marketingCampaignService';
+
+export const getMarketingAudiencePreview = catchAsync(
+  async (req: Request, res: Response) => {
+    const audience = (req.query.audience as MarketingAudience) || 'users';
+    const channelsRaw = String(req.query.channels || 'email');
+    const channels = channelsRaw
+      .split(',')
+      .map((c) => c.trim())
+      .filter((c): c is MarketingChannel =>
+        ['email', 'in_app', 'push'].includes(c),
+      ) as MarketingChannel[];
+    const includeOfflineLeads = req.query.includeOfflineLeads === 'true';
+
+    const stats = await getMarketingAudienceStats(
+      audience,
+      channels.length ? channels : ['email'],
+      undefined,
+      includeOfflineLeads,
+    );
+
+    sendSuccess(res, {
+      ...stats,
+      delivery: marketingDeliveryConfigured(),
+    });
+  },
+);
 
 export const sendCustomMarketingEmail = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
-    const { subject, messageHtml, audience, userIds, ctaText, ctaLink } = req.body as {
+    const {
+      subject,
+      messageHtml,
+      audience = 'users',
+      userIds,
+      ctaText,
+      ctaLink,
+      channels,
+      includeOfflineLeads,
+    } = req.body as {
       subject?: string;
       messageHtml?: string;
-      audience?: 'all' | 'users' | 'admins' | 'selected';
+      audience?: MarketingAudience;
       userIds?: string[];
       ctaText?: string;
       ctaLink?: string;
+      channels?: MarketingChannel[];
+      includeOfflineLeads?: boolean;
     };
 
     if (!subject?.trim() || !messageHtml?.trim()) {
       return next(new AppError('Subject and message are required.', 400));
     }
 
-    const safeCtaText = ctaText?.trim();
-    const safeCtaLink = ctaLink?.trim();
-    const tpl = emailTemplates.custom(
-      subject.trim(),
-      sanitizeMarketingEmailHtml(messageHtml.trim()),
-      safeCtaText,
-      safeCtaLink
-    );
+    const activeChannels =
+      channels?.length ? channels : (['email'] as MarketingChannel[]);
+
+    if (activeChannels.includes('email') && !marketingDeliveryConfigured().resendConfigured) {
+      return next(
+        new AppError(
+          'Email delivery is not configured (RESEND_API_KEY missing). Enable in-app or browser notifications, or configure Resend.',
+          503,
+        ),
+      );
+    }
 
     if (audience === 'selected') {
       if (!userIds || userIds.length === 0) {
         return next(new AppError('Select at least one user.', 400));
       }
-      const selectedRecipients = await User.find({ _id: { $in: userIds }, isActive: true }).select('_id email');
-      const emails = selectedRecipients.map((r) => r.email);
-      const chunks = await enqueueBroadcastChunks(emails, tpl.subject, tpl.html);
-      return sendSuccess(
-        res,
-        { recipients: selectedRecipients.length, chunkJobs: chunks },
-        `Queued ${selectedRecipients.length} marketing emails in ${chunks} batch(es).`
+    }
+
+    const result = await sendMarketingCampaign({
+      subject: subject.trim(),
+      messageHtml: messageHtml.trim(),
+      audience,
+      userIds,
+      ctaText,
+      ctaLink,
+      channels: activeChannels,
+      includeOfflineLeads: Boolean(includeOfflineLeads),
+    });
+
+    const parts: string[] = [];
+    if (result.emailsQueued > 0) {
+      parts.push(
+        `${result.emailsQueued} email(s) queued${result.emailChunkJobs ? ` in ${result.emailChunkJobs} batch(es)` : ''}`,
+      );
+    }
+    if (result.offlineEmailsQueued > 0) {
+      parts.push(`${result.offlineEmailsQueued} offline lead email(s) queued`);
+    }
+    if (result.notificationsQueued > 0) {
+      const notifBits: string[] = [];
+      if (activeChannels.includes('in_app')) notifBits.push('in-app');
+      if (activeChannels.includes('push')) notifBits.push('browser push');
+      parts.push(
+        `${result.notificationsQueued} account(s) — ${notifBits.join(' + ')}`,
       );
     }
 
-    const filter =
-      audience === 'admins'
-        ? { role: 'admin', isActive: true }
-        : audience === 'users'
-        ? { role: 'user', isActive: true }
-        : { isActive: true };
-
-    const totalRecipients = await enqueueBroadcastByUserFilter(
-      filter,
-      () => ({ subject: tpl.subject, html: tpl.html, jobIdPrefix: `marketing:${subject.trim().slice(0, 32)}` }),
-      400
+    sendSuccess(
+      res,
+      result,
+      parts.length ? parts.join('. ') + '.' : 'Campaign queued.',
     );
-
-    sendSuccess(res, { recipients: totalRecipients }, `Queued ${totalRecipients} emails`);
-  }
+  },
 );
