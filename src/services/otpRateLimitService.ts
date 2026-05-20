@@ -1,6 +1,7 @@
 import { redisEnabled, redisConnection } from "../config/redis";
 import logger from "../utils/logger";
 import OtpSendLog from "../models/OtpSendLog";
+import { serviceError } from "../auth/authErrors";
 
 const WINDOW_MS = 10 * 60 * 1000;
 const MAX_SENDS_PER_WINDOW = 3;
@@ -36,11 +37,27 @@ export async function assertOtpSendAllowed(
       const n =
         typeof raw === "number" ? raw : parseInt(String(raw ?? "0"), 10) || 0;
       if (n >= MAX_SENDS_PER_WINDOW) {
-        const err = new Error(
+        let retryAfter = Math.ceil(WINDOW_MS / 1000);
+        try {
+          const oldest = (await redisConnection.call(
+            "zrange",
+            key,
+            "0",
+            "0",
+            "WITHSCORES",
+          )) as string[];
+          if (oldest?.length >= 2) {
+            const oldestMs = parseInt(oldest[1], 10) || now;
+            retryAfter = Math.max(1, Math.ceil((oldestMs + WINDOW_MS - now) / 1000));
+          }
+        } catch {
+          /* use default */
+        }
+        throw serviceError(
           "Too many verification code requests. Please try again in a few minutes.",
+          429,
+          retryAfter,
         );
-        (err as Error & { statusCode?: number }).statusCode = 429;
-        throw err;
       }
     } catch (e) {
       const err = e as Error & { statusCode?: number };
@@ -90,10 +107,10 @@ async function assertOtpSendAllowedMongo(
     createdAt: { $gte: since },
   });
   if (n >= MAX_SENDS_PER_WINDOW) {
-    const err = new Error(
+    throw serviceError(
       "Too many verification code requests. Please try again in a few minutes.",
+      429,
+      Math.ceil(WINDOW_MS / 1000),
     );
-    (err as Error & { statusCode?: number }).statusCode = 429;
-    throw err;
   }
 }

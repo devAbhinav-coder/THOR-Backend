@@ -2,7 +2,8 @@ import User from '../models/User';
 import { Notification } from '../models/Notification';
 import logger from '../utils/logger';
 import { Types } from 'mongoose';
-import { enqueuePush } from '../queues/pushQueue';
+import { queuePushForUser } from './notifications/notificationDeliveryService';
+import { onNotificationCreated } from './notifications/notificationReadService';
 import { enqueueEmail } from '../queues/emailQueue';
 
 export async function notifyAdminsEmail(subject: string, html: string) {
@@ -39,15 +40,19 @@ export async function notifyAdmins(title: string, message: string, link?: string
 
     const created = await Notification.insertMany(notifications);
     await Promise.all(
-      created.map((n) =>
-        enqueuePush({
-          userId: String(n.user),
-          title,
-          body: message,
-          link,
-          notificationId: String(n._id),
-        })
-      )
+      created.map(async (n) => {
+        await onNotificationCreated(String(n.user));
+        await queuePushForUser(
+          {
+            userId: String(n.user),
+            title,
+            body: message,
+            link,
+            notificationId: String(n._id),
+          },
+          { category: type }
+        );
+      })
     );
   } catch (err) {
     logger.error('Failed to notify admins', { err });
@@ -69,13 +74,17 @@ export async function notifyUser(
       link,
       type,
     });
-    await enqueuePush({
-      userId: String(userId),
-      title,
-      body: message,
-      link,
-      notificationId: String(created._id),
-    });
+    await onNotificationCreated(String(userId));
+    await queuePushForUser(
+      {
+        userId: String(userId),
+        title,
+        body: message,
+        link,
+        notificationId: String(created._id),
+      },
+      { category: type }
+    );
   } catch (err) {
     logger.error('Failed to notify user', { userId: String(userId), err });
   }

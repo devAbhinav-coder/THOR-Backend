@@ -46,11 +46,18 @@ const giftingRequestSchema = new Schema<IGiftingRequest>(
     deliveryTime: { type: String },
     adminNote: { type: String },
     linkedOrderId: { type: Schema.Types.ObjectId, ref: 'Order' },
+    /** Set when user accepts quote with Idempotency-Key — prevents duplicate orders on retry. */
+    acceptIdempotencyKey: { type: String, trim: true, sparse: true },
   },
   { timestamps: true }
 );
 
 giftingRequestSchema.index({ status: 1, createdAt: -1 });
-giftingRequestSchema.index({ user: 1 });
+giftingRequestSchema.index({ user: 1, createdAt: -1 });
+giftingRequestSchema.index({ linkedOrderId: 1 }, { sparse: true });
+giftingRequestSchema.index(
+  { acceptIdempotencyKey: 1, user: 1 },
+  { unique: true, sparse: true }
+);
 
 export default mongoose.model<IGiftingRequest>('GiftingRequest', giftingRequestSchema);

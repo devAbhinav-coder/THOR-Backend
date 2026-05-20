@@ -6,7 +6,10 @@ const LOCK_TTL_SEC = 25;
 const IDEMP_PREFIX = "checkout:idemp:";
 const IDEMP_TTL_SEC = 86400;
 const PAY_VERIFY_PREFIX = "pay:verify:";
+const PAY_PREPARE_PREFIX = "pay:prepare:";
 const PAY_NOTIFY_PREFIX = "order:paid_notify:";
+const PAY_VERIFY_IDEMP_PREFIX = "pay:verify:idemp:";
+const PAY_VERIFY_IDEMP_TTL_SEC = 86400;
 
 export function normalizeIdempotencyKey(raw: string | undefined): string | null {
   if (!raw || typeof raw !== "string") {
@@ -82,6 +85,56 @@ export async function releasePaymentVerifyLock(orderId: string): Promise<void> {
     return;
   }
   await redisConnection.del(`${PAY_VERIFY_PREFIX}${orderId}`);
+}
+
+/** Prevents duplicate Razorpay order creation when prepare-payment is opened in multiple tabs. */
+export async function acquirePreparePaymentLock(orderId: string, ttlSec = 30): Promise<boolean> {
+  if (!isNonEmptyPayVerifyKey(orderId)) {
+    return false;
+  }
+  const r = await redisConnection.set(`${PAY_PREPARE_PREFIX}${orderId}`, "1", "EX", ttlSec, "NX");
+  return r === "OK";
+}
+
+export async function releasePreparePaymentLock(orderId: string): Promise<void> {
+  if (!isNonEmptyPayVerifyKey(orderId)) {
+    return;
+  }
+  await redisConnection.del(`${PAY_PREPARE_PREFIX}${orderId}`);
+}
+
+function payVerifyIdempRedisKey(userId: string, key: string): string {
+  const h = crypto.createHash("sha256").update(`${userId}:${key}`).digest("hex");
+  return `${PAY_VERIFY_IDEMP_PREFIX}${h}`;
+}
+
+export async function getIdempotentPaymentVerifyResponse(
+  userId: string,
+  key: string,
+): Promise<{ statusCode: number; body: unknown } | null> {
+  const raw = await redisConnection.get(payVerifyIdempRedisKey(userId, key));
+  if (!raw) {
+    return null;
+  }
+  try {
+    return JSON.parse(raw) as { statusCode: number; body: unknown };
+  } catch {
+    return null;
+  }
+}
+
+export async function setIdempotentPaymentVerifyResponse(
+  userId: string,
+  key: string,
+  statusCode: number,
+  body: unknown,
+): Promise<void> {
+  await redisConnection.set(
+    payVerifyIdempRedisKey(userId, key),
+    JSON.stringify({ statusCode, body }),
+    "EX",
+    PAY_VERIFY_IDEMP_TTL_SEC,
+  );
 }
 
 /** Ensures "order paid" emails fire once per Razorpay payment id (multi-instance safe). */

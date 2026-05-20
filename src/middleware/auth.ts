@@ -39,6 +39,33 @@ export const protect = catchAsync(async (req: AuthRequest, res: Response, next: 
   next();
 });
 
+/** Sets req.user when a valid token is present; never fails the request. */
+export const optionalProtect = catchAsync(
+  async (req: AuthRequest, _res: Response, next: NextFunction) => {
+    let token: string | undefined;
+    if (req.headers.authorization?.startsWith("Bearer")) {
+      token = req.headers.authorization.split(" ")[1];
+    } else if (req.cookies?.accessToken) {
+      token = req.cookies.accessToken as string;
+    }
+    if (!token || token === "loggedout") {
+      return next();
+    }
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET as string, {
+        algorithms: ["HS256"],
+      }) as JwtPayload;
+      const currentUser = await User.findById(decoded.id);
+      if (currentUser?.isActive) {
+        req.user = currentUser;
+      }
+    } catch {
+      /* public route — ignore invalid token */
+    }
+    next();
+  },
+);
+
 export const restrictTo = (...roles: string[]) => {
   return (req: AuthRequest, _res: Response, next: NextFunction): void => {
     if (!req.user || !roles.includes(req.user.role)) {

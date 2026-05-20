@@ -37,8 +37,17 @@ export interface IStockLedger extends Document {
 
 const stockLedgerSchema = new Schema<IStockLedger>(
   {
-    product: { type: Schema.Types.ObjectId, ref: 'Product', required: true, index: true },
-    sku: { type: String, required: true, index: true },
+    product: {
+      type: Schema.Types.ObjectId,
+      ref: 'Product',
+      required: true,
+      // Covered by compound index { product, sku, createdAt } below — no standalone index needed
+    },
+    sku: {
+      type: String,
+      required: true,
+      // Standalone sku index removed — sku-only queries are rare; compound index covers product+sku lookups
+    },
     productName: { type: String, required: true },
     variantLabel: String,
     delta: { type: Number, required: true },

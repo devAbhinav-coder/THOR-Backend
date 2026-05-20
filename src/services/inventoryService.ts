@@ -1,6 +1,7 @@
 import mongoose, { ClientSession, Types } from 'mongoose';
 import Product from '../models/Product';
 import StockLedger, { StockChangeReason } from '../models/StockLedger';
+import { schedulePdpInvalidationForProductId } from './productCacheService';
 
 type SessionOpt = { session?: ClientSession };
 
@@ -111,7 +112,10 @@ export async function incrementVariantStock(
     }
   );
 
-  if (res.modifiedCount === 1) return true;
+  if (res.modifiedCount === 1) {
+    schedulePdpInvalidationForProductId(productId);
+    return true;
+  }
 
   // If not found, it's a new variant for an existing product. Add it.
   const parts = opts?.variantLabel?.split('/') || [];
@@ -136,5 +140,8 @@ export async function incrementVariantStock(
     { ...(opts?.session ? { session: opts.session } : {}) }
   );
 
+  if (addRes.modifiedCount === 1) {
+    schedulePdpInvalidationForProductId(productId);
+  }
   return addRes.modifiedCount === 1;
 }

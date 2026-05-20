@@ -38,6 +38,13 @@ export const uploadGiftingImages = multer({
   limits: { fileSize: 5 * 1024 * 1024, files: 5 },
 }).array('images', 5);
 
+/** Cart custom-field uploads: single image via `images` field (frontend contract). */
+export const uploadCartCustomFieldImage = multer({
+  storage: memoryStorage,
+  fileFilter: imageFileFilter,
+  limits: { fileSize: 3 * 1024 * 1024, files: 1 },
+}).array('images', 1);
+
 export const uploadStorefrontAssets = multer({
   storage: memoryStorage,
   fileFilter: imageFileFilter,
@@ -191,6 +198,36 @@ export const processGiftingImages = async (
     next();
   } catch (err) {
     next(new AppError('Gifting reference image upload failed.', 500));
+  }
+};
+
+export const processCartCustomFieldImage = async (
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const files = req.files as Express.Multer.File[] | undefined;
+    if (!files || files.length === 0) return next();
+
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    const uploadPromises = files.map((file) => {
+      if (!allowed.includes(file.mimetype)) {
+        throw new AppError('Only JPEG, PNG, WebP, or GIF images are allowed.', 400);
+      }
+      return uploadToCloudinary(file.buffer, 'house-of-rani/cart-custom-fields', [
+        { width: 1200, height: 1200, crop: 'limit' },
+      ]);
+    });
+
+    const results = await Promise.all(uploadPromises);
+    (req as Request & { uploadedImages: { url: string; publicId: string }[] }).uploadedImages =
+      results.map((r) => ({ url: r.secure_url, publicId: r.public_id }));
+
+    next();
+  } catch (err) {
+    if (err instanceof AppError) return next(err);
+    next(new AppError('Cart custom field image upload failed.', 500));
   }
 };
 

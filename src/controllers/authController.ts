@@ -1,10 +1,8 @@
 import crypto from "crypto";
-import bcrypt from "bcryptjs";
 import { Request, Response, NextFunction } from "express";
 import { OAuth2Client } from "google-auth-library";
+import mongoose from "mongoose";
 import User from "../models/User";
-import AuthOtp from "../models/AuthOtp";
-import RefreshToken from "../models/RefreshToken";
 import AppError from "../utils/AppError";
 import catchAsync from "../utils/catchAsync";
 import { AuthRequest } from "../types";
@@ -16,28 +14,36 @@ import {
   verifyOtp,
   createVerifiedSignupUser,
 } from "../services/otpAuthService";
+import RefreshToken from "../models/RefreshToken";
 import {
   sendAuthResponse,
-  hashToken,
-  clearTokenCookies,
   revokeRefreshByRawCookie,
+  clearTokenCookies,
+  readRefreshTokenFromRequest,
+  rotateRefreshToken,
+  hashToken,
 } from "../services/authTokenService";
 import { assertRefreshAllowed } from "../services/refreshRateLimiter";
 import { sendSuccess } from "../utils/response";
 import { writeAdminAudit } from "../services/adminAuditService";
 import { removeOfflineCustomerByEmail } from "../services/offlineCustomerService";
-
-const MAX_OTP_ATTEMPTS = 5;
-
-/** Same copy for every failed password login — avoids account enumeration via error text. */
-const LOGIN_FAILED_GENERIC = "Invalid email or password.";
+import {
+  resetPasswordWithOtp,
+  resetPasswordWithToken,
+} from "../services/passwordResetService";
+import { emitAuthEvent } from "../services/authEventService";
+import { authRequestMeta, normalizeUnicodeText } from "../auth/authNormalize";
+import {
+  LOGIN_FAILED_GENERIC,
+  RESET_GENERIC,
+} from "../auth/authErrors";
+import { securityLog } from "../utils/securityLog";
 
 const googleClient =
   process.env.GOOGLE_CLIENT_ID ?
     new OAuth2Client(process.env.GOOGLE_CLIENT_ID)
   : null;
 
-/** Try SMTP immediately so welcome mail is not only queued (queue worker / auth can fail silently). */
 async function deliverWelcomeEmail(
   displayName: string,
   emailLower: string,
@@ -58,7 +64,6 @@ async function deliverWelcomeEmail(
   }
 }
 
-/** Do not block auth response on email provider latency/timeouts. */
 function sendWelcomeEmailInBackground(
   displayName: string,
   emailLower: string,
@@ -78,44 +83,49 @@ function sendWelcomeEmailInBackground(
   })();
 }
 
-/** Step 1: collect details & send email OTP (account created only after verify). */
+function mapServiceError(
+  e: unknown,
+  next: NextFunction,
+  fallback: string,
+): void {
+  const err = e as Error & { statusCode?: number };
+  if (err.statusCode) {
+    return next(new AppError(err.message, err.statusCode));
+  }
+  logger.error(`${fallback}: ${err.message}`);
+  return next(new AppError(fallback, 503));
+}
+
 export const signupStart = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const { name, email, password, phone } = req.body;
-    const emailLower = email.toLowerCase().trim();
     try {
       await sendOtpUnified({
         flow: "signup",
-        email: emailLower,
-        signup: { name, email: emailLower, password, phone },
+        email,
+        signup: { name, email, password, phone },
       });
     } catch (e) {
-      const err = e as Error & { statusCode?: number };
-      if (err.statusCode) {
-        return next(new AppError(err.message, err.statusCode));
-      }
-      logger.error(`signup/start send OTP: ${err.message}`);
-      return next(
-        new AppError(
-          "Could not send verification email. Please try again shortly.",
-          503,
-        ),
+      return mapServiceError(
+        e,
+        next,
+        "Could not send verification email. Please try again shortly.",
       );
     }
     sendSuccess(res, {}, "Verification code sent to your email.");
   },
 );
 
-/** Step 2: verify OTP and create user. */
 export const signupVerify = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const { email, otp } = req.body;
-    const emailLower = email.toLowerCase().trim();
+    const { ip } = authRequestMeta(req);
 
     const result = await verifyOtp({
       flow: "signup",
-      email: emailLower,
+      email,
       otp: String(otp),
+      ip,
     });
     if (!result.ok) {
       return next(new AppError(result.message, result.statusCode));
@@ -125,28 +135,30 @@ export const signupVerify = catchAsync(
     }
 
     const user = await createVerifiedSignupUser(
-      emailLower,
+      result.email,
       result.signupPayload,
     );
-    await sendAuthResponse(res, user, 201);
+    emitAuthEvent({
+      type: "AUTH_SIGNUP_COMPLETED",
+      userId: String(user._id),
+      email: user.email,
+      req,
+    });
+    await sendAuthResponse(res, user, 201, req);
   },
 );
 
 export const login = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const { email, password } = req.body;
-    const emailLower = String(email || "")
-      .toLowerCase()
-      .trim();
 
-    const user = await User.findOne({ email: emailLower }).select(
-      "+password +googleId",
-    );
+    const user = await User.findOne({ email }).select("+password +googleId");
     if (!user) {
       await writeAdminAudit(req, "auth.login.failed", {
         reason: "user_not_found",
-        email: emailLower,
+        email,
       });
+      securityLog("auth.failure", { reason: "user_not_found", email });
       return next(new AppError(LOGIN_FAILED_GENERIC, 401));
     }
 
@@ -169,137 +181,108 @@ export const login = catchAsync(
         String(user._id),
         String(user._id),
       );
+      securityLog("auth.failure", {
+        reason: "wrong_password",
+        userId: String(user._id),
+      });
       return next(new AppError(LOGIN_FAILED_GENERIC, 401));
     }
 
-    if (!user.isActive) {
+    if (!user.isActive || user.emailVerified === false) {
       await writeAdminAudit(
         req,
         "auth.login.failed",
-        { reason: "inactive_user", email: user.email },
+        {
+          reason: user.isActive ? "email_not_verified" : "inactive_user",
+          email: user.email,
+        },
         String(user._id),
         String(user._id),
       );
       return next(new AppError(LOGIN_FAILED_GENERIC, 401));
     }
 
-    if (user.emailVerified === false) {
-      await writeAdminAudit(
-        req,
-        "auth.login.failed",
-        { reason: "email_not_verified", email: user.email },
-        String(user._id),
-        String(user._id),
-      );
-      return next(new AppError(LOGIN_FAILED_GENERIC, 401));
-    }
-
-    await sendAuthResponse(res, user, 200);
+    emitAuthEvent({
+      type: "AUTH_LOGIN_SUCCESS",
+      userId: String(user._id),
+      email: user.email,
+      req,
+    });
+    await sendAuthResponse(res, user, 200, req);
   },
 );
 
 export const refresh = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
-    const raw =
-      (req.cookies?.refreshToken as string | undefined) ||
-      (typeof (req.body as { refreshToken?: string })?.refreshToken === "string" ?
-        (req.body as { refreshToken: string }).refreshToken
-      : undefined);
-    if (!raw || raw === "loggedout") {
+    const raw = readRefreshTokenFromRequest(req);
+    if (!raw) {
       return next(new AppError("Session expired. Please sign in again.", 401));
     }
 
-    const doc = await RefreshToken.findOne({
-      tokenHash: hashToken(raw),
-      expiresAt: { $gt: new Date() },
-    });
+    const doc = await RefreshToken.findOne({ tokenHash: hashToken(raw) });
 
-    if (!doc || doc.revokedAt) {
-      return next(new AppError("Session expired. Please sign in again.", 401));
+    if (doc) {
+      await assertRefreshAllowed(
+        String(doc.user),
+        authRequestMeta(req).ip,
+      );
     }
 
-    const user = await User.findById(doc.user);
-    if (!user || !user.isActive) {
+    try {
+      await rotateRefreshToken(req, res);
+    } catch (e) {
+      if (e instanceof AppError) return next(e);
       return next(new AppError("Session expired. Please sign in again.", 401));
     }
-
-    await assertRefreshAllowed(
-      String(user._id),
-      req.ip || req.socket.remoteAddress || "unknown",
-    );
-
-    await RefreshToken.updateOne(
-      { _id: doc._id },
-      { $set: { revokedAt: new Date() } },
-    );
-    await sendAuthResponse(res, user, 200);
   },
 );
 
 export const forgotPassword = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const { email } = req.body;
-    const emailLower = email.toLowerCase().trim();
-    const generic =
-      "If an account exists for this email, you will receive a reset code shortly.";
-
     try {
-      await sendOtpUnified({ flow: "forgot_password", email: emailLower });
+      await sendOtpUnified({ flow: "forgot_password", email });
     } catch (e) {
-      const err = e as Error & { statusCode?: number };
-      if (err.statusCode) {
-        return next(new AppError(err.message, err.statusCode));
-      }
-      logger.warn(`forgot-password OTP path: ${err.message}`);
-      return next(
-        new AppError(
-          "Could not send reset email. Please try again shortly.",
-          503,
-        ),
+      return mapServiceError(
+        e,
+        next,
+        "Could not send reset email. Please try again shortly.",
       );
     }
-
-    sendSuccess(res, {}, generic);
+    sendSuccess(res, {}, RESET_GENERIC);
   },
 );
 
 export const resetPassword = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
-    const { email, otp, newPassword } = req.body;
-    const emailLower = email.toLowerCase().trim();
+    const body = req.body as {
+      resetToken?: string;
+      email?: string;
+      otp?: string;
+      newPassword: string;
+    };
 
-    const doc = await AuthOtp.findOne({
-      email: emailLower,
-      purpose: "password_reset",
-    });
-    if (!doc || doc.expiresAt.getTime() < Date.now()) {
-      return next(new AppError("Invalid or expired code.", 400));
+    let user;
+    if (body.resetToken) {
+      user = await resetPasswordWithToken(
+        body.resetToken,
+        body.newPassword,
+        req,
+      );
+    } else if (body.email && body.otp) {
+      user = await resetPasswordWithOtp(
+        body.email,
+        String(body.otp),
+        body.newPassword,
+        req,
+      );
+    } else {
+      return next(
+        new AppError("Reset token or email and verification code required.", 400),
+      );
     }
-    if (doc.attempts >= MAX_OTP_ATTEMPTS) {
-      return next(new AppError("Too many attempts. Request a new code.", 429));
-    }
 
-    const ok = await bcrypt.compare(String(otp), doc.codeHash);
-    if (!ok) {
-      await AuthOtp.updateOne({ _id: doc._id }, { $inc: { attempts: 1 } });
-      return next(new AppError("Invalid verification code.", 400));
-    }
-
-    const user = await User.findOne({ email: emailLower }).select(
-      "+password +googleId",
-    );
-    if (!user || user.googleId) {
-      return next(new AppError("Invalid or expired code.", 400));
-    }
-
-    user.password = newPassword;
-    user.offlineLead = false;
-    await user.save();
-    await AuthOtp.deleteOne({ _id: doc._id });
-    await RefreshToken.deleteMany({ user: user._id });
-    await removeOfflineCustomerByEmail(emailLower);
-
-    await sendAuthResponse(res, user, 200);
+    await sendAuthResponse(res, user, 200, req);
   },
 );
 
@@ -324,71 +307,90 @@ export const googleAuth = catchAsync(
     }
 
     const sub = payload.sub;
-    const email = payload.email.toLowerCase();
+    const email = payload.email.toLowerCase().trim();
     const name = payload.name || email.split("@")[0];
     const picture =
       typeof payload.picture === "string" && payload.picture.trim().length > 0 ?
         payload.picture.trim()
       : undefined;
 
-    let user = await User.findOne({ googleId: sub }).select(
-      "+googleId +password +welcomeEmailAt",
-    );
+    const session = await mongoose.startSession();
+    let resolvedUser: InstanceType<typeof User> | null = null;
     let isNewGoogleSignup = false;
 
-    if (!user) {
-      // Do not add plain field names beside `+…` paths — Mongoose switches to an
-      // inclusive projection and drops `isActive`, so `!user.isActive` wrongly blocks.
-      const byEmail = await User.findOne({ email }).select(
-        "+googleId +password +welcomeEmailAt",
-      );
-      if (byEmail) {
-        if (byEmail.googleId && byEmail.googleId !== sub) {
-          return next(
-            new AppError(
-              "This email is linked to another Google account.",
-              409,
-            ),
-          );
-        }
-        const hadGoogleId = Boolean(byEmail.googleId);
-        const welcomeMissing = !byEmail.welcomeEmailAt;
-        const accountAgeMs = Date.now() - new Date(byEmail.createdAt).getTime();
-        const veryNewAccount = accountAgeMs < 5 * 60 * 1000;
+    try {
+      await session.withTransaction(async () => {
+        let found: InstanceType<typeof User> | null = await User.findOne({ googleId: sub })
+          .select("+googleId +password +welcomeEmailAt")
+          .session(session);
 
-        byEmail.googleId = sub;
-        if (byEmail.offlineLead) {
-          byEmail.offlineLead = false;
-        }
-        if (picture && (!byEmail.avatar || !String(byEmail.avatar).trim())) {
-          byEmail.avatar = picture;
-        }
-        await byEmail.save();
-        user = byEmail;
-        await removeOfflineCustomerByEmail(email);
+        if (!found) {
+          const byEmail = await User.findOne({ email })
+            .select("+googleId +password +welcomeEmailAt")
+            .session(session);
 
-        if (!hadGoogleId && welcomeMissing && veryNewAccount) {
-          sendWelcomeEmailInBackground(user.name, user.email);
+          if (byEmail) {
+            if (byEmail.googleId && byEmail.googleId !== sub) {
+              throw new AppError(
+                "This email is linked to another Google account.",
+                409,
+              );
+            }
+            const hadGoogleId = Boolean(byEmail.googleId);
+            const welcomeMissing = !byEmail.welcomeEmailAt;
+            const accountAgeMs =
+              Date.now() - new Date(byEmail.createdAt).getTime();
+            const veryNewAccount = accountAgeMs < 5 * 60 * 1000;
+
+            byEmail.googleId = sub;
+            if (byEmail.offlineLead) byEmail.offlineLead = false;
+            if (picture && (!byEmail.avatar || !String(byEmail.avatar).trim())) {
+              byEmail.avatar = picture;
+            }
+            await byEmail.save({ session });
+            found = byEmail;
+
+            if (!hadGoogleId && welcomeMissing && veryNewAccount) {
+              sendWelcomeEmailInBackground(found.name, found.email);
+            }
+          } else {
+            const randomPassword = crypto.randomBytes(32).toString("hex");
+            const safeName = (name || "").trim() || email.split("@")[0];
+            const created = await User.create(
+              [
+                {
+                  name: safeName.slice(0, 50),
+                  email,
+                  password: randomPassword,
+                  googleId: sub,
+                  emailVerified: true,
+                  ...(picture ? { avatar: picture } : {}),
+                  addresses: [],
+                },
+              ],
+              { session },
+            );
+            found = created[0]!;
+            isNewGoogleSignup = true;
+          }
+        } else if (
+          picture &&
+          (!found.avatar || !String(found.avatar).trim())
+        ) {
+          found.avatar = picture;
+          await found.save({ session });
         }
-      } else {
-        const randomPassword = crypto.randomBytes(32).toString("hex");
-        const safeName = (name || "").trim() || email.split("@")[0];
-        user = await User.create({
-          name: safeName.slice(0, 50),
-          email,
-          password: randomPassword,
-          googleId: sub,
-          emailVerified: true,
-          ...(picture ? { avatar: picture } : {}),
-          addresses: [],
-        });
-        await removeOfflineCustomerByEmail(email);
-        isNewGoogleSignup = true;
-      }
-    } else if (picture && (!user.avatar || !String(user.avatar).trim())) {
-      user.avatar = picture;
-      await user.save();
+
+        resolvedUser = found;
+      });
+    } finally {
+      await session.endSession();
     }
+
+    if (!resolvedUser) {
+      return next(new AppError("Google sign-in failed.", 500));
+    }
+    const user: InstanceType<typeof User> = resolvedUser;
 
     if (user.isActive === false) {
       return next(
@@ -399,21 +401,33 @@ export const googleAuth = catchAsync(
       );
     }
 
+    await removeOfflineCustomerByEmail(email);
+
     if (isNewGoogleSignup) {
       sendWelcomeEmailInBackground(user.name, user.email);
+      emitAuthEvent({
+        type: "AUTH_SIGNUP_COMPLETED",
+        userId: String(user._id),
+        email: user.email,
+        meta: { provider: "google" },
+        req,
+      });
+    } else {
+      emitAuthEvent({
+        type: "AUTH_LOGIN_SUCCESS",
+        userId: String(user._id),
+        email: user.email,
+        meta: { provider: "google" },
+        req,
+      });
     }
 
-    await sendAuthResponse(res, user, 200);
+    await sendAuthResponse(res, user, 200, req);
   },
 );
 
 export const logout = catchAsync(async (req: Request, res: Response) => {
-  const raw =
-    (req.cookies?.refreshToken as string | undefined) ||
-    (typeof (req.body as { refreshToken?: string })?.refreshToken === "string" ?
-      (req.body as { refreshToken: string }).refreshToken
-    : undefined);
-  await revokeRefreshByRawCookie(raw);
+  await revokeRefreshByRawCookie(readRefreshTokenFromRequest(req), true);
   clearTokenCookies(res);
   sendSuccess(res, {}, "Logged out successfully");
 });
@@ -434,10 +448,12 @@ export const updateMe = catchAsync(
     }
 
     const filteredBody: Record<string, unknown> = {};
-    const allowedFields = ["name", "phone"];
-    allowedFields.forEach((field) => {
-      if (req.body[field]) filteredBody[field] = req.body[field];
-    });
+    if (req.body.name) {
+      filteredBody.name = normalizeUnicodeText(String(req.body.name), 50);
+    }
+    if (req.body.phone !== undefined && req.body.phone !== "") {
+      filteredBody.phone = req.body.phone;
+    }
 
     if (req.file) {
       filteredBody.avatar =
@@ -448,10 +464,7 @@ export const updateMe = catchAsync(
     const updatedUser = await User.findByIdAndUpdate(
       req.user!._id,
       filteredBody,
-      {
-        new: true,
-        runValidators: true,
-      },
+      { new: true, runValidators: true },
     );
 
     sendSuccess(res, { user: updatedUser });
@@ -473,7 +486,7 @@ export const updatePassword = catchAsync(
     await user.save();
 
     await RefreshToken.deleteMany({ user: user._id });
-    await sendAuthResponse(res, user, 200);
+    await sendAuthResponse(res, user, 200, req);
   },
 );
 
@@ -500,22 +513,20 @@ export const addAddress = catchAsync(
       user.addresses.forEach((addr) => (addr.isDefault = false));
     }
 
-    if (user.addresses.length === 0) {
-      req.body.isDefault = true;
-    }
+    const defaultFlag = user.addresses.length === 0 ? true : Boolean(isDefault);
 
     user.addresses.push({
-      name,
+      name: normalizeUnicodeText(String(name), 80),
       phone,
-      house,
-      street,
-      landmark,
-      city,
-      state,
+      house: house ? normalizeUnicodeText(String(house), 120) : undefined,
+      street: normalizeUnicodeText(String(street), 200),
+      landmark: landmark ? normalizeUnicodeText(String(landmark), 160) : undefined,
+      city: normalizeUnicodeText(String(city), 80),
+      state: normalizeUnicodeText(String(state), 80),
       pincode,
       country: country || "India",
       label: label || "Home",
-      isDefault: isDefault || false,
+      isDefault: defaultFlag,
     });
     await user.save();
 
@@ -546,9 +557,7 @@ export const deleteMe = catchAsync(
     await user.save();
 
     await RefreshToken.deleteMany({ user: user._id });
-    await revokeRefreshByRawCookie(
-      req.cookies?.refreshToken as string | undefined,
-    );
+    await revokeRefreshByRawCookie(readRefreshTokenFromRequest(req), true);
     clearTokenCookies(res);
 
     sendSuccess(res, {}, "Your account has been deleted successfully.");

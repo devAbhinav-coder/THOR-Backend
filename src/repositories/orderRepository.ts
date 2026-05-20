@@ -6,7 +6,7 @@ import User from "../models/User";
 
 export const orderRepository = {
   findCartForCheckout(userId: string) {
-    return Cart.findOne({ user: userId }).populate("items.product");
+    return Cart.findOne({ user: userId });
   },
   findProductsByIds(productIds: string[]) {
     return Product.find({ _id: { $in: productIds } });

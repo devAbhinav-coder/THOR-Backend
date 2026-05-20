@@ -1,15 +1,19 @@
 import { Router } from 'express';
+import { getDashboardAnalytics }   from '../controllers/admin/adminAnalyticsController';
+import { getAdminAuditLogs }       from '../controllers/admin/adminAuditController';
 import {
-  getDashboardAnalytics,
-  getAdminAuditLogs,
   getAllOrders,
   getOrderDetails,
   updateOrderStatus,
   generateOrderInvoice,
-  processRefund,
+  processRefundController as processRefund,
+} from '../controllers/admin/adminOrderController';
+import {
   getReturns,
   getReturnsInsights,
-  resolveReturn,
+  resolveReturnController as resolveReturn,
+} from '../controllers/admin/adminReturnController';
+import {
   getAllUsers,
   getOfflineCustomers,
   getUserDirectoryStats,
@@ -17,11 +21,20 @@ import {
   toggleUserStatus,
   updateUserNote,
   updateUserRole,
+} from '../controllers/admin/adminUserController';
+import {
   getAllReviews,
   deleteReview,
   replyToReview,
-  sendCustomMarketingEmail,
-} from '../controllers/adminController';
+  moderateReview,
+} from '../controllers/admin/adminReviewController';
+import {
+  adminGetReviewsQuerySchema,
+  adminModerateReviewSchema,
+  adminReplyReviewSchema,
+  adminReviewIdParamSchema,
+} from '../validation/reviewSchemas';
+import { sendCustomMarketingEmail } from '../controllers/admin/adminMarketingController';
 import { createOfflineOrder } from '../controllers/adminOfflineOrderController';
 import {
   listSalesInvoices,
@@ -30,6 +43,10 @@ import {
   updateSalesInvoice,
   deleteSalesInvoice,
 } from '../controllers/adminSalesInvoiceController';
+import {
+  getAdminProducts,
+  searchAdminProducts,
+} from '../controllers/adminProductsController';
 import {
   getInventoryOverview,
   adjustVariantStock,
@@ -81,6 +98,8 @@ import {
   stockAdjustmentSchema,
   createPurchaseInvoiceSchema,
   updatePurchaseInvoiceSchema,
+  adminProductListQuerySchema,
+  adminProductSearchQuerySchema,
 } from '../validation/schemas';
 import {
   uploadAvatar,
@@ -102,6 +121,9 @@ router.use(protect, restrictTo('admin'));
 
 router.get('/analytics', getDashboardAnalytics);
 router.get('/security/audit', getAdminAuditLogs);
+
+router.get('/products', validate(adminProductListQuerySchema), getAdminProducts);
+router.get('/products/search', validate(adminProductSearchQuerySchema), searchAdminProducts);
 
 router.get('/orders', getAllOrders);
 router.post(
@@ -152,9 +174,24 @@ router.patch('/users/:id/toggle-status', toggleUserStatus);
 router.patch('/users/:id/role', validate(updateUserRoleSchema), updateUserRole);
 router.patch('/users/:id/note', validate(updateUserNoteSchema), updateUserNote);
 
-router.get('/reviews', getAllReviews);
-router.delete('/reviews/:id', deleteReview);
-router.patch('/reviews/:id/reply', replyToReview);
+router.get('/reviews', validate(adminGetReviewsQuerySchema), getAllReviews);
+router.delete(
+  '/reviews/:id',
+  adminSensitiveLimiter,
+  validate(adminReviewIdParamSchema),
+  deleteReview
+);
+router.patch(
+  '/reviews/:id/reply',
+  validate(adminReplyReviewSchema),
+  replyToReview
+);
+router.patch(
+  '/reviews/:id/moderate',
+  adminSensitiveLimiter,
+  validate(adminModerateReviewSchema),
+  moderateReview
+);
 router.post('/emails/send', adminSensitiveLimiter, validate(sendMarketingEmailSchema), sendCustomMarketingEmail);
 
 router.get('/storefront/settings', getAdminStorefrontSettings);

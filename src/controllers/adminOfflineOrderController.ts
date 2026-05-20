@@ -15,6 +15,7 @@ import {
 } from "../services/inventoryService";
 import { sendSuccess } from "../utils/response";
 import { writeAdminAudit } from "../services/adminAuditService";
+import { onOrderMarkedDelivered } from "../services/coupon/couponUserStatsService";
 import { emailTemplates } from "../services/emailService";
 import { enqueueEmail } from "../queues/emailQueue";
 import {
@@ -22,6 +23,10 @@ import {
   notifyUser,
   notifyAdminsEmail,
 } from "../services/notificationService";
+import {
+  getOfflineHandoverCopy,
+  getOfflineShipLaterCopy,
+} from "../services/notifications/orderNotificationCopy";
 import {
   getOrCreateOfflineManualProduct,
   isOfflineManualProductId,
@@ -200,6 +205,7 @@ export const createOfflineOrder = catchAsync(
         orderItems.push({
           product: offlinePid,
           name: lineName,
+          slug: 'offline-manual-item',
           image: lineImage,
           variant: { sku: OFFLINE_MANUAL_VARIANT_SKU },
           quantity: qty,
@@ -257,6 +263,7 @@ export const createOfflineOrder = catchAsync(
       orderItems.push({
         product: pid,
         name: product.name,
+        slug: product.slug || 'unknown',
         image: img,
         variant: {
           sku: variant.sku,
@@ -413,6 +420,10 @@ export const createOfflineOrder = catchAsync(
         : {}),
       });
 
+      if (isHandover) {
+        void onOrderMarkedDelivered(String(user._id)).catch(() => {});
+      }
+
       await writeAdminAudit(
         req,
         "order.offline_created",
@@ -458,16 +469,15 @@ export const createOfflineOrder = catchAsync(
         "order",
       );
 
+      const offlineCopy = isHandover
+        ? getOfflineHandoverCopy(order.orderNumber)
+        : getOfflineShipLaterCopy(order.orderNumber);
       notifyUser(
         String(user._id),
-        isHandover ?
-          `Order ${order.orderNumber} — thank you!`
-        : `Order ${order.orderNumber} confirmed`,
-        isHandover ?
-          "Your in-person purchase is complete. View your order and invoice anytime in your account."
-        : "We've recorded your order. You'll get updates when it ships.",
+        offlineCopy.title,
+        offlineCopy.message,
         `/dashboard/orders/${order._id}`,
-        "order",
+        offlineCopy.type,
       ).catch(() => {});
 
       if (isOfflineMarketingLead) {

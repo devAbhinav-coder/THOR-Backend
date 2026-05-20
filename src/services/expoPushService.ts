@@ -11,7 +11,7 @@ export async function sendExpoPushToUser(
   userId: string,
   payload: { title: string; body: string; link?: string; tag?: string },
 ): Promise<void> {
-  const docs = await ExpoPushToken.find({ user: userId }).lean();
+  const docs = await ExpoPushToken.find({ user: userId, isActive: { $ne: false } }).lean();
   if (!docs.length) return;
 
   let Expo: Awaited<ReturnType<typeof loadExpo>>["Expo"];
@@ -44,22 +44,33 @@ export async function sendExpoPushToUser(
   for (const chunk of chunks) {
     try {
       const tickets = await expo.sendPushNotificationsAsync(chunk);
+      const usedTokens: string[] = [];
       tickets.forEach((ticket, i) => {
+        const tok = typeof chunk[i]?.to === "string" ? chunk[i].to : "";
+        if (tok) usedTokens.push(tok);
         if (ticket.status === "error") {
           logger.warn("Expo push ticket error", {
             message: ticket.message,
             details: ticket.details,
-            token: chunk[i]?.to,
+            token: tok,
           });
           const err = ticket.details?.error;
           if (err === "DeviceNotRegistered" || err === "InvalidCredentials") {
-            const tok = typeof chunk[i]?.to === "string" ? chunk[i].to : "";
             if (tok) {
-              void ExpoPushToken.deleteMany({ token: tok }).catch(() => {});
+              void ExpoPushToken.updateMany({ token: tok }, { isActive: false }).catch(() => {});
+              void import("./notifications/pushDeliveryTrackingService").then((m) =>
+                m.trackInvalidPushToken("expo"),
+              );
             }
           }
         }
       });
+      if (usedTokens.length) {
+        void ExpoPushToken.updateMany(
+          { user: userId, token: { $in: usedTokens } },
+          { lastUsedAt: new Date() },
+        ).catch(() => {});
+      }
     } catch (e) {
       logger.error("Expo push chunk failed", { err: e, userId });
     }

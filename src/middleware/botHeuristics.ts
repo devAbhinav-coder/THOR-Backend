@@ -26,6 +26,7 @@ function isSuspiciousUserAgent(ua: string | undefined): boolean {
 
 /**
  * Light application-layer bot / scanner filtering. Pair with nginx rate limits and a WAF at the edge.
+ * Blocks known scanner UAs on ALL mutating requests AND on GET requests to sensitive admin paths.
  */
 export const botHeuristics = (req: Request, _res: Response, next: NextFunction): void => {
   if (req.method === "OPTIONS") {
@@ -37,7 +38,13 @@ export const botHeuristics = (req: Request, _res: Response, next: NextFunction):
   }
 
   const mutating = ["POST", "PUT", "PATCH", "DELETE"].includes(req.method);
-  if (!mutating) {
+  // Also block scanners on GET requests to admin/sensitive paths
+  const sensitiveGet = req.method === "GET" && (
+    path.includes("/api/admin") ||
+    path.includes("/api/auth")
+  );
+
+  if (!mutating && !sensitiveGet) {
     return next();
   }
 

@@ -1,5 +1,9 @@
 import mongoose, { Schema } from 'mongoose';
 import { ICoupon } from '../types';
+import {
+  calculateCouponDiscount,
+  evaluateCouponValidity,
+} from '../services/coupon/couponBusinessRules';
 
 const couponSchema = new Schema<ICoupon>(
   {
@@ -45,6 +49,8 @@ const couponSchema = new Schema<ICoupon>(
       required: [true, 'Expiry date is required'],
     },
     isActive: { type: Boolean, default: true },
+    deletedAt: { type: Date, default: null },
+    archivedAt: { type: Date, default: null },
     applicableCategories: [String],
     eligibilityType: {
       type: String,
@@ -64,7 +70,9 @@ const couponSchema = new Schema<ICoupon>(
   { timestamps: true }
 );
 
-couponSchema.index({ expiryDate: 1, isActive: 1 });
+couponSchema.index({ expiryDate: 1, isActive: 1, deletedAt: 1 });
+couponSchema.index({ isActive: 1, startDate: 1, expiryDate: 1, deletedAt: 1 });
+couponSchema.index({ deletedAt: 1, createdAt: -1 });
 // code index is already created by unique:true on the field
 
 couponSchema.methods.isValid = function (
@@ -72,49 +80,23 @@ couponSchema.methods.isValid = function (
   orderAmount: number,
   opts?: { completedOrders?: number }
 ): { valid: boolean; message?: string } {
-  const now = new Date();
-  const completedOrders = opts?.completedOrders ?? 0;
-
-  if (!this.isActive) return { valid: false, message: 'This coupon is inactive' };
-  if (now < this.startDate) return { valid: false, message: 'This coupon is not yet active' };
-  if (now > this.expiryDate) return { valid: false, message: 'This coupon has expired' };
-  if (this.usageLimit && this.usedCount >= this.usageLimit)
-    return { valid: false, message: 'This coupon has reached its usage limit' };
-  if (this.minOrderAmount && orderAmount < this.minOrderAmount)
-    return { valid: false, message: `Minimum order amount of ₹${this.minOrderAmount} required` };
-
-  const userUsage = this.usedBy.filter((u: { user: mongoose.Types.ObjectId }) => u.user.toString() === userId).length;
-  if (userUsage >= this.userUsageLimit)
-    return { valid: false, message: 'You have already used this coupon' };
-
-  if (this.eligibilityType === 'first_order' && completedOrders > 0) {
-    return { valid: false, message: 'This coupon is valid for first-time customers only' };
-  }
-  if (this.eligibilityType === 'returning' && completedOrders === 0) {
-    return { valid: false, message: 'This coupon is valid for returning customers only' };
-  }
-  if (this.minCompletedOrders && completedOrders < this.minCompletedOrders) {
-    return { valid: false, message: `You need at least ${this.minCompletedOrders} completed orders for this coupon` };
-  }
-  if (this.maxCompletedOrders !== undefined && completedOrders > this.maxCompletedOrders) {
-    return { valid: false, message: 'You are not eligible for this coupon' };
-  }
-
-  return { valid: true };
+  return evaluateCouponValidity(this as unknown as import('../services/coupon/couponBusinessRules').CouponLike, userId, orderAmount, opts);
 };
 
 couponSchema.methods.calculateDiscount = function (orderAmount: number): number {
-  let discount = 0;
-  if (this.discountType === 'percentage') {
-    discount = (orderAmount * this.discountValue) / 100;
-    if (this.maxDiscountAmount) {
-      discount = Math.min(discount, this.maxDiscountAmount);
-    }
-  } else {
-    discount = this.discountValue;
-  }
-  return Math.min(discount, orderAmount);
+  return calculateCouponDiscount(this as unknown as import('../services/coupon/couponBusinessRules').CouponLike, orderAmount);
 };
+
+couponSchema.pre('validate', function (next) {
+  const c = this as ICoupon;
+  if (c.expiryDate && c.startDate && c.expiryDate <= c.startDate) {
+    this.invalidate('expiryDate', 'Expiry date must be after start date');
+  }
+  if (c.discountType === 'percentage' && c.discountValue > 100) {
+    this.invalidate('discountValue', 'Percentage discount cannot exceed 100');
+  }
+  next();
+});
 
 const Coupon = mongoose.model<ICoupon>('Coupon', couponSchema);
 export default Coupon;

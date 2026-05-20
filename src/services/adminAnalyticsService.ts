@@ -3,9 +3,79 @@ import User from "../models/User";
 import Product from "../models/Product";
 import Review from "../models/Review";
 import { LOW_STOCK_ALERT_EXCLUSIVE_MAX } from "../constants/inventory";
+import { getInventorySummaryStats } from "./inventory/inventoryCacheService";
+
+const stockListProjection = {
+  $project: { _id: 1, name: 1, category: 1, totalStock: "$computedTotal" },
+};
+
+function activeProductStockPipeline(matchStock: Record<string, unknown>) {
+  return [
+    { $match: { isActive: true } },
+    { $addFields: { computedTotal: { $sum: "$variants.stock" } } },
+    { $match: matchStock },
+    { $sort: { computedTotal: 1 as const, name: 1 as const } },
+    { $limit: 8 },
+    stockListProjection,
+  ];
+}
 
 /** Paid + refunded: both represent checkout totals we recognised; refunds are subtracted separately. */
 const PAYMENT_STATUS_GROSS = { paymentStatus: { $in: ["paid", "refunded"] as const } };
+
+/**
+ * Unwind paid order lines and attach variant cost from catalog (SKU match).
+ * COGS uses current variant costPrice — best available proxy when orders omit unit cost.
+ */
+function paidOrderLineProfitStages(extraMatch: Record<string, unknown> = {}) {
+  return [
+    { $match: { paymentStatus: "paid" as const, ...extraMatch } },
+    { $unwind: "$items" },
+    {
+      $lookup: {
+        from: "products",
+        localField: "items.product",
+        foreignField: "_id",
+        as: "productDoc",
+      },
+    },
+    { $unwind: { path: "$productDoc", preserveNullAndEmptyArrays: true } },
+    {
+      $addFields: {
+        matchedVariant: {
+          $arrayElemAt: [
+            {
+              $filter: {
+                input: { $ifNull: ["$productDoc.variants", []] },
+                as: "v",
+                cond: { $eq: ["$$v.sku", "$items.variant.sku"] },
+              },
+            },
+            0,
+          ],
+        },
+      },
+    },
+    {
+      $addFields: {
+        unitCost: { $ifNull: ["$matchedVariant.costPrice", 0] },
+        lineRevenue: { $multiply: ["$items.price", "$items.quantity"] },
+      },
+    },
+    {
+      $addFields: {
+        lineCogs: { $multiply: ["$unitCost", "$items.quantity"] },
+        hasCostData: { $gt: ["$unitCost", 0] },
+        lineProfit: {
+          $subtract: [
+            { $multiply: ["$items.price", "$items.quantity"] },
+            { $multiply: ["$unitCost", "$items.quantity"] },
+          ],
+        },
+      },
+    },
+  ];
+}
 
 /**
  * All "today / this month" boundaries are computed in **Asia/Kolkata** so
@@ -47,7 +117,8 @@ export async function getDashboardAnalyticsData() {
     totalUsers,
     newUsersThisMonth,
     totalProducts,
-    lowStockProducts,
+    outOfStockProducts,
+    lowStockOnlyProducts,
     recentOrders,
     ordersByStatus,
     revenueByMonth,
@@ -77,6 +148,12 @@ export async function getDashboardAnalyticsData() {
     ordersByHour,
     topVariantSizes,
     repeatCustomersAgg,
+    profitSummaryLifetime,
+    profitSummaryMtd,
+    topProductsByProfit,
+    categoryProfit,
+    profitByMonth,
+    inventorySummaryStats,
   ] = await Promise.all([
     // ── Existing ────────────────────────────────────────────────────────────
     Order.aggregate([{ $match: PAYMENT_STATUS_GROSS }, { $group: { _id: null, total: { $sum: "$total" } } }]),
@@ -93,14 +170,12 @@ export async function getDashboardAnalyticsData() {
     User.countDocuments({ role: "user" }),
     User.countDocuments({ role: "user", createdAt: { $gte: startOfMonth } }),
     Product.countDocuments({ isActive: true }),
-    Product.aggregate([
-      { $match: { isActive: true } },
-      { $addFields: { computedTotal: { $sum: "$variants.stock" } } },
-      { $match: { computedTotal: { $lt: LOW_STOCK_ALERT_EXCLUSIVE_MAX } } },
-      { $sort: { computedTotal: 1 } },
-      { $limit: 10 },
-      { $project: { _id: 1, name: 1, category: 1, totalStock: "$computedTotal" } },
-    ]),
+    Product.aggregate(activeProductStockPipeline({ computedTotal: 0 })),
+    Product.aggregate(
+      activeProductStockPipeline({
+        computedTotal: { $gt: 0, $lt: LOW_STOCK_ALERT_EXCLUSIVE_MAX },
+      }),
+    ),
     Order.find().sort("-createdAt").limit(10).populate("user", "name email"),
     Order.aggregate([{ $group: { _id: "$status", count: { $sum: 1 } } }]),
     Order.aggregate([
@@ -269,7 +344,135 @@ export async function getDashboardAnalyticsData() {
         },
       },
     ]),
+    Order.aggregate([
+      ...paidOrderLineProfitStages(),
+      {
+        $group: {
+          _id: null,
+          productRevenue: { $sum: "$lineRevenue" },
+          productCogs: { $sum: "$lineCogs" },
+          grossProfit: { $sum: "$lineProfit" },
+          unitsSold: { $sum: "$items.quantity" },
+          orderLines: { $sum: 1 },
+          linesMissingCost: { $sum: { $cond: ["$hasCostData", 0, 1] } },
+        },
+      },
+    ]),
+    Order.aggregate([
+      ...paidOrderLineProfitStages({ createdAt: { $gte: startOfMonth } }),
+      {
+        $group: {
+          _id: null,
+          productRevenue: { $sum: "$lineRevenue" },
+          productCogs: { $sum: "$lineCogs" },
+          grossProfit: { $sum: "$lineProfit" },
+          unitsSold: { $sum: "$items.quantity" },
+        },
+      },
+    ]),
+    Order.aggregate([
+      ...paidOrderLineProfitStages(),
+      {
+        $group: {
+          _id: "$items.product",
+          name: { $first: "$items.name" },
+          image: { $first: "$items.image" },
+          category: { $first: { $ifNull: ["$productDoc.category", "Uncategorized"] } },
+          unitsSold: { $sum: "$items.quantity" },
+          revenue: { $sum: "$lineRevenue" },
+          cogs: { $sum: "$lineCogs" },
+          profit: { $sum: "$lineProfit" },
+          linesMissingCost: { $sum: { $cond: ["$hasCostData", 0, 1] } },
+          orderLines: { $sum: 1 },
+        },
+      },
+      {
+        $addFields: {
+          marginPercent: {
+            $cond: [
+              { $gt: ["$revenue", 0] },
+              { $round: [{ $multiply: [{ $divide: ["$profit", "$revenue"] }, 100] }, 1] },
+              0,
+            ],
+          },
+          avgSellPrice: {
+            $cond: [
+              { $gt: ["$unitsSold", 0] },
+              { $round: [{ $divide: ["$revenue", "$unitsSold"] }, 2] },
+              0,
+            ],
+          },
+          avgUnitCost: {
+            $cond: [
+              { $gt: ["$unitsSold", 0] },
+              { $round: [{ $divide: ["$cogs", "$unitsSold"] }, 2] },
+              0,
+            ],
+          },
+        },
+      },
+      { $sort: { profit: -1 } },
+      { $limit: 20 },
+    ]),
+    Order.aggregate([
+      ...paidOrderLineProfitStages(),
+      {
+        $group: {
+          _id: { $ifNull: ["$productDoc.category", "Uncategorized"] },
+          revenue: { $sum: "$lineRevenue" },
+          cogs: { $sum: "$lineCogs" },
+          profit: { $sum: "$lineProfit" },
+          units: { $sum: "$items.quantity" },
+        },
+      },
+      {
+        $addFields: {
+          marginPercent: {
+            $cond: [
+              { $gt: ["$revenue", 0] },
+              { $round: [{ $multiply: [{ $divide: ["$profit", "$revenue"] }, 100] }, 1] },
+              0,
+            ],
+          },
+        },
+      },
+      { $sort: { profit: -1 } },
+      { $limit: 12 },
+    ]),
+    Order.aggregate([
+      ...paidOrderLineProfitStages({ createdAt: { $gte: startOfYearWindow } }),
+      {
+        $group: {
+          _id: {
+            year: { $year: { date: "$createdAt", timezone: IST_TZ } },
+            month: { $month: { date: "$createdAt", timezone: IST_TZ } },
+          },
+          productRevenue: { $sum: "$lineRevenue" },
+          cogs: { $sum: "$lineCogs" },
+          grossProfit: { $sum: "$lineProfit" },
+        },
+      },
+      { $sort: { "_id.year": 1 as const, "_id.month": 1 as const } },
+    ]),
+    getInventorySummaryStats(),
   ]);
+
+  const invSummary = inventorySummaryStats as {
+    totalProducts?: number;
+    totalUnits?: number;
+    outOfStock?: number;
+    lowStock?: number;
+  };
+  const stockHealth = {
+    outOfStock: Number(invSummary.outOfStock ?? 0),
+    lowStock: Number(invSummary.lowStock ?? 0),
+    totalActiveProducts: Number(invSummary.totalProducts ?? totalProducts),
+    totalUnits: Number(invSummary.totalUnits ?? 0),
+  };
+  const lowStockProducts = [
+    ...(outOfStockProducts as { _id: string; name: string; totalStock: number; category: string }[]),
+    ...(lowStockOnlyProducts as { _id: string; name: string; totalStock: number; category: string }[]),
+  ].sort((a, b) => a.totalStock - b.totalStock);
 
   // ── Post-processing: topViewedProducts ────────────────────────────────────
   type LeanProduct = {
@@ -379,6 +582,31 @@ export async function getDashboardAnalyticsData() {
     ? ((currentMonthRevenue - prevMonthRevenue) / prevMonthRevenue) * 100
     : 100;
 
+  type ProfitRow = {
+    productRevenue?: number;
+    productCogs?: number;
+    grossProfit?: number;
+    unitsSold?: number;
+    orderLines?: number;
+    linesMissingCost?: number;
+  };
+  const plLifetime = (profitSummaryLifetime as ProfitRow[])[0];
+  const plMtd = (profitSummaryMtd as ProfitRow[])[0];
+  const lifetimeProductRevenue = plLifetime?.productRevenue ?? 0;
+  const lifetimeProductCogs = plLifetime?.productCogs ?? 0;
+  const lifetimeGrossProfit = plLifetime?.grossProfit ?? 0;
+  const lifetimeGrossMarginPct =
+    lifetimeProductRevenue > 0 ?
+      Math.round((lifetimeGrossProfit / lifetimeProductRevenue) * 1000) / 10
+    : 0;
+  const mtdProductRevenue = plMtd?.productRevenue ?? 0;
+  const mtdProductCogs = plMtd?.productCogs ?? 0;
+  const mtdGrossProfit = plMtd?.grossProfit ?? 0;
+  const mtdGrossMarginPct =
+    mtdProductRevenue > 0 ? Math.round((mtdGrossProfit / mtdProductRevenue) * 1000) / 10 : 0;
+  const profitLinesMissingCost = plLifetime?.linesMissingCost ?? 0;
+  const profitOrderLines = plLifetime?.orderLines ?? 0;
+
   return {
     overview: {
       totalRevenue: totalRevenue[0]?.total || 0,
@@ -416,8 +644,22 @@ export async function getDashboardAnalyticsData() {
       totalCustomersWithOrders: totalCustomers,
       repeatRate,
       avgLtv,
+      // Product-level profit (paid lines · catalog cost)
+      productRevenue: Math.round(lifetimeProductRevenue * 100) / 100,
+      productCogs: Math.round(lifetimeProductCogs * 100) / 100,
+      grossProfit: Math.round(lifetimeGrossProfit * 100) / 100,
+      grossMarginPercent: lifetimeGrossMarginPct,
+      monthProductRevenue: Math.round(mtdProductRevenue * 100) / 100,
+      monthProductCogs: Math.round(mtdProductCogs * 100) / 100,
+      monthGrossProfit: Math.round(mtdGrossProfit * 100) / 100,
+      monthGrossMarginPercent: mtdGrossMarginPct,
+      profitLinesMissingCost,
+      profitOrderLines,
     },
     refundsByReason,
+    stockHealth,
+    outOfStockProducts,
+    lowStockOnlyProducts,
     lowStockProducts,
     recentOrders,
     ordersByStatus,
@@ -429,5 +671,34 @@ export async function getDashboardAnalyticsData() {
     paymentMethodMix: (paymentMethodMix as { _id: string; revenue: number; count: number }[]),
     ordersByHour: ordersByHourFull,
     topVariantSizes: (topVariantSizes as { _id: string; units: number; revenue: number }[]),
+    topProductsByProfit: topProductsByProfit as {
+      _id: string;
+      name: string;
+      image: string;
+      category: string;
+      unitsSold: number;
+      revenue: number;
+      cogs: number;
+      profit: number;
+      marginPercent: number;
+      avgSellPrice: number;
+      avgUnitCost: number;
+      linesMissingCost: number;
+      orderLines: number;
+    }[],
+    categoryProfit: categoryProfit as {
+      _id: string;
+      revenue: number;
+      cogs: number;
+      profit: number;
+      units: number;
+      marginPercent: number;
+    }[],
+    profitByMonth: profitByMonth as {
+      _id: { year: number; month: number };
+      productRevenue: number;
+      cogs: number;
+      grossProfit: number;
+    }[],
   };
 }

@@ -20,8 +20,13 @@ const devFormat = winston.format.combine(
   injectContext(),
   winston.format.colorize(),
   winston.format.printf(({ level, message, timestamp: ts, stack, ...rest }) => {
+    const text =
+      typeof message === "string" ? message
+      : message instanceof Error ? message.message
+      : message != null ? JSON.stringify(message)
+      : "";
     const meta = Object.keys(rest).length ? ` ${JSON.stringify(rest)}` : "";
-    return `${ts} [${level}]: ${stack || message}${meta}`;
+    return `${ts} [${level}]: ${stack || text}${meta}`;
   })
 );
 

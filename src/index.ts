@@ -1,5 +1,7 @@
 import "dotenv/config";
 import "./instrumentation/register";
+import { assertRequiredEnv } from "./config/env";
+assertRequiredEnv();
 import { randomUUID } from "crypto";
 import express, { Request, Response, NextFunction } from "express";
 import * as Sentry from "@sentry/node";
@@ -34,6 +36,8 @@ import storefrontRoutes from "./routes/storefrontRoutes";
 import blogRoutes from "./routes/blogRoutes";
 import notificationRoutes from "./routes/notificationRoutes";
 import giftingRoutes from "./routes/giftingRoutes";
+import webhookRoutes from "./routes/webhookRoutes";
+import { runPaymentRecoveryJob } from "./services/paymentRecoveryJob";
 import {
   startEmailWorker,
   closeEmailWorker,
@@ -44,6 +48,49 @@ import {
   closePushWorker,
   pushQueue,
 } from "./queues/pushQueue";
+import {
+  startImageWorker,
+  closeImageWorker,
+  imageQueue,
+} from "./queues/imageQueue";
+import { startOrderWorker, closeOrderWorker } from "./workers/orderWorker";
+import { orderQueue } from "./queues/orderQueue";
+import {
+  startOrderOutboxPoller,
+  stopOrderOutboxPoller,
+} from "./jobs/orderOutboxPoller";
+import {
+  startInventoryOutboxPoller,
+  stopInventoryOutboxPoller,
+} from "./jobs/inventoryOutboxPoller";
+import {
+  startCouponOutboxPoller,
+  stopCouponOutboxPoller,
+} from "./jobs/couponOutboxPoller";
+import {
+  startInventoryReconciliationJob,
+  stopInventoryReconciliationJob,
+} from "./jobs/inventoryReconciliationJob";
+import {
+  startGiftingOutboxPoller,
+  stopGiftingOutboxPoller,
+} from "./jobs/giftingOutboxPoller";
+import {
+  startPushOutboxPoller,
+  stopPushOutboxPoller,
+} from "./jobs/pushOutboxPoller";
+import {
+  startCartOutboxPoller,
+  stopCartOutboxPoller,
+} from "./jobs/cartOutboxPoller";
+import {
+  startCartSyncSubscriber,
+  stopCartSyncSubscriber,
+} from "./workers/cartSyncSubscriber";
+import {
+  startNotificationMaintenanceJob,
+  stopNotificationMaintenanceJob,
+} from "./jobs/notificationMaintenanceJob";
 import { requestContext } from "./utils/requestContext";
 import { botHeuristics } from "./middleware/botHeuristics";
 import { xssSanitize } from "./middleware/xssSanitize";
@@ -66,6 +113,17 @@ if (process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true") {
 connectDB();
 startEmailWorker();
 startPushWorker();
+startImageWorker();
+startOrderWorker();
+startOrderOutboxPoller();
+startInventoryOutboxPoller();
+startCouponOutboxPoller();
+startInventoryReconciliationJob();
+startGiftingOutboxPoller();
+startPushOutboxPoller();
+startCartOutboxPoller();
+startCartSyncSubscriber();
+startNotificationMaintenanceJob();
 
 if (process.env.NODE_ENV === "production" && redisEnabled) {
   redisConnection.ping().catch((err: Error) => {
@@ -88,7 +146,7 @@ app.use(
       logger.warn(
         `CORS blocked request from origin: ${origin} (allowed: ${[...corsAllowSet].join(", ")})`,
       );
-      callback(null, false);
+      callback(new Error("Not allowed by CORS"));;
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -109,22 +167,77 @@ app.use(csrfOriginGuard);
 
 app.use(
   helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" },
-    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
-    ...(process.env.NODE_ENV === "production" ?
-      {
-        strictTransportSecurity: {
-          maxAge: 31536000,
-          includeSubDomains: true,
-          preload: false,
-        },
-      }
-    : {}),
-  }),
+    crossOriginResourcePolicy: {
+      policy: "cross-origin",
+    },
+
+    referrerPolicy: {
+      policy: "strict-origin-when-cross-origin",
+    },
+
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+
+        baseUri: ["'self'"],
+
+        frameAncestors: ["'none'"],
+
+        objectSrc: ["'none'"],
+
+        scriptSrc: [
+          "'self'",
+          "'unsafe-inline'",
+        ],
+
+        styleSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "https:",
+        ],
+
+        imgSrc: [
+          "'self'",
+          "data:",
+          "https:",
+        ],
+
+        fontSrc: [
+          "'self'",
+          "https:",
+          "data:",
+        ],
+
+        connectSrc: [
+          "'self'",
+          "https:",
+          "wss:",
+        ],
+
+        upgradeInsecureRequests: [],
+      },
+    },
+
+    ...(process.env.NODE_ENV === "production"
+      ? {
+          strictTransportSecurity: {
+            maxAge: 63072000,
+            includeSubDomains: true,
+            preload: true,
+          },
+        }
+      : {}),
+  })
+);
+const windowMs = parseInt(
+  process.env.RATE_LIMIT_WINDOW_MS || String(15 * 60 * 1000),
+  10
 );
 
-const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS || "9000", 10);
-const configuredMax = parseInt(process.env.RATE_LIMIT_MAX || "100", 10);
+const configuredMax = parseInt(
+  process.env.RATE_LIMIT_MAX || "200",
+  10
+);
 const max =
   process.env.NODE_ENV === "production" ?
     Math.min(Math.max(100, configuredMax), 2000)
@@ -163,7 +276,7 @@ const limiter = rateLimit({
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 10,
   skip: (req) => req.method === "OPTIONS",
   message: {
     status: "error",
@@ -190,11 +303,20 @@ const authLimiter = rateLimit({
 
 app.use((req: Request, res: Response, next: NextFunction) => {
   const id = (req.headers["x-request-id"] as string) || randomUUID();
+  const traceId = (req.headers["x-trace-id"] as string) || undefined;
   res.setHeader("x-request-id", id);
+  if (traceId) res.setHeader("x-trace-id", traceId);
   req.requestId = id;
   const ip = req.ip || req.socket.remoteAddress || "unknown";
-  requestContext.run({ requestId: id, ip }, () => next());
+  requestContext.run({ requestId: id, traceId, ip }, () => next());
 });
+
+/** Razorpay webhooks require raw body for HMAC verification (must run before express.json). */
+app.use(
+  "/api/webhooks",
+  express.raw({ type: "application/json", limit: process.env.JSON_BODY_LIMIT || "512kb" }),
+  webhookRoutes,
+);
 
 const jsonLimit = process.env.JSON_BODY_LIMIT || "512kb";
 app.use(express.json({ limit: jsonLimit }));
@@ -218,8 +340,10 @@ app.get("/api/health", async (_req: Request, res: Response) => {
   const mongoOk = mongoose.connection.readyState === 1;
   let redisOk = false;
   try {
-    const pong = await redisConnection.ping();
-    redisOk = pong === "PONG";
+    if (redisEnabled) {
+      const pong = await redisConnection.ping();
+      redisOk = pong === "PONG";
+    } 
   } catch {
     redisOk = false;
   }
@@ -238,9 +362,9 @@ app.get("/api/health", async (_req: Request, res: Response) => {
 });
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(openApiSpec));
 
+app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api", limiter);
 
-app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/orders", orderRoutes);
@@ -283,6 +407,21 @@ if (delhiveryIsConfigured() && delhiverySyncMs > 0) {
   }, 20_000);
 }
 
+const paymentRecoveryMs = parseInt(
+  process.env.PAYMENT_RECOVERY_MS || String(30 * 60 * 1000),
+  10,
+);
+if (paymentRecoveryMs > 0 && process.env.RAZORPAY_KEY_ID?.trim()) {
+  setInterval(() => {
+    runPaymentRecoveryJob().catch((e) =>
+      logger.error(`Payment recovery job: ${(e as Error).message}`),
+    );
+  }, paymentRecoveryMs);
+  setTimeout(() => {
+    runPaymentRecoveryJob().catch(() => {});
+  }, 60_000);
+}
+
 const shutdown = async (signal: string) => {
   logger.info(`${signal} received. Shutting down gracefully...`);
   server.close(async () => {
@@ -292,11 +431,28 @@ const shutdown = async (signal: string) => {
       }
       await closeEmailWorker();
       await closePushWorker();
+      await closeImageWorker();
+      stopOrderOutboxPoller();
+      stopInventoryOutboxPoller();
+      stopCouponOutboxPoller();
+      stopInventoryReconciliationJob();
+      stopGiftingOutboxPoller();
+      stopPushOutboxPoller();
+      stopCartOutboxPoller();
+      await stopCartSyncSubscriber();
+      stopNotificationMaintenanceJob();
+      await closeOrderWorker();
       if (emailQueue) {
         await emailQueue.close();
       }
       if (pushQueue) {
         await pushQueue.close();
+      }
+      if (imageQueue) {
+        await imageQueue.close();
+      }
+      if (orderQueue) {
+        await orderQueue.close();
       }
       await mongoose.connection.close();
       await redisConnection.quit();

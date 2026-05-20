@@ -115,16 +115,23 @@ export interface IProductImage {
 }
 
 export interface ICartItem {
+  cartItemId: string;
   product: Types.ObjectId;
+  productName: string;
+  productSlug: string;
+  productImage: string;
+  isActive: boolean;
   variant: {
     size?: string;
     color?: string;
     colorCode?: string;
     sku: string;
+    stock?: number;
   };
   quantity: number;
   price: number;
   customFieldAnswers?: { label: string; value: string }[] | string; // Gifting (string when receiving from frontend)
+  customizationHash?: string;
 }
 
 export interface ICart extends Document {
@@ -134,6 +141,7 @@ export interface ICart extends Document {
   subtotal: number;
   discount: number;
   total: number;
+  version?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -141,6 +149,7 @@ export interface ICart extends Document {
 export interface IOrderItem {
   product: Types.ObjectId;
   name: string;
+  slug: string;
   image: string;
   variant: {
     size?: string;
@@ -215,9 +224,17 @@ export interface IOrder extends Document {
   };
   /** Populated by Delhivery integration (Mixed in MongoDB) */
   delhivery?: Record<string, unknown>;
+  /**
+   * True when stock has been decremented for this order (at checkout intent or COD creation).
+   * Used as the authoritative flag for restock-on-cancel decisions.
+   * Replaces payment-method heuristics for orders created after this field was introduced.
+   */
+  inventoryReserved?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
+
+export type ReviewStatus = 'visible' | 'hidden' | 'flagged' | 'pending_moderation';
 
 export interface IReview extends Document {
   _id: Types.ObjectId;
@@ -230,6 +247,12 @@ export interface IReview extends Document {
   images?: { url: string; publicId: string }[];
   isVerifiedPurchase: boolean;
   helpfulVotes: Types.ObjectId[];
+  helpfulCount?: number;
+  userSnapshot?: { name?: string; avatar?: string };
+  status?: ReviewStatus;
+  deletedAt?: Date | null;
+  moderationFlags?: string[];
+  moderationScore?: number;
   reports?: {
     user: Types.ObjectId;
     reason: 'spam' | 'abusive' | 'misleading' | 'other';
@@ -263,6 +286,8 @@ export interface ICoupon extends Document {
   startDate: Date;
   expiryDate: Date;
   isActive: boolean;
+  deletedAt?: Date | null;
+  archivedAt?: Date | null;
   applicableCategories: string[];
   eligibilityType: 'all' | 'first_order' | 'returning';
   minCompletedOrders: number;
@@ -338,6 +363,7 @@ export interface IGiftingRequest extends Document {
   deliveryTime?: string;
   adminNote?: string;
   linkedOrderId?: Types.ObjectId;
+  acceptIdempotencyKey?: string;
   createdAt: Date;
   updatedAt: Date;
 }

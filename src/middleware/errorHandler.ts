@@ -36,21 +36,28 @@ const handleJWTError = (): AppError =>
 const handleJWTExpiredError = (): AppError =>
   new AppError('Your token has expired. Please log in again.', 401);
 
+function operationalErrorJson(err: AppError): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    status: err.status,
+    message: err.message,
+  };
+  if (err.retryAfter != null && err.retryAfter > 0) {
+    body.retryAfter = err.retryAfter;
+  }
+  return body;
+}
+
 const sendErrorDev = (err: AppError, res: Response): void => {
   res.status(err.statusCode).json({
-    status: err.status,
+    ...operationalErrorJson(err),
     error: err,
-    message: err.message,
     stack: err.stack,
   });
 };
 
 const sendErrorProd = (err: AppError, res: Response): void => {
   if (err.isOperational) {
-    res.status(err.statusCode).json({
-      status: err.status,
-      message: err.message,
-    });
+    res.status(err.statusCode).json(operationalErrorJson(err));
   } else {
     logger.error('UNEXPECTED ERROR:', err);
     if (process.env.SENTRY_DSN?.trim()) {

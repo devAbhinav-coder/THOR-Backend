@@ -7,6 +7,7 @@ import {
 } from '../config/redis';
 import logger from '../utils/logger';
 import { sendWebPushToUser } from '../services/webPushService';
+import { markPushDelivered } from '../services/notifications/pushDeliveryTrackingService';
 
 export type PushJobData = {
   userId: string;
@@ -47,7 +48,7 @@ export async function enqueuePush(data: PushJobData, opts?: JobsOptions): Promis
     }
     await pushQueue.add('send-push', data, {
       ...defaultOpts,
-      jobId: data.notificationId ? `push:${data.userId}:${data.notificationId}` : undefined,
+      jobId: data.notificationId ? `push__${data.userId}__${data.notificationId}` : undefined,
       ...opts,
     });
   } catch (err) {
@@ -67,12 +68,19 @@ export const startPushWorker = (): void => {
   pushWorker = new Worker<PushJobData>(
     queueName,
     async (job) => {
-      await sendWebPushToUser(job.data.userId, {
-        title: job.data.title,
-        body: job.data.body,
-        link: job.data.link,
-        tag: job.data.notificationId ? `notif-${job.data.notificationId}` : 'in-app-notification',
-      });
+      try {
+        await sendWebPushToUser(job.data.userId, {
+          title: job.data.title,
+          body: job.data.body,
+          link: job.data.link,
+          tag: job.data.notificationId ? `notif-${job.data.notificationId}` : 'in-app-notification',
+        });
+        await markPushDelivered(job.data.userId, job.data.notificationId);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'push worker failed';
+        await markPushDelivered(job.data.userId, job.data.notificationId, message);
+        throw err;
+      }
     },
     {
       connection: pushWorkerRedis as unknown as ConnectionOptions,

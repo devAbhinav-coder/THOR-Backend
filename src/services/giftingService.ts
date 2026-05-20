@@ -17,6 +17,7 @@ export function buildCustomOrderItems(request: GiftingRequestLike): IOrderItem[]
     return {
       product: prod._id as unknown as Types.ObjectId,
       name: item.name,
+      slug: 'custom-gift',
       image: prod.images?.[0]?.url || "",
       variant: { sku: `CUSTOM-GIFT-${Date.now()}-${Math.floor(Math.random() * 1000)}` },
       quantity: item.quantity,

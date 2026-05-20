@@ -2,16 +2,22 @@ import mongoose, { Schema } from 'mongoose';
 import { ICart } from '../types';
 
 const cartItemSchema = new Schema({
+  cartItemId: { type: String, required: true, index: true },
   product: {
     type: Schema.Types.ObjectId,
     ref: 'Product',
     required: true,
   },
+  productName: { type: String, required: true },
+  productSlug: { type: String, required: true },
+  productImage: { type: String, required: true },
+  isActive: { type: Boolean, default: true },
   variant: {
     size: String,
     color: String,
     colorCode: String,
     sku: { type: String, required: true },
+    stock: { type: Number, default: 0 },
   },
   quantity: {
     type: Number,
@@ -29,6 +35,7 @@ const cartItemSchema = new Schema({
       value: { type: String, required: true },
     },
   ],
+  customizationHash: { type: String },
 });
 
 const cartSchema = new Schema<ICart>(
@@ -47,15 +54,11 @@ const cartSchema = new Schema<ICart>(
     subtotal: { type: Number, default: 0 },
     discount: { type: Number, default: 0 },
     total: { type: Number, default: 0 },
+    /** Optimistic concurrency for mutation safety. */
+    version: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
-
-cartSchema.pre<ICart>('save', function (next) {
-  this.subtotal = this.items.reduce((acc, item) => acc + item.price * item.quantity, 0);
-  this.total = this.subtotal - this.discount;
-  next();
-});
 
 // user index is already created by unique:true on the field
 

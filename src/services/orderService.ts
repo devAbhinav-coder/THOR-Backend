@@ -30,6 +30,7 @@ export function buildOrderItemsFromProducts(
     return {
       product: new mongoose.Types.ObjectId(pid),
       name: product.name,
+      slug: product.slug,
       image: product.images[0].url,
       variant: item.variant,
       quantity: item.quantity,

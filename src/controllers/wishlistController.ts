@@ -1,45 +1,37 @@
-import { Response, NextFunction } from 'express';
-import Wishlist from '../models/Wishlist';
-import Product from '../models/Product';
-import AppError from '../utils/AppError';
+import { Response } from 'express';
 import catchAsync from '../utils/catchAsync';
 import { AuthRequest } from '../types';
 import { sendSuccess } from '../utils/response';
+import { wishlistService } from '../services/wishlist/wishlistService';
+import { parseWishlistListQuery } from '../validation/wishlistSchemas';
 
 export const getWishlist = catchAsync(async (req: AuthRequest, res: Response) => {
-  const wishlist = await Wishlist.findOne({ user: req.user!._id }).populate({
-    path: 'products',
-    select: 'name slug images price comparePrice ratings category isActive',
-    match: { isActive: true },
-  });
+  const userId = String(req.user!._id);
+  const listQuery = parseWishlistListQuery(
+    req.query as { page?: number; limit?: number }
+  );
 
-  sendSuccess(res, { products: wishlist?.products || [] });
+  const result = await wishlistService.getWishlist(userId, listQuery);
+
+  if (result.paginated && result.pagination) {
+    sendSuccess(
+      res,
+      { products: result.products },
+      'OK',
+      200,
+      { pagination: result.pagination }
+    );
+    return;
+  }
+
+  sendSuccess(res, { products: result.products });
 });
 
-export const toggleWishlist = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
-  const { productId } = req.params;
+export const toggleWishlist = catchAsync(async (req: AuthRequest, res: Response) => {
+  const userId = String(req.user!._id);
+  const { productId } = req.params as { productId: string };
 
-  const product = await Product.findById(productId);
-  if (!product) return next(new AppError('Product not found.', 404));
+  const { wishlistCount, action } = await wishlistService.toggleProduct(userId, productId);
 
-  let wishlist = await Wishlist.findOne({ user: req.user!._id });
-
-  if (!wishlist) {
-    wishlist = new Wishlist({ user: req.user!._id, products: [] });
-  }
-
-  const productIndex = wishlist.products.findIndex((id) => id.toString() === productId);
-  let action: string;
-
-  if (productIndex > -1) {
-    wishlist.products.splice(productIndex, 1);
-    action = 'removed';
-  } else {
-    wishlist.products.push(product._id);
-    action = 'added';
-  }
-
-  await wishlist.save();
-
-  sendSuccess(res, { wishlistCount: wishlist.products.length, action });
+  sendSuccess(res, { wishlistCount, action });
 });

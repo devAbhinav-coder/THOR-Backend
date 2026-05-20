@@ -11,6 +11,7 @@ export type CheckoutIntentStockLine = {
 export type CheckoutIntentSnapshotItem = {
   product: Types.ObjectId;
   name: string;
+  slug: string;
   image: string;
   variant: {
     sku: string;
@@ -46,6 +47,9 @@ export interface ICheckoutPaymentIntent {
   expiresAt: Date;
   consumedAt?: Date;
   createdOrderId?: Types.ObjectId;
+  /** Incremented on each verify attempt (support / abuse signals). */
+  verifyAttempts?: number;
+  lastVerifyAttemptAt?: Date;
   snapshot: CheckoutIntentSnapshot;
   createdAt: Date;
   updatedAt: Date;
@@ -92,9 +96,12 @@ const checkoutPaymentIntentSchema = new Schema<ICheckoutPaymentIntent>(
   {
     user: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     razorpayOrderId: { type: String, required: true, unique: true },
-    expiresAt: { type: Date, required: true, index: true },
+    /** TTL index — MongoDB auto-deletes expired intents. */
+    expiresAt: { type: Date, required: true },
     consumedAt: { type: Date },
     createdOrderId: { type: Schema.Types.ObjectId, ref: "Order" },
+    verifyAttempts: { type: Number, default: 0 },
+    lastVerifyAttemptAt: { type: Date },
     snapshot: {
       type: new Schema(
         {
@@ -118,6 +125,9 @@ const checkoutPaymentIntentSchema = new Schema<ICheckoutPaymentIntent>(
   },
   { timestamps: true },
 );
+
+// TTL index: MongoDB auto-removes expired checkout intents
+checkoutPaymentIntentSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 const CheckoutPaymentIntent = model<ICheckoutPaymentIntent>(
   "CheckoutPaymentIntent",

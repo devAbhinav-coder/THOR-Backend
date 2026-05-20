@@ -25,8 +25,16 @@ export interface IPurchaseInvoiceLineItem {
   lineTotal: number;
 }
 
+export type PurchaseInvoiceStatus = 'active' | 'voided';
+
 export interface IPurchaseInvoice extends Document {
   _id: Types.ObjectId;
+  /** active = normal; voided = soft-deleted for audit (legacy DELETE maps here). */
+  status: PurchaseInvoiceStatus;
+  voidedAt?: Date;
+  voidedBy?: Types.ObjectId;
+  /** Client Idempotency-Key header — prevents duplicate stock on retries. */
+  idempotencyKey?: string;
   invoiceNumber: string;
   supplierName: string;
   supplierGstin?: string;
@@ -70,6 +78,10 @@ const lineItemSchema = new Schema<IPurchaseInvoiceLineItem>(
 
 const purchaseInvoiceSchema = new Schema<IPurchaseInvoice>(
   {
+    status: { type: String, enum: ['active', 'voided'], default: 'active' },
+    voidedAt: Date,
+    voidedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    idempotencyKey: { type: String, trim: true, sparse: true, unique: true },
     invoiceNumber: { type: String, required: true, trim: true },
     supplierName: { type: String, required: true, trim: true, maxlength: 200 },
     supplierGstin: {
@@ -102,6 +114,12 @@ const purchaseInvoiceSchema = new Schema<IPurchaseInvoice>(
 purchaseInvoiceSchema.index({ invoiceDate: -1 });
 purchaseInvoiceSchema.index({ supplierGstin: 1 });
 purchaseInvoiceSchema.index({ createdAt: -1 });
+purchaseInvoiceSchema.index(
+  { invoiceNumber: 1 },
+  { unique: true, partialFilterExpression: { status: 'active' } }
+);
+purchaseInvoiceSchema.index({ status: 1, invoiceDate: -1 });
+purchaseInvoiceSchema.index({ paymentStatus: 1, invoiceDate: -1 });
 
 const PurchaseInvoice = mongoose.model<IPurchaseInvoice>('PurchaseInvoice', purchaseInvoiceSchema);
 export default PurchaseInvoice;

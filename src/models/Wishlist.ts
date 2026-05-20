@@ -15,17 +15,26 @@ const wishlistSchema = new Schema<IWishlist>(
       required: true,
       unique: true,
     },
-    products: [
-      {
-        type: Schema.Types.ObjectId,
-        ref: 'Product',
+    products: {
+      type: [
+        {
+          type: Schema.Types.ObjectId,
+          ref: 'Product',
+        },
+      ],
+      validate: {
+        validator(v: Types.ObjectId[]) {
+          return !v || v.length <= 500;
+        },
+        message: 'Wishlist cannot exceed 500 items',
       },
-    ],
+    },
   },
   { timestamps: true }
 );
 
 // user index is already created by unique:true on the field
+// products array is only queried via user id; no separate index needed on products
 
 const Wishlist = mongoose.model<IWishlist>('Wishlist', wishlistSchema);
 export default Wishlist;

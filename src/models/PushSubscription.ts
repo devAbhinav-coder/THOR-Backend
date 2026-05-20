@@ -6,6 +6,11 @@ export interface IPushSubscription extends Document {
   keys: { p256dh: string; auth: string };
   expirationTime?: number | null;
   isActive: boolean;
+  platform?: 'web' | 'unknown';
+  deviceType?: string;
+  appVersion?: string;
+  lastUsedAt?: Date;
+  endpointHash?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -20,6 +25,11 @@ const pushSubscriptionSchema = new Schema<IPushSubscription>(
     },
     expirationTime: { type: Number, default: null },
     isActive: { type: Boolean, default: true, index: true },
+    platform: { type: String, enum: ['web', 'unknown'], default: 'web' },
+    deviceType: { type: String, default: 'browser' },
+    appVersion: String,
+    lastUsedAt: Date,
+    endpointHash: { type: String, index: true },
   },
   { timestamps: true }
 );

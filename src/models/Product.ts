@@ -161,6 +161,17 @@ productSchema.index({ 'ratings.average': -1 });
 productSchema.index({ viewCount: -1 });
 productSchema.index({ soldCount: -1 });
 // slug index is already created by unique:true on the field
+productSchema.index({ isActive: 1, tags: 1 });           // tag-filtered listings
+productSchema.index({ isActive: 1, totalStock: 1 });      // in-stock filtering
+// Compound indexes for common query patterns
+productSchema.index({ isActive: 1, category: 1, price: 1 }); // category filtering with price sort
+productSchema.index({ isActive: 1, isFeatured: 1, createdAt: -1 }); // featured products
+productSchema.index({ isActive: 1, 'ratings.average': -1, createdAt: -1 }); // top rated
+productSchema.index({ isActive: 1, slug: 1 }); // PDP lookups (though slug is already unique)
+productSchema.index({ isActive: 1, createdAt: -1 }); // new arrivals
+productSchema.index({ isActive: 1, soldCount: -1 }); // best sellers
+productSchema.index({ isGiftable: 1, isActive: 1, category: 1 });
+productSchema.index({ isGiftable: 1, isActive: 1, giftOccasions: 1 });
 
 const Product = mongoose.model<IProduct>('Product', productSchema);
 export default Product;

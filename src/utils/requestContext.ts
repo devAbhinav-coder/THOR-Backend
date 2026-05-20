@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "async_hooks";
 
 export interface RequestContextStore {
   requestId: string;
+  traceId?: string;
   ip: string;
 }
 

@@ -57,9 +57,17 @@ export const assertRazorpayPaymentMatchesOrder = async (
   razorpayPaymentId: string,
   orderTotalInr: number
 ): Promise<void> => {
-  const payment = (await razorpayInstance.payments.fetch(
-    razorpayPaymentId
-  )) as unknown as RazorpayPaymentEntity;
+  let payment: RazorpayPaymentEntity;
+  try {
+    payment = (await razorpayInstance.payments.fetch(
+      razorpayPaymentId,
+    )) as unknown as RazorpayPaymentEntity;
+  } catch (error: unknown) {
+    if (error instanceof AppError) throw error;
+    const msg = razorpayApiMessage(error);
+    const http = razorpayHttpStatus(error);
+    throw new AppError(msg, http !== undefined && http >= 400 && http < 500 ? http : 502);
+  }
 
   if (!payment.order_id || payment.order_id !== razorpayOrderId) {
     throw new AppError('Payment does not match this checkout.', 400);

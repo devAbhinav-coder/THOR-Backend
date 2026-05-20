@@ -15,6 +15,12 @@ import { incrementVariantStock, logStockMovement } from '../services/inventorySe
 import { refProductId } from '../utils/productStock';
 import { sanitizeMarketingEmailHtml } from '../utils/sanitizeMarketingHtml';
 import { notifyUser, notifyAdmins, notifyAdminsEmail } from '../services/notificationService';
+import {
+  getOrderCancelledByAdminCopy,
+  getOrderStatusUpdateCopy,
+  getRefundProcessedCopy,
+  getReturnResolvedCopy,
+} from '../services/notifications/orderNotificationCopy';
 import { sendPaginated, sendSuccess } from '../utils/response';
 import { enqueueBroadcastByUserFilter } from '../services/broadcastService';
 import { getDashboardAnalyticsData } from '../services/adminAnalyticsService';
@@ -235,21 +241,16 @@ export const updateOrderStatus = catchAsync(async (req: Request, res: Response, 
     });
 
     if (populated.user?._id) {
+      const statusCopy =
+        status === 'cancelled'
+          ? getOrderCancelledByAdminCopy(populated.orderNumber!)
+          : getOrderStatusUpdateCopy(populated.orderNumber!, status, trackingOpts);
       await notifyUser(
         populated.user._id,
-        status === 'shipped' ? `📦 Order ${populated.orderNumber} is on its way!` :
-        status === 'delivered' ? `✅ Order ${populated.orderNumber} delivered!` :
-        status === 'cancelled' ? `❌ Order ${populated.orderNumber} cancelled` :
-        `Order ${populated.orderNumber} status update`,
-        status === 'shipped'
-          ? `Your order is on the way${order.shippingCarrier ? ` via ${order.shippingCarrier}` : ''}${order.trackingNumber ? `, AWB: ${order.trackingNumber}` : ''}.`
-          : status === 'delivered'
-            ? 'Your order has been delivered. We hope you love it!'
-            : status === 'cancelled'
-              ? 'Your order has been cancelled. Contact support if this was unexpected.'
-              : `Your order is now ${status}.`,
+        statusCopy.title,
+        statusCopy.message,
         `/dashboard/orders/${populated._id}`,
-        status === 'delivered' ? 'success' : status === 'cancelled' ? 'error' : 'order'
+        statusCopy.type
       );
     }
   }
@@ -672,12 +673,13 @@ export const processRefund = catchAsync(async (req: Request, res: Response, next
           ? `₹${amt.toFixed(2)} will be transferred to your bank account ending ${(bankDetails?.accountNumber || '').slice(-4) || '—'}. (2-3 days)`
           : `₹${amt.toFixed(2)} refund has been initiated via ${methodToUse.replace(/_/g, ' ')}.`;
 
+    const refundCopy = getRefundProcessedCopy(populated.orderNumber!, amt, smartMessage);
     notifyUser(
       String((populated.user as any)._id),
-      `💸 Refund of ₹${amt.toFixed(2)} processed`,
-      smartMessage,
+      refundCopy.title,
+      refundCopy.message,
       `/dashboard/orders/${populated._id}`,
-      'success',
+      refundCopy.type,
     ).catch(() => {});
 
     // Smart email to user with details
@@ -864,14 +866,17 @@ export const resolveReturn = catchAsync(async (req: Request, res: Response) => {
     );
     enqueueEmail({ to: user.email, subject: tpl.subject, html: tpl.html }).catch(() => {});
 
+    const returnCopy = getReturnResolvedCopy(
+      order.orderNumber!,
+      action === 'approve',
+      adminNote
+    );
     notifyUser(
       String(user._id),
-      `Return ${newStatus} — ${order.orderNumber}`,
-      action === 'approve'
-        ? 'Your return has been approved. Refund will be processed shortly.'
-        : `Your return was not approved.${adminNote ? ` Note: ${adminNote}` : ''}`,
+      returnCopy.title,
+      returnCopy.message,
       `/dashboard/orders/${order._id}`,
-      action === 'approve' ? 'success' : 'error',
+      returnCopy.type,
     ).catch(() => {});
   }
 

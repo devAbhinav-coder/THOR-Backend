@@ -49,26 +49,53 @@ const passwordWire = z
   .min(1, 'Password is required')
   .max(128, 'Password is too long');
 
+const emailField = z
+  .string()
+  .email('Invalid email address')
+  .transform((v) => v.normalize('NFC').trim().toLowerCase());
+
+const nameField = z
+  .string()
+  .min(2, 'Name must be at least 2 characters')
+  .max(50)
+  .transform((v) => v.normalize('NFC').trim().replace(/\s+/g, ' '));
+
+const phoneInField = z
+  .string()
+  .transform((v) => v.replace(/\D/g, '').slice(-10))
+  .pipe(z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'));
+
+const otpField = z
+  .string()
+  .transform((v) => v.replace(/\D/g, '').slice(0, 6))
+  .pipe(z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'));
+
+/** Cloudflare Turnstile — optional until TURNSTILE_ENFORCE=true */
+const turnstileTokenField = z.string().min(10).max(2048).optional();
+
 export const signupStartSchema = z.object({
   body: z.object({
-    name: z.string().min(2, 'Name must be at least 2 characters').max(50),
-    email: z.string().email('Invalid email address'),
-    phone: z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'),
+    name: nameField,
+    email: emailField,
+    phone: phoneInField,
     password: strongPassword,
+    turnstileToken: turnstileTokenField,
   }),
 });
 
 export const signupVerifySchema = z.object({
   body: z.object({
-    email: z.string().email('Invalid email address'),
-    otp: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'),
+    email: emailField,
+    otp: otpField,
+    turnstileToken: turnstileTokenField,
   }),
 });
 
 export const loginSchema = z.object({
   body: z.object({
-    email: z.string().email('Invalid email address'),
+    email: emailField,
     password: passwordWire,
+    turnstileToken: turnstileTokenField,
   }),
 });
 
@@ -86,16 +113,24 @@ export const updatePasswordSchema = z.object({
 
 export const forgotPasswordSchema = z.object({
   body: z.object({
-    email: z.string().email('Invalid email address'),
+    email: emailField,
+    turnstileToken: turnstileTokenField,
   }),
 });
 
+/** Legacy: email + otp + password. Preferred: resetToken + newPassword after verify-otp. */
 export const resetPasswordSchema = z.object({
-  body: z.object({
-    email: z.string().email('Invalid email address'),
-    otp: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'),
-    newPassword: strongPassword,
-  }),
+  body: z.union([
+    z.object({
+      resetToken: z.string().min(32).max(128),
+      newPassword: strongPassword,
+    }),
+    z.object({
+      email: emailField,
+      otp: otpField,
+      newPassword: strongPassword,
+    }),
+  ]),
 });
 
 export const googleAuthSchema = z.object({
@@ -109,18 +144,21 @@ export const sendOtpSchema = z.object({
   body: z.discriminatedUnion('type', [
     z.object({
       type: z.literal('signup'),
-      email: z.string().email('Invalid email address'),
-      name: z.string().min(2, 'Name must be at least 2 characters').max(50),
+      email: emailField,
+      name: nameField,
       password: strongPassword,
-      phone: z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'),
+      phone: phoneInField,
+      turnstileToken: turnstileTokenField,
     }),
     z.object({
       type: z.literal('login'),
-      email: z.string().email('Invalid email address'),
+      email: emailField,
+      turnstileToken: turnstileTokenField,
     }),
     z.object({
       type: z.literal('forgot_password'),
-      email: z.string().email('Invalid email address'),
+      email: emailField,
+      turnstileToken: turnstileTokenField,
     }),
   ]),
 });
@@ -128,36 +166,36 @@ export const sendOtpSchema = z.object({
 export const resendOtpSchema = z.object({
   body: z.object({
     type: z.enum(['signup', 'login', 'forgot_password']),
-    email: z.string().email('Invalid email address'),
+    email: emailField,
   }),
 });
 
 export const verifyOtpSchema = z.object({
   body: z.object({
     type: z.enum(['signup', 'login', 'forgot_password']),
-    email: z.string().email('Invalid email address'),
-    otp: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'),
+    email: emailField,
+    otp: otpField,
   }),
 });
 
 export const updateProfileSchema = z.object({
   body: z.object({
-    name: z.string().min(2).max(50).optional(),
-    phone: z
-      .string()
-      .regex(/^[6-9]\d{9}$/)
-      .optional()
-      .or(z.literal('')),
+    name: nameField.optional(),
+    phone: phoneInField.optional().or(z.literal('')),
   }),
 });
 
 export const addAddressSchema = z.object({
   body: z.object({
-    name: z.string().min(2, 'Name is required').max(80),
+    name: z
+      .string()
+      .min(2, 'Name is required')
+      .max(80)
+      .transform((v) => v.normalize('NFC').trim().replace(/\s+/g, ' ')),
     phone: z
       .string()
-      .trim()
-      .regex(/^(\+91)?[6-9]\d{9}$/, 'Invalid phone number'),
+      .transform((v) => v.replace(/\D/g, '').slice(-10))
+      .pipe(z.string().regex(/^[6-9]\d{9}$/, 'Invalid phone number')),
     label: z.string().optional(),
     /** House / flat / building (optional, separate from street). */
     house: z.string().max(120).optional(),
@@ -172,7 +210,79 @@ export const addAddressSchema = z.object({
   }),
 });
 
-// ─── Products ─────────────────────────────────────────────────────────────────
+// ─── Products (public query) ──────────────────────────────────────────────────
+
+export const productListQuerySchema = z.object({
+  query: z
+    .object({
+      page: z.coerce.number().int().min(1).optional(),
+      limit: z.coerce.number().int().min(1).max(100).optional(),
+      sort: z.string().max(40).optional(),
+      search: z.string().max(30).optional(),
+      q: z.string().max(30).optional(),
+      category: z.string().max(80).optional(),
+      fabric: z.string().max(80).optional(),
+      minPrice: z.coerce.number().min(0).optional(),
+      maxPrice: z.coerce.number().min(0).optional(),
+      minRating: z.coerce.number().int().min(1).max(5).optional(),
+      isFeatured: z.enum(['true', 'false']).optional(),
+      isActive: z.enum(['true', 'false']).optional(),
+      isRandom: z.enum(['true', 'false']).optional(),
+      excludeIds: z.string().max(4000).optional(),
+    })
+    .passthrough(),
+});
+
+export const productSearchQuerySchema = z.object({
+  query: z.object({
+    q: z.string().max(30).optional(),
+    page: z.coerce.number().int().min(1).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    sortBy: z.string().max(40).optional(),
+    sortOrder: z.enum(['asc', 'desc']).optional(),
+    category: z.string().max(80).optional(),
+    categories: z.union([z.string(), z.array(z.string())]).optional(),
+    fabric: z.string().max(80).optional(),
+    fabrics: z.union([z.string(), z.array(z.string())]).optional(),
+    minPrice: z.coerce.number().min(0).optional(),
+    maxPrice: z.coerce.number().min(0).optional(),
+    minRating: z.coerce.number().int().min(1).max(5).optional(),
+    isFeatured: z.enum(['true', 'false']).optional(),
+    isActive: z.enum(['true', 'false']).optional(),
+  }),
+});
+
+/** Admin catalog list — same query shape as storefront, protected route. */
+export const adminProductListQuerySchema = productListQuerySchema;
+
+export const adminProductSearchQuerySchema = productSearchQuerySchema;
+
+export const productAutocompleteQuerySchema = z.object({
+  query: z.object({
+    q: z.string().max(30).optional(),
+    limit: z.coerce.number().int().min(1).max(10).optional(),
+  }),
+});
+
+export const productSuggestionsQuerySchema = z.object({
+  query: z.object({
+    q: z.string().max(30).optional(),
+  }),
+});
+
+export const productTrendingQuerySchema = z.object({
+  query: z.object({
+    limit: z.coerce.number().int().min(1).max(20).optional(),
+  }),
+});
+
+export const productSlugParamSchema = z.object({
+  params: z.object({
+    slug: z.string().min(1).max(200),
+  }),
+});
+
+// ─── Products (admin body) ────────────────────────────────────────────────────
 
 const variantSchema = z.object({
   size: z.string().optional(),
@@ -232,6 +342,10 @@ export const createProductSchema = z.object({
 
 export const updateProductSchema = z.object({
   body: z.object({
+    /** ISO date from client for optimistic locking (matches document updatedAt). */
+    updatedAt: z
+      .union([z.string().datetime(), z.string().min(1).max(40)])
+      .optional(),
     name: z.string().min(3).max(200).optional(),
     description: z.string().min(10).optional(),
     shortDescription: z.string().max(500).optional(),
@@ -260,35 +374,12 @@ export const updateProductSchema = z.object({
 
 // ─── Cart ─────────────────────────────────────────────────────────────────────
 
-export const addToCartSchema = z.object({
-  body: z.object({
-    productId: z.string().min(1),
-    variant: z.object({
-      size: z.string().optional(),
-      color: z.string().optional(),
-      colorCode: z.string().optional(),
-      sku: z.string().min(1),
-    }),
-    quantity: z.coerce.number().int().min(1).max(10),
-    customFieldAnswers: z
-      .array(
-        z.object({
-          label: z.string().min(1).max(120),
-          value: z.string().min(1).max(500),
-        })
-      )
-      .optional(),
-  }),
-});
-
-export const updateCartItemSchema = z.object({
-  body: z.object({
-    quantity: z.coerce.number().int().min(1).max(10),
-  }),
-  params: z.object({
-    sku: z.string().min(1),
-  }),
-});
+/** @deprecated Import from `cartSchemas` — re-exported for backward compatibility. */
+export {
+  addToCartSchema,
+  updateCartItemSchema,
+  applyCouponSchema,
+} from './cartSchemas';
 
 // ─── Orders ───────────────────────────────────────────────────────────────────
 
@@ -357,40 +448,118 @@ export const verifyPaymentSchema = z.object({
     }),
 });
 
-// ─── Reviews ──────────────────────────────────────────────────────────────────
+// ─── Reviews (canonical schemas in validation/reviewSchemas.ts) ───────────────
 
-export const createReviewSchema = z.object({
-  body: z.object({
-    rating: z.coerce.number().int().min(1).max(5),
-    title: z.string().max(100).optional(),
-    comment: z.string().min(10).max(1000),
-    orderId: z.string().min(1),
-  }),
-  params: z.object({
-    productId: z.string().min(1),
-  }),
-});
+export { createReviewSchema } from './reviewSchemas';
 
 // ─── Coupons ──────────────────────────────────────────────────────────────────
 
+const mongoObjectId = z
+  .string()
+  .regex(/^[a-fA-F0-9]{24}$/, 'Invalid id');
+
+const couponCodeField = z
+  .string()
+  .trim()
+  .min(3)
+  .max(20)
+  .transform((v) => v.toUpperCase());
+
 export const createCouponSchema = z.object({
+  body: z
+    .object({
+      code: couponCodeField,
+      description: z.string().max(500).optional(),
+      discountType: z.enum(['percentage', 'flat']),
+      discountValue: z.coerce.number().positive(),
+      minOrderAmount: z.coerce.number().min(0).optional(),
+      maxDiscountAmount: z.coerce.number().positive().optional(),
+      usageLimit: z.coerce.number().int().positive().optional(),
+      userUsageLimit: z.coerce.number().int().positive().default(1),
+      eligibilityType: z.enum(['all', 'first_order', 'returning']).default('all'),
+      minCompletedOrders: z.coerce.number().int().min(0).default(0),
+      maxCompletedOrders: z.coerce.number().int().min(0).optional(),
+      startDate: z.string().min(1, 'Start date is required'),
+      expiryDate: z.string().min(1, 'Expiry date is required'),
+      applicableCategories: jsonStringToArray(z.string()).optional(),
+      isActive: optionalBooleanFromString,
+      sendAnnouncement: z.coerce.boolean().optional(),
+    })
+    .superRefine((data, ctx) => {
+      const start = new Date(data.startDate);
+      const expiry = new Date(data.expiryDate);
+      if (Number.isNaN(start.getTime())) {
+        ctx.addIssue({ code: 'custom', message: 'Invalid start date', path: ['startDate'] });
+      }
+      if (Number.isNaN(expiry.getTime())) {
+        ctx.addIssue({ code: 'custom', message: 'Invalid expiry date', path: ['expiryDate'] });
+      }
+      if (!Number.isNaN(start.getTime()) && !Number.isNaN(expiry.getTime()) && expiry <= start) {
+        ctx.addIssue({ code: 'custom', message: 'Expiry must be after start date', path: ['expiryDate'] });
+      }
+      if (data.discountType === 'percentage' && data.discountValue > 100) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Percentage discount cannot exceed 100',
+          path: ['discountValue'],
+        });
+      }
+      if (
+        data.maxCompletedOrders !== undefined &&
+        data.maxCompletedOrders < data.minCompletedOrders
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'maxCompletedOrders cannot be less than minCompletedOrders',
+          path: ['maxCompletedOrders'],
+        });
+      }
+    }),
+});
+
+export const validateCouponSchema = z.object({
   body: z.object({
-    code: z.string().min(3).max(20).toUpperCase(),
-    description: z.string().optional(),
-    discountType: z.enum(['percentage', 'flat']),
-    discountValue: z.coerce.number().positive(),
-    minOrderAmount: z.coerce.number().min(0).optional(),
-    maxDiscountAmount: z.coerce.number().positive().optional(),
-    usageLimit: z.coerce.number().int().positive().optional(),
-    userUsageLimit: z.coerce.number().int().positive().default(1),
-    eligibilityType: z.enum(['all', 'first_order', 'returning']).default('all'),
-    minCompletedOrders: z.coerce.number().int().min(0).default(0),
-    maxCompletedOrders: z.coerce.number().int().min(0).optional(),
-    startDate: z.string().min(1, 'Start date is required'),
-    expiryDate: z.string().min(1, 'Expiry date is required'),
-    applicableCategories: jsonStringToArray(z.string()).optional(),
-    isActive: optionalBooleanFromString,
+    code: couponCodeField,
+    orderAmount: z.coerce.number().min(0),
   }),
+});
+
+export const eligibleCouponsQuerySchema = z.object({
+  query: z.object({
+    orderAmount: z.coerce.number().min(0).optional(),
+  }),
+});
+
+export const couponIdParamsSchema = z.object({
+  params: z.object({
+    id: mongoObjectId,
+  }),
+});
+
+export const updateCouponSchema = z.object({
+  params: z.object({
+    id: mongoObjectId,
+  }),
+  body: z
+    .object({
+      description: z.string().max(500).optional(),
+      discountType: z.enum(['percentage', 'flat']).optional(),
+      discountValue: z.coerce.number().positive().optional(),
+      minOrderAmount: z.coerce.number().min(0).optional(),
+      maxDiscountAmount: z.coerce.number().positive().optional(),
+      usageLimit: z.coerce.number().int().positive().optional(),
+      userUsageLimit: z.coerce.number().int().positive().optional(),
+      eligibilityType: z.enum(['all', 'first_order', 'returning']).optional(),
+      minCompletedOrders: z.coerce.number().int().min(0).optional(),
+      maxCompletedOrders: z.coerce.number().int().min(0).optional(),
+      startDate: z.string().min(1).optional(),
+      expiryDate: z.string().min(1).optional(),
+      applicableCategories: jsonStringToArray(z.string()).optional(),
+      isActive: optionalBooleanFromString,
+      firstOrderOnly: z.coerce.boolean().optional(),
+      applicableProducts: z.array(mongoObjectId).optional(),
+    })
+    .refine((b) => Object.keys(b).length > 0, { message: 'At least one field is required' }),
 });
 
 // ─── Admin ────────────────────────────────────────────────────────────────────
@@ -606,130 +775,18 @@ export const createCategorySchema = z.object({
   }),
 });
 
-// ─── Gifting ──────────────────────────────────────────────────────────────────
+// ─── Gifting (canonical schemas in giftingSchemas.ts) ─────────────────────────
 
-const giftingItemSchema = z.object({
-  product: z.string().regex(/^[a-fA-F0-9]{24}$/, 'Invalid product id'),
-  name: z.string().min(1).max(200),
-  quantity: z.coerce.number().int().min(1).max(10000),
-  customFieldAnswers: z
-    .array(
-      z.object({
-        fieldId: z.string().min(1),
-        label: z.string().min(1).max(120),
-        value: z.string().min(1).max(500),
-      })
-    )
-    .optional(),
-});
+export {
+  submitGiftingRequestSchema,
+  giftingAdminUpdateSchema,
+  giftingRespondSchema,
+} from './giftingSchemas';
 
-export const submitGiftingRequestSchema = z.object({
-  body: z.object({
-    name: z.string().min(2).max(80),
-    email: z.string().email(),
-    phone: z.string().trim().max(20).optional(),
-    occasion: z.string().min(2).max(120),
-    items: jsonStringToArray(giftingItemSchema).refine((arr) => arr.length > 0, 'At least one item is required'),
-    recipientMessage: z.string().max(500).optional(),
-    customizationNote: z.string().max(1000).optional(),
-    packagingPreference: z.enum(['standard', 'premium', 'custom']).optional(),
-    customPackagingNote: z.string().max(500).optional(),
-    proposedPrice: z.coerce.number().positive().optional(),
-  }),
-});
+// ─── Inventory (canonical schemas in inventorySchemas.ts) ─────────────────────
 
-export const giftingAdminUpdateSchema = z.object({
-  body: z.object({
-    status: z.enum(['new', 'price_quoted', 'approved_by_user', 'rejected_by_user', 'cancelled']).optional(),
-    adminNote: z.string().max(1000).optional(),
-    quotedPrice: z.coerce.number().positive().optional(),
-    deliveryTime: z.string().max(120).optional(),
-  }),
-  params: z.object({
-    id: z.string().regex(/^[a-fA-F0-9]{24}$/),
-  }),
-});
-
-export const giftingRespondSchema = z.object({
-  body: z.object({
-    action: z.enum(['accept', 'reject']),
-    shippingAddress: z
-      .object({
-        name: z.string().min(2).max(80),
-        phone: z.string().trim().max(20).optional(),
-        label: z.string().max(40).optional(),
-        house: z.string().max(120).optional(),
-        street: z.string().min(5).max(250),
-        landmark: z.string().max(160).optional(),
-        city: z.string().min(2).max(80),
-        state: z.string().min(2).max(80),
-        pincode: z.string().regex(/^\d{6}$/),
-        country: z.string().max(60).optional(),
-      })
-      .optional(),
-  }),
-  params: z.object({
-    id: z.string().regex(/^[a-fA-F0-9]{24}$/),
-  }),
-});
-
-// ─── Inventory ────────────────────────────────────────────────────────────────
-
-export const stockAdjustmentSchema = z.object({
-  body: z.object({
-    delta: z.coerce.number().refine((n) => n !== 0, 'delta must be non-zero'),
-    reason: z.enum(['purchase', 'sale_return', 'damage', 'manual_correction', 'opening_stock']),
-    note: z.string().max(1000).optional(),
-  }),
-  params: z.object({
-    id: z.string().regex(/^[a-fA-F0-9]{24}$/, 'Invalid product id'),
-    sku: z.string().min(1),
-  }),
-});
-
-const purchaseLineItemSchema = z.object({
-  product: z.string().regex(/^[a-fA-F0-9]{24}$/).optional(),
-  productName: z.string().min(1).max(200),
-  sku: z.string().min(1).max(80),
-  variantLabel: z.string().max(100).optional(),
-  quantity: z.coerce.number().int().min(1),
-  unitCost: z.coerce.number().min(0),
-  hsn: z.string().max(20).optional(),
-  gstRate: z.coerce.number().min(0).max(100).default(0),
-});
-
-export const createPurchaseInvoiceSchema = z.object({
-  body: z.object({
-    invoiceNumber: z.string().min(1).max(80),
-    supplierName: z.string().min(1).max(200),
-    supplierGstin: z
-      .string()
-      .max(15)
-      .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/, 'Invalid GSTIN')
-      .optional()
-      .or(z.literal('')),
-    supplyType: z.enum(['intra', 'inter']).default('intra'),
-    invoiceDate: z.string().min(1, 'Invoice date is required'),
-    lineItems: z.array(purchaseLineItemSchema).min(1, 'At least one line item required').max(50),
-    paymentStatus: z.enum(['unpaid', 'paid', 'partial']).default('unpaid'),
-    paidAmount: z.coerce.number().min(0).default(0),
-    notes: z.string().max(2000).optional(),
-    updateCostPrice: z.boolean().optional().default(true),
-  }),
-});
-
-export const updatePurchaseInvoiceSchema = z.object({
-  body: z.object({
-    invoiceNumber: z.string().min(1).max(80).optional(),
-    supplierName: z.string().min(1).max(200).optional(),
-    supplierGstin: z.string().max(15).optional().or(z.literal('')),
-    supplyType: z.enum(['intra', 'inter']).optional(),
-    invoiceDate: z.string().optional(),
-    paymentStatus: z.enum(['unpaid', 'paid', 'partial']).optional(),
-    paidAmount: z.coerce.number().min(0).optional(),
-    notes: z.string().max(2000).optional(),
-  }),
-  params: z.object({
-    id: z.string().regex(/^[a-fA-F0-9]{24}$/, 'Invalid invoice id'),
-  }),
-});
+export {
+  stockAdjustmentSchema,
+  createPurchaseInvoiceSchema,
+  updatePurchaseInvoiceSchema,
+} from './inventorySchemas';

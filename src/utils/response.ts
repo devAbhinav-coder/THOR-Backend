@@ -21,14 +21,22 @@ export function sendSuccess(
 export function sendPaginated(
   res: Response,
   data: Record<string, unknown> | Record<string, unknown>[],
-  pagination: { page: number; limit: number; total: number },
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    hasNextPage?: boolean;
+  },
   message = "OK",
   statusCode = 200
 ): void {
   const limit = Math.max(1, pagination.limit);
   const totalPages = Math.max(1, Math.ceil(pagination.total / limit));
   const currentPage = pagination.page;
-  const hasNextPage = currentPage < totalPages;
+  const hasNextPage =
+    pagination.hasNextPage !== undefined ?
+      pagination.hasNextPage
+    : currentPage < totalPages;
   const hasPrevPage = currentPage > 1;
   res.status(statusCode).json({
     status: "success",

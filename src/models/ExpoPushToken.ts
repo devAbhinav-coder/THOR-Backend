@@ -4,6 +4,12 @@ const expoPushTokenSchema = new Schema(
   {
     user: { type: Schema.Types.ObjectId, ref: "User", required: true },
     token: { type: String, required: true, trim: true },
+    isActive: { type: Boolean, default: true, index: true },
+    platform: { type: String, enum: ["ios", "android", "unknown"], default: "unknown" },
+    deviceType: String,
+    appVersion: String,
+    lastUsedAt: Date,
+    tokenHash: { type: String, index: true },
   },
   { timestamps: true },
 );

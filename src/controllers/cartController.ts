@@ -1,254 +1,226 @@
 import { Response, NextFunction } from 'express';
-import Cart from '../models/Cart';
-import Product from '../models/Product';
-import Coupon from '../models/Coupon';
-import Order from '../models/Order';
-import AppError from '../utils/AppError';
+import mongoose from 'mongoose';
 import catchAsync from '../utils/catchAsync';
 import { AuthRequest } from '../types';
 import { sendSuccess } from '../utils/response';
-import { safeJsonParse } from '../utils/safeJson';
+import {
+  cartService,
+  cartAnalyticsService,
+} from '../services/cartService';
+import {
+  cartProductService,
+} from '../services/cart/cartProductService';
+import {
+  assertProductAvailableForCart,
+  assertMinQuantity,
+  validateCustomFields,
+  resolveVariantForCart,
+  normalizeCustomFieldAnswers,
+  assertCartItemExists,
+  assertNonEmptyCart,
+  assertCouponAppliedToCart,
+  findCouponByCode,
+  normalizeCouponCode,
+} from '../services/cart/cartValidationService';
+import {
+  getIdempotentCartResult,
+  storeIdempotentCartResult,
+  resolveIdempotencyKey,
+} from '../services/cart/cartIdempotencyService';
+import {
+  recordCartMutationAttempt,
+  isCartMutationThrottled,
+} from '../services/cart/cartAbuseService';
+import { recordFailedCouponAttempt } from '../services/coupon/couponAbuseService';
+import logger from '../utils/logger';
+import { getRequestContext } from '../utils/requestContext';
+import AppError from '../utils/AppError';
 
-const getGiftMinQty = (product: InstanceType<typeof Product>) => {
-  const isCorporateGift = (product.giftOccasions || []).some(
-    (o) => String(o).trim().toLowerCase() === 'corporate'
-  );
-  const baseMin = Math.max(Number(product.minOrderQty || 1), 1);
-  return isCorporateGift ? Math.max(baseMin, 10) : baseMin;
-};
+function userId(req: AuthRequest): string {
+  return String(req.user!._id);
+}
 
-/** Same shape as getCart — never return raw cart after save() or product refs are ObjectIds and UI loses images */
-async function cartForResponse(userId: string) {
-  return Cart.findOne({ user: userId })
-    .populate({
-      path: 'items.product',
-      select: 'name images price isActive slug giftOccasions minOrderQty variants.sku variants.stock',
-    })
-    .populate({
-      path: 'coupon',
-      select: 'code',
-    });
+function clientIp(req: AuthRequest): string {
+  return String(req.ip || req.socket?.remoteAddress || 'unknown');
+}
+
+async function guardMutationAbuse(req: AuthRequest): Promise<void> {
+  const uid = userId(req);
+  const ip = clientIp(req);
+  if (await isCartMutationThrottled(uid, ip)) {
+    throw new AppError('Too many cart updates. Please try again later.', 429);
+  }
+  await recordCartMutationAttempt(uid, ip);
+}
+
+function logCartAction(
+  action: string,
+  req: AuthRequest,
+  extra: Record<string, string | undefined> = {}
+): void {
+  const ctx = getRequestContext();
+  logger.info({
+    msg: 'cart_action',
+    action,
+    userId: userId(req),
+    requestId: ctx?.requestId,
+    traceId: ctx?.traceId,
+    ...extra,
+  });
 }
 
 export const getCart = catchAsync(async (req: AuthRequest, res: Response) => {
-  const cart = await cartForResponse(String(req.user!._id));
+  const cartDto = await cartService.getCart(userId(req));
+  sendSuccess(res, { cart: cartDto });
+});
 
-  if (!cart) {
-    sendSuccess(res, { cart: { items: [], subtotal: 0, discount: 0, total: 0 } });
+export const addToCart = catchAsync(async (req: AuthRequest, res: Response) => {
+  await guardMutationAbuse(req);
+
+  const uid = userId(req);
+  const idempotencyKey = resolveIdempotencyKey(
+    req.body.idempotencyKey,
+    req.headers['idempotency-key']
+  );
+
+  const replay = await getIdempotentCartResult(uid, idempotencyKey);
+  if (replay) {
+    sendSuccess(res, { cart: replay });
     return;
   }
 
-  sendSuccess(res, { cart });
-});
-
-export const addToCart = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
   const { productId, variant, quantity, customFieldAnswers } = req.body;
- 
-   const product = await Product.findById(productId);
-   if (!product || !product.isActive) {
-     return next(new AppError('Product not found or unavailable.', 404));
-   }
- 
-  //  // Gifting: Check if it's customizable (Request Quote only)
-  //  if (product.isCustomizable) {
-  //    return next(new AppError('This product requires a customization request. Please use the "Customize & Request" button.', 400));
-  //  }
- 
-   // Gifting: Enforce Min Order Qty (Corporate => at least 10)
-   const minQty = getGiftMinQty(product as InstanceType<typeof Product>);
-   if (quantity < minQty) {
-     return next(new AppError(`Minimum order quantity for this item is ${minQty}.`, 400));
-   }
- 
-   // Gifting: Verify Required Custom Fields
-   if (product.customFields && product.customFields.length > 0) {
-     const answers = safeJsonParse<{ label: string; value: string }[]>(
-       customFieldAnswers,
-       [],
-       'customFieldAnswers'
-     );
-     for (const field of product.customFields) {
-       if (field.isRequired) {
-         const answer = answers.find((a) => a.label === field.label);
-         if (!answer || !answer.value) {
-           return next(new AppError(`Custom field "${field.label}" is required.`, 400));
-         }
-       }
-     }
-   }
- 
-   const productVariant = product.variants.find((v) => v.sku === variant.sku);
-   if (!productVariant) {
-     return next(new AppError('Selected variant not found.', 404));
-   }
- 
-   if (productVariant.stock < quantity) {
-     return next(new AppError(`Only ${productVariant.stock} items available in stock.`, 400));
-   }
- 
-   const itemPrice = productVariant.price || product.price;
- 
-   let cart = await Cart.findOne({ user: req.user!._id });
- 
-   if (!cart) {
-     cart = new Cart({ user: req.user!._id, items: [] });
-   }
- 
-   // Match by SKU AND Custom Field Answers (if answers are different, it's a separate item)
-   const parsedAnswers = safeJsonParse<{ label: string; value: string }[]>(
-     customFieldAnswers,
-     [],
-     'customFieldAnswers'
-   );
-   
-   const existingItemIndex = cart.items.findIndex((item) => {
-     if (item.variant.sku !== variant.sku) return false;
-     
-     // Compare custom field answers
-    const itemAnswers = (item.customFieldAnswers as { label: string; value: string }[]) || [];
-     if (itemAnswers.length !== parsedAnswers.length) return false;
-     
-    return parsedAnswers.every((pa) =>
-      itemAnswers.find((ia) => ia.label === pa.label && ia.value === pa.value)
-    );
-   });
- 
-   if (existingItemIndex > -1) {
-     const newQty = cart.items[existingItemIndex].quantity + quantity;
-    if (newQty < minQty) {
-      return next(new AppError(`Minimum order quantity for this item is ${minQty}.`, 400));
+  const product = await cartProductService.findForAddToCart(productId);
+  assertProductAvailableForCart(product);
+
+  const parsedAnswers = normalizeCustomFieldAnswers(customFieldAnswers);
+  validateCustomFields(product, parsedAnswers);
+  assertMinQuantity(product, quantity);
+
+  const productVariant = resolveVariantForCart(product, variant.sku);
+
+  const cartDto = await cartService.addItem(
+    uid,
+    product,
+    productVariant.sku,
+    quantity,
+    parsedAnswers
+  );
+
+  storeIdempotentCartResult(uid, idempotencyKey, cartDto);
+  logCartAction('add', req, { productId, cartId: cartDto._id ? String(cartDto._id) : undefined });
+
+  sendSuccess(res, { cart: cartDto });
+});
+
+export const uploadCustomFieldImage = catchAsync(
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    const uploaded = (req as AuthRequest & { uploadedImages?: { url: string; publicId: string }[] })
+      .uploadedImages;
+    const first = uploaded?.[0];
+    if (!first) {
+      return next(new AppError('Please upload an image.', 400));
     }
-     if (newQty > productVariant.stock) {
-       return next(new AppError(`Only ${productVariant.stock} items available in stock.`, 400));
-     }
-     cart.items[existingItemIndex].quantity = newQty;
-   } else {
-     cart.items.push({
-       product: product._id,
-       variant,
-       quantity,
-       price: itemPrice,
-       customFieldAnswers: parsedAnswers
-     });
-   }
-
-  await cart.save();
-
-  const populatedCart = await cartForResponse(String(req.user!._id));
-  sendSuccess(res, { cart: populatedCart });
-});
-
-export const uploadCustomFieldImage = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
-  const uploaded = (req as AuthRequest & { uploadedImages?: { url: string; publicId: string }[] }).uploadedImages;
-  const first = uploaded?.[0];
-  if (!first) {
-    return next(new AppError('Please upload an image.', 400));
+    sendSuccess(res, { image: first }, 'Image uploaded');
   }
-  sendSuccess(res, { image: first }, 'Image uploaded');
-});
+);
 
-export const updateCartItem = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
-  const { sku } = req.params;
+export const updateCartItem = catchAsync(async (req: AuthRequest, res: Response) => {
+  await guardMutationAbuse(req);
+
+  const uid = userId(req);
+  const { cartItemId } = req.params;
   const { quantity } = req.body;
 
-  const cart = await Cart.findOne({ user: req.user!._id });
-  if (!cart) return next(new AppError('Cart not found.', 404));
-
-  const itemIndex = cart.items.findIndex((item) => item.variant.sku === sku);
-  if (itemIndex === -1) return next(new AppError('Item not found in cart.', 404));
-
-  const product = await Product.findById(cart.items[itemIndex].product);
-  if (!product) return next(new AppError('Product not found.', 404));
-
-  const variant = product.variants.find((v) => v.sku === sku);
-  if (!variant) return next(new AppError('Variant not found.', 404));
-
-  const minQty = getGiftMinQty(product as InstanceType<typeof Product>);
-  if (quantity < minQty) {
-    return next(new AppError(`Minimum order quantity for this item is ${minQty}.`, 400));
+  const idempotencyKey = resolveIdempotencyKey(
+    req.body.idempotencyKey,
+    req.headers['idempotency-key']
+  );
+  const replay = await getIdempotentCartResult(uid, idempotencyKey);
+  if (replay) {
+    sendSuccess(res, { cart: replay });
+    return;
   }
 
-  if (quantity > variant.stock) {
-    return next(new AppError(`Only ${variant.stock} items available.`, 400));
-  }
+  const cart = await cartService.getCart(uid);
+  const item = assertCartItemExists(cart, cartItemId);
 
-  cart.items[itemIndex].quantity = quantity;
-  await cart.save();
+  const product = await cartProductService.findMinQtyFields(String(item.product));
+  assertMinQuantity(product, quantity, item.productName);
 
-  const populatedCart = await cartForResponse(String(req.user!._id));
-  sendSuccess(res, { cart: populatedCart });
+  const updatedCart = await cartService.updateItemQty(uid, cartItemId, quantity);
+  storeIdempotentCartResult(uid, idempotencyKey, updatedCart);
+  cartAnalyticsService.trackQuantityUpdate(uid, cartItemId);
+  logCartAction('update_qty', req, { cartItemId, productId: String(item.product) });
+
+  sendSuccess(res, { cart: updatedCart });
 });
 
-export const removeFromCart = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
-  const { sku } = req.params;
+export const removeFromCart = catchAsync(async (req: AuthRequest, res: Response) => {
+  const { cartItemId } = req.params;
+  if (!cartItemId) {
+    throw new AppError('Cart item ID is required.', 400);
+  }
 
-  const cart = await Cart.findOne({ user: req.user!._id });
-  if (!cart) return next(new AppError('Cart not found.', 404));
-
-  cart.items = cart.items.filter((item) => item.variant.sku !== sku);
-  await cart.save();
-
-  const populatedCart = await cartForResponse(String(req.user!._id));
-  sendSuccess(res, { cart: populatedCart });
+  const updatedCart = await cartService.removeItem(userId(req), cartItemId);
+  logCartAction('remove', req, { cartItemId });
+  sendSuccess(res, { cart: updatedCart });
 });
 
 export const clearCart = catchAsync(async (req: AuthRequest, res: Response) => {
-  await Cart.findOneAndDelete({ user: req.user!._id });
+  await cartService.clearCart(userId(req));
+  logCartAction('clear', req);
   sendSuccess(res, {}, 'Cart cleared');
 });
 
-export const applyCoupon = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
-  const { couponCode } = req.body;
+export const applyCoupon = catchAsync(async (req: AuthRequest, res: Response) => {
+  await guardMutationAbuse(req);
 
-  const cart = await Cart.findOne({ user: req.user!._id });
-  if (!cart || cart.items.length === 0) {
-    return next(new AppError('Your cart is empty.', 400));
+  const uid = userId(req);
+  const normalizedCode = normalizeCouponCode(req.body.couponCode);
+  const ip = clientIp(req);
+
+  const idempotencyKey = resolveIdempotencyKey(
+    req.body.idempotencyKey,
+    req.headers['idempotency-key']
+  );
+  const replay = await getIdempotentCartResult(uid, idempotencyKey);
+  if (replay) {
+    sendSuccess(res, { cart: replay });
+    return;
   }
 
-  const coupon = await Coupon.findOne({ code: couponCode.toUpperCase() });
-  if (!coupon) return next(new AppError('Invalid coupon code.', 404));
+  const cart = await cartService.getCart(uid);
+  assertNonEmptyCart(cart);
 
-  const completedOrders = await Order.countDocuments({ user: req.user!._id, status: 'delivered' });
-  const validity = (
-    coupon as typeof coupon & {
-      isValid: (
-        userId: string,
-        amount: number,
-        opts?: { completedOrders?: number }
-      ) => { valid: boolean; message?: string };
-    }
-  ).isValid(String(req.user!._id), cart.subtotal, { completedOrders });
-  if (!validity.valid) {
-    return next(new AppError(validity.message || 'Coupon is not valid.', 400));
+  const coupon = await findCouponByCode(normalizedCode);
+  if (!coupon) {
+    await recordFailedCouponAttempt(uid, ip, normalizedCode);
+    cartAnalyticsService.trackCouponApply(false, uid, normalizedCode);
+    throw new AppError('Invalid coupon code.', 404);
   }
 
-  const discount = (coupon as typeof coupon & { calculateDiscount: (amount: number) => number }).calculateDiscount(cart.subtotal);
-  cart.coupon = coupon._id;
-  cart.discount = discount;
-  cart.total = cart.subtotal - discount;
-  await cart.save();
+  const updatedCart = await cartService.applyCoupon(
+    uid,
+    coupon._id as mongoose.Types.ObjectId
+  );
 
-  const populatedCart = await cartForResponse(String(req.user!._id));
-  sendSuccess(res, {
-    cart: populatedCart,
-    coupon: {
-      code: coupon.code,
-      discountType: coupon.discountType,
-      discountValue: coupon.discountValue,
-      appliedDiscount: discount,
-    },
-  });
+  try {
+    assertCouponAppliedToCart(updatedCart, String(coupon.code));
+    cartAnalyticsService.trackCouponApply(true, uid, normalizedCode);
+  } catch (err) {
+    cartAnalyticsService.trackCouponApply(false, uid, normalizedCode);
+    throw err;
+  }
+
+  storeIdempotentCartResult(uid, idempotencyKey, updatedCart);
+  logCartAction('apply_coupon', req, { couponCode: normalizedCode });
+
+  sendSuccess(res, { cart: updatedCart });
 });
 
-export const removeCoupon = catchAsync(async (req: AuthRequest, res: Response, next: NextFunction) => {
-  const cart = await Cart.findOne({ user: req.user!._id });
-  if (!cart) return next(new AppError('Cart not found.', 404));
-
-  cart.coupon = undefined;
-  cart.discount = 0;
-  cart.total = cart.subtotal;
-  await cart.save();
-
-  const populatedCart = await cartForResponse(String(req.user!._id));
-  sendSuccess(res, { cart: populatedCart });
+export const removeCoupon = catchAsync(async (req: AuthRequest, res: Response) => {
+  const updatedCart = await cartService.removeCoupon(userId(req));
+  logCartAction('remove_coupon', req);
+  sendSuccess(res, { cart: updatedCart });
 });

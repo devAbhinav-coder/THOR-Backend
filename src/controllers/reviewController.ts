@@ -1,120 +1,39 @@
-import { Response, NextFunction } from "express";
-import Review from "../models/Review";
-import Order from "../models/Order";
-import AppError from "../utils/AppError";
-import catchAsync from "../utils/catchAsync";
-import { AuthRequest } from "../types";
-import { sendPaginated, sendSuccess } from "../utils/response";
+import { Response, NextFunction } from 'express';
+import catchAsync from '../utils/catchAsync';
+import { AuthRequest } from '../types';
+import { sendPaginated, sendSuccess } from '../utils/response';
+import { reviewService } from '../services/reviews/reviewService';
+import type { ReportReason } from '../services/reviews/reviewConstants';
 
-const sanitizeReviewForPublic = (review: {
-  toObject: () => Record<string, unknown>;
-}): Record<string, unknown> => {
-  const raw = review.toObject();
-  const user = raw.user as { name?: string; avatar?: string } | undefined;
-  const safeName =
-    typeof user?.name === "string" && user.name.trim().length > 0 ?
-      user.name.trim()
-    : "Verified Buyer";
-  return {
-    ...raw,
-    user: {
-      ...(user || {}),
-      name: safeName,
-      badge: "Verified Buyer",
-    },
-  };
-};
+export const getFeaturedReviews = catchAsync(async (_req: AuthRequest, res: Response) => {
+  const payload = await reviewService.getFeaturedReviews();
+  sendSuccess(res, payload);
+});
 
-export const getFeaturedReviews = catchAsync(
-  async (_req: AuthRequest, res: Response) => {
-    const reviews = await Review.find({ rating: { $gte: 3 } })
-      .sort("-createdAt")
-      .limit(60)
-      .populate("user", "name avatar")
-      .populate("product", "name slug");
+export const getProductReviews = catchAsync(async (req: AuthRequest, res: Response) => {
+  const { productId } = req.params;
+  const page = Number(req.query.page) || 1;
+  const limit = Number(req.query.limit) || 10;
+  const sort = typeof req.query.sort === 'string' ? req.query.sort : undefined;
 
-    sendSuccess(res, {
-      reviews: reviews.map(sanitizeReviewForPublic),
-      results: reviews.length,
-    });
-  },
-);
+  const result = await reviewService.getProductReviews(productId, page, limit, sort);
 
-export const getProductReviews = catchAsync(
-  async (req: AuthRequest, res: Response) => {
-    const page = parseInt((req.query.page as string) || "1", 10);
-    const limit = parseInt((req.query.limit as string) || "10", 10);
-    const skip = (page - 1) * limit;
-
-    const [reviews, total] = await Promise.all([
-      Review.find({ product: req.params.productId })
-        .sort("-createdAt")
-        .skip(skip)
-        .limit(limit)
-        .populate("user", "name avatar"),
-      Review.countDocuments({ product: req.params.productId }),
-    ]);
-
-    const ratingDistribution = await Review.aggregate([
-      { $match: { product: reviews[0]?.product } },
-      { $group: { _id: "$rating", count: { $sum: 1 } } },
-      { $sort: { _id: -1 } },
-    ]);
-
-    sendPaginated(
-      res,
-      { reviews: reviews.map(sanitizeReviewForPublic), ratingDistribution },
-      { page, limit, total },
-    );
-  },
-);
+  sendPaginated(
+    res,
+    { reviews: result.reviews, ratingDistribution: result.ratingDistribution },
+    { page: result.page, limit: result.limit, total: result.total }
+  );
+});
 
 export const createReview = catchAsync(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     const { productId } = req.params;
-    const { rating, title, comment, orderId } = req.body;
-
-    const order = await Order.findOne({
-      _id: orderId,
-      user: req.user!._id,
-      status: "delivered",
-      "items.product": productId,
-    });
-
-    if (!order) {
-      return next(
-        new AppError(
-          "You can only review products you have purchased and received.",
-          403,
-        ),
-      );
-    }
-
-    const existingReview = await Review.findOne({
-      product: productId,
-      user: req.user!._id,
-    });
-    if (existingReview) {
-      return next(new AppError("You have already reviewed this product.", 409));
-    }
-
-    const reviewData: {
-      product: string;
-      user: string;
-      order: string;
+    const { rating, title, comment, orderId, idempotencyKey } = req.body as {
       rating: number;
       title?: string;
       comment: string;
-      isVerifiedPurchase: boolean;
-      images?: { url: string; publicId: string }[];
-    } = {
-      product: productId,
-      user: String(req.user!._id),
-      order: orderId,
-      rating,
-      title,
-      comment,
-      isVerifiedPurchase: true,
+      orderId: string;
+      idempotencyKey?: string;
     };
 
     const uploadedImages = (
@@ -122,144 +41,92 @@ export const createReview = catchAsync(
         uploadedImages?: { url: string; publicId: string }[];
       }
     ).uploadedImages;
-    if (uploadedImages && uploadedImages.length > 0) {
-      reviewData.images = uploadedImages.map((img) => ({
-        url: img.url,
-        publicId: img.publicId,
-      }));
+
+    const headerIdempotency = req.get('Idempotency-Key')?.trim();
+    const effectiveIdempotencyKey = idempotencyKey || headerIdempotency;
+
+    try {
+      const review = await reviewService.createReview({
+        userId: String(req.user!._id),
+        productId,
+        orderId,
+        rating,
+        title,
+        comment,
+        images:
+          uploadedImages && uploadedImages.length > 0 ?
+            uploadedImages.map((img) => ({
+              url: img.url,
+              publicId: img.publicId,
+            }))
+          : undefined,
+        idempotencyKey: effectiveIdempotencyKey,
+      });
+
+      sendSuccess(res, { review }, 'Review created', 201);
+    } catch (err) {
+      next(err);
     }
-
-    const review = await Review.create(reviewData);
-    await review.populate("user", "name avatar");
-
-    sendSuccess(res, { review }, "Review created", 201);
-  },
+  }
 );
 
 export const updateReview = catchAsync(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
-    const review = await Review.findOne({
-      _id: req.params.id,
-      user: req.user!._id,
-    });
-    if (!review) return next(new AppError("Review not found.", 404));
-
-    const { rating, title, comment } = req.body;
-    if (rating) review.rating = rating;
-    if (title) review.title = title;
-    if (comment) review.comment = comment;
-
-    await review.save();
-
-    sendSuccess(res, { review });
-  },
+    try {
+      const review = await reviewService.updateReview(String(req.user!._id), req.params.id, {
+        rating: req.body.rating,
+        title: req.body.title,
+        comment: req.body.comment,
+      });
+      sendSuccess(res, { review });
+    } catch (err) {
+      next(err);
+    }
+  }
 );
 
 export const deleteReview = catchAsync(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
-    const review = await Review.findOneAndDelete({
-      _id: req.params.id,
-      user: req.user!._id,
-    });
-
-    if (!review) return next(new AppError("Review not found.", 404));
-
-    res.status(204).end();
-  },
+    try {
+      await reviewService.deleteReview(String(req.user!._id), req.params.id);
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
 );
 
-export const canReviewProduct = catchAsync(
-  async (req: AuthRequest, res: Response) => {
-    const { productId } = req.params;
-    const [order, existingReview] = await Promise.all([
-      Order.findOne({
-        user: req.user!._id,
-        status: "delivered",
-        "items.product": productId,
-      }),
-      Review.findOne({ product: productId, user: req.user!._id }),
-    ]);
-    sendSuccess(res, {
-      canReview: !!order && !existingReview,
-      hasPurchased: !!order,
-      hasReviewed: !!existingReview,
-      orderId: order?._id || null,
-    });
-  },
-);
+export const canReviewProduct = catchAsync(async (req: AuthRequest, res: Response) => {
+  const result = await reviewService.canReviewProduct(
+    String(req.user!._id),
+    req.params.productId
+  );
+  sendSuccess(res, result);
+});
 
 export const voteHelpful = catchAsync(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
-    const review = await Review.findById(req.params.id);
-    if (!review) return next(new AppError("Review not found.", 404));
-
-    const userId = req.user!._id;
-    const alreadyVoted = review.helpfulVotes.some(
-      (id) => id.toString() === String(userId),
-    );
-
-    if (alreadyVoted) {
-      review.helpfulVotes = review.helpfulVotes.filter(
-        (id) => id.toString() !== String(userId),
-      );
-    } else {
-      review.helpfulVotes.push(userId);
+    try {
+      const result = await reviewService.voteHelpful(String(req.user!._id), req.params.id);
+      sendSuccess(res, result);
+    } catch (err) {
+      next(err);
     }
-
-    await review.save();
-
-    sendSuccess(res, {
-      helpfulCount: review.helpfulVotes.length,
-      voted: !alreadyVoted,
-    });
-  },
+  }
 );
 
 export const reportReview = catchAsync(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
-    const review = await Review.findById(req.params.id);
-    if (!review) return next(new AppError("Review not found.", 404));
-
-    const userId = String(req.user!._id);
-    const reason = String(req.body.reason || "")
-      .trim()
-      .toLowerCase();
-    const details =
-      typeof req.body.details === "string" ? req.body.details.trim() : "";
-
-    const allowedReasons = new Set(["spam", "abusive", "misleading", "other"]);
-    if (!allowedReasons.has(reason)) {
-      return next(new AppError("Please provide a valid report reason.", 400));
-    }
-    if (details.length > 300) {
-      return next(
-        new AppError("Report details cannot exceed 300 characters.", 400),
+    try {
+      const { reportCount } = await reviewService.reportReview(
+        String(req.user!._id),
+        req.params.id,
+        req.body.reason as ReportReason,
+        req.body.details
       );
+      sendSuccess(res, { reportCount }, 'Review reported successfully');
+    } catch (err) {
+      next(err);
     }
-
-    const hasAlreadyReported = (review.reports || []).some(
-      (r) => String(r.user) === userId,
-    );
-    if (hasAlreadyReported) {
-      return next(new AppError("You have already reported this review.", 409));
-    }
-
-    review.reports = [
-      ...(review.reports || []),
-      {
-        user: req.user!._id,
-        reason: reason as "spam" | "abusive" | "misleading" | "other",
-        details: details || undefined,
-        createdAt: new Date(),
-      },
-    ];
-    review.reportCount = review.reports.length;
-    await review.save();
-
-    sendSuccess(
-      res,
-      { reportCount: review.reportCount },
-      "Review reported successfully",
-    );
-  },
+  }
 );

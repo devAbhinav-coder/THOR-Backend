@@ -18,8 +18,15 @@ import {
   removeAddress,
   deleteMe,
 } from '../controllers/authController';
+import {
+  getSessions,
+  revokeSession,
+  logoutAllDevices,
+  logoutAllIncludingCurrent,
+} from '../controllers/sessionController';
 import { protect } from '../middleware/auth';
 import { validate } from '../middleware/validate';
+import { turnstileGuard } from '../middleware/turnstileGuard';
 import { uploadAvatar, processAvatar } from '../middleware/upload';
 import {
   signupStartSchema,
@@ -35,6 +42,7 @@ import {
   verifyOtpSchema,
   resendOtpSchema,
 } from '../validation/schemas';
+import { sessionIdParamSchema } from '../validation/sessionSchemas';
 import { postSendOtp, postVerifyOtp, postResendOtp } from '../controllers/otpController';
 import { createAdaptiveLimiter } from '../middleware/adaptiveRateLimit';
 
@@ -78,15 +86,15 @@ const otpLimiter = rateLimit({
     : {}),
 });
 
-router.post('/signup/start', otpLimiter, validate(signupStartSchema), signupStart);
-router.post('/signup/verify', otpLimiter, validate(signupVerifySchema), signupVerify);
+router.post('/signup/start', otpLimiter, turnstileGuard, validate(signupStartSchema), signupStart);
+router.post('/signup/verify', otpLimiter, turnstileGuard, validate(signupVerifySchema), signupVerify);
 /** Unified OTP API (immediate Zoho + Resend fallback). */
-router.post('/send-otp', otpLimiter, validate(sendOtpSchema), postSendOtp);
+router.post('/send-otp', otpLimiter, turnstileGuard, validate(sendOtpSchema), postSendOtp);
 router.post('/resend-otp', otpLimiter, validate(resendOtpSchema), postResendOtp);
 router.post('/verify-otp', otpLimiter, validate(verifyOtpSchema), postVerifyOtp);
-router.post('/login', loginLimiter, sensitiveAuthLimiter, validate(loginSchema), login);
+router.post('/login', loginLimiter, sensitiveAuthLimiter, turnstileGuard, validate(loginSchema), login);
 router.post('/refresh', sensitiveAuthLimiter, refresh);
-router.post('/forgot-password', otpLimiter, validate(forgotPasswordSchema), forgotPassword);
+router.post('/forgot-password', otpLimiter, turnstileGuard, validate(forgotPasswordSchema), forgotPassword);
 router.post('/reset-password', otpLimiter, validate(resetPasswordSchema), resetPassword);
 router.post('/google', loginLimiter, sensitiveAuthLimiter, validate(googleAuthSchema), googleAuth);
 router.post('/logout', logout);
@@ -104,5 +112,9 @@ router.patch(
 router.delete('/delete-me', deleteMe);
 router.post('/addresses', validate(addAddressSchema), addAddress);
 router.delete('/addresses/:addressId', removeAddress);
+router.get('/sessions', getSessions);
+router.delete('/sessions/:sessionId', sensitiveAuthLimiter, validate(sessionIdParamSchema), revokeSession);
+router.post('/sessions/revoke-others', sensitiveAuthLimiter, logoutAllDevices);
+router.post('/sessions/revoke-all', sensitiveAuthLimiter, logoutAllIncludingCurrent);
 
 export default router;

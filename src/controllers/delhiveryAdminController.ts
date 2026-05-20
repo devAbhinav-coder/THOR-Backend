@@ -32,6 +32,7 @@ import { writeAdminAudit } from "../services/adminAuditService";
 import { enqueueEmail } from "../queues/emailQueue";
 import { emailTemplates } from "../services/emailService";
 import { notifyUser } from "../services/notificationService";
+import { getOrderShippedCopy } from "../services/notifications/orderNotificationCopy";
 import { IAddress } from "../types";
 
 function maskConfig() {
@@ -474,12 +475,17 @@ export const createDelhiveryShipmentForOrder = catchAsync(
         },
       );
       await enqueueEmail({ to: user.email, subject: tpl.subject, html: tpl.html });
+      const shippedCopy = getOrderShippedCopy(populated.orderNumber!, {
+        carrier: "Delhivery",
+        awb: primaryWb,
+        trackingUrl: trackUrl,
+      });
       await notifyUser(
         populated.user._id,
-        `Order ${populated.orderNumber} is on its way!`,
-        `Your order is on its way via Delhivery, AWB: ${primaryWb}.`,
+        shippedCopy.title,
+        shippedCopy.message,
         `/dashboard/orders/${populated._id}`,
-        "order",
+        shippedCopy.type,
       );
     }
 

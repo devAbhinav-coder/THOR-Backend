@@ -1,6 +1,6 @@
 import mongoose, { Schema } from 'mongoose';
 import { IReview } from '../types';
-import Product from './Product';
+import { PUBLIC_REVIEW_FILTER } from '../services/reviews/reviewConstants';
 
 const reviewSchema = new Schema<IReview>(
   {
@@ -42,6 +42,19 @@ const reviewSchema = new Schema<IReview>(
     ],
     isVerifiedPurchase: { type: Boolean, default: true },
     helpfulVotes: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+    helpfulCount: { type: Number, default: 0, min: 0 },
+    userSnapshot: {
+      name: String,
+      avatar: String,
+    },
+    status: {
+      type: String,
+      enum: ['visible', 'hidden', 'flagged', 'pending_moderation'],
+      default: 'visible',
+    },
+    deletedAt: { type: Date, default: null },
+    moderationFlags: [String],
+    moderationScore: { type: Number, default: 0 },
     reports: [
       {
         user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
@@ -68,10 +81,19 @@ const reviewSchema = new Schema<IReview>(
 
 reviewSchema.index({ product: 1, user: 1 }, { unique: true });
 reviewSchema.index({ product: 1, rating: -1 });
+reviewSchema.index({ product: 1, status: 1, deletedAt: 1, createdAt: -1 });
+reviewSchema.index({ product: 1, helpfulCount: -1, createdAt: -1 });
+reviewSchema.index({ 'reports.user': 1, _id: 1 });
 
 reviewSchema.statics.calcAverageRatings = async function (productId: mongoose.Types.ObjectId) {
+  const Product = mongoose.model('Product');
   const stats = await this.aggregate([
-    { $match: { product: productId } },
+    {
+      $match: {
+        product: productId,
+        ...PUBLIC_REVIEW_FILTER,
+      },
+    },
     {
       $group: {
         _id: '$product',
@@ -95,12 +117,20 @@ reviewSchema.statics.calcAverageRatings = async function (productId: mongoose.Ty
 };
 
 reviewSchema.post('save', async function () {
-  await (this.constructor as typeof mongoose.Model & { calcAverageRatings: (id: mongoose.Types.ObjectId) => Promise<void> }).calcAverageRatings(this.product as mongoose.Types.ObjectId);
+  await (
+    this.constructor as typeof mongoose.Model & {
+      calcAverageRatings: (id: mongoose.Types.ObjectId) => Promise<void>;
+    }
+  ).calcAverageRatings(this.product as mongoose.Types.ObjectId);
 });
 
 reviewSchema.post('findOneAndDelete', async function (doc: IReview) {
   if (doc) {
-    await (mongoose.model('Review') as typeof mongoose.Model & { calcAverageRatings: (id: mongoose.Types.ObjectId) => Promise<void> }).calcAverageRatings(doc.product as mongoose.Types.ObjectId);
+    await (
+      mongoose.model('Review') as typeof mongoose.Model & {
+        calcAverageRatings: (id: mongoose.Types.ObjectId) => Promise<void>;
+      }
+    ).calcAverageRatings(doc.product as mongoose.Types.ObjectId);
   }
 });
 

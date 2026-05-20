@@ -22,6 +22,19 @@ export function isWebPushConfigured(): boolean {
   return configured;
 }
 
+/** Subscription is permanently invalid (gone, or signed with different VAPID keys). */
+function isStaleWebPushSubscription(err: unknown): boolean {
+  const statusCode = Number((err as { statusCode?: number })?.statusCode || 0);
+  if (statusCode === 404 || statusCode === 410) return true;
+  if (statusCode !== 403) return false;
+  const body = String((err as { body?: string })?.body || "").toLowerCase();
+  return (
+    body.includes("vapid") ||
+    body.includes("credentials") ||
+    body.includes("authorization header")
+  );
+}
+
 export async function sendWebPushToUser(
   userId: string,
   payload: { title: string; body: string; link?: string; tag?: string },
@@ -34,7 +47,9 @@ export async function sendWebPushToUser(
   const subs = await PushSubscriptionModel.find({
     user: userId,
     isActive: true,
-  }).lean();
+  })
+    .lean()
+    .maxTimeMS(5000);
   if (!subs.length) return;
 
   const message = JSON.stringify({
@@ -58,15 +73,22 @@ export async function sendWebPushToUser(
           message,
           { TTL: 60 * 60 * 24 },
         );
+        await PushSubscriptionModel.updateOne(
+          { endpoint: sub.endpoint },
+          { lastUsedAt: new Date() },
+        ).catch(() => {});
       } catch (err: unknown) {
-        const statusCode = Number(
-          (err as { statusCode?: number })?.statusCode || 0,
-        );
-        if (statusCode === 404 || statusCode === 410) {
+        if (isStaleWebPushSubscription(err)) {
           await PushSubscriptionModel.updateOne(
             { endpoint: sub.endpoint },
             { isActive: false },
           );
+          const { trackInvalidPushToken } = await import('./notifications/pushDeliveryTrackingService');
+          void trackInvalidPushToken('web');
+          logger.info("Deactivated stale web push subscription", {
+            userId,
+            endpoint: sub.endpoint,
+          });
           return;
         }
         logger.error("Web push send failed", {

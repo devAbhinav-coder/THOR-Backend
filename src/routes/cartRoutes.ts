@@ -9,22 +9,42 @@ import {
   applyCoupon,
   removeCoupon,
 } from '../controllers/cartController';
+import { cartSyncStream } from '../controllers/cartSyncController';
 import { protect } from '../middleware/auth';
 import { validate } from '../middleware/validate';
-import { addToCartSchema, updateCartItemSchema } from '../validation/schemas';
-import { uploadGiftingImages, processGiftingImages } from '../middleware/upload';
+import {
+  addToCartSchema,
+  updateCartItemSchema,
+  applyCouponSchema,
+} from '../validation/cartSchemas';
+import {
+  uploadCartCustomFieldImage,
+  processCartCustomFieldImage,
+} from '../middleware/upload';
+import { cartCouponLimiter, cartMutationLimiter } from '../middleware/cartRateLimit';
 
 const router = Router();
 
 router.use(protect);
 
 router.get('/', getCart);
-router.post('/custom-field-image', uploadGiftingImages, processGiftingImages, uploadCustomFieldImage);
-router.post('/add', validate(addToCartSchema), addToCart);
-router.patch('/item/:sku', validate(updateCartItemSchema), updateCartItem);
-router.delete('/item/:sku', removeFromCart);
+router.get('/sync', cartSyncStream);
+router.post(
+  '/custom-field-image',
+  uploadCartCustomFieldImage,
+  processCartCustomFieldImage,
+  uploadCustomFieldImage
+);
+router.post('/add', cartMutationLimiter, validate(addToCartSchema), addToCart);
+router.patch(
+  '/item/:cartItemId',
+  cartMutationLimiter,
+  validate(updateCartItemSchema),
+  updateCartItem
+);
+router.delete('/item/:cartItemId', removeFromCart);
 router.delete('/', clearCart);
-router.post('/apply-coupon', applyCoupon);
+router.post('/apply-coupon', cartCouponLimiter, validate(applyCouponSchema), applyCoupon);
 router.delete('/coupon', removeCoupon);
 
 export default router;

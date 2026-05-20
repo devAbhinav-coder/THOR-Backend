@@ -5,6 +5,8 @@ import logger from "../utils/logger";
 import { enqueueEmail } from "../queues/emailQueue";
 import { emailTemplates } from "./emailService";
 import { notifyUser } from "./notificationService";
+import { getOrderDeliveredCopy } from "./notifications/orderNotificationCopy";
+import { onOrderMarkedDelivered } from "./coupon/couponUserStatsService";
 
 function carrierIsDelhivery(carrier?: string): boolean {
   return (carrier || "").toLowerCase().includes("delhivery");
@@ -275,6 +277,7 @@ export async function syncDelhiveryOrderById(orderId: string): Promise<{
     await order.save();
 
     if (statusChanged) {
+      void onOrderMarkedDelivered(String(order.user)).catch(() => {});
       const populated = await Order.findById(order._id).populate("user", "name email");
       const user = populated?.user as unknown as { name?: string; email?: string; _id?: string } | undefined;
       if (populated && user?.email) {
@@ -285,12 +288,13 @@ export async function syncDelhiveryOrderById(orderId: string): Promise<{
           undefined,
         );
         await enqueueEmail({ to: user.email, subject: tpl.subject, html: tpl.html });
+        const deliveredCopy = getOrderDeliveredCopy(populated.orderNumber!);
         await notifyUser(
           populated.user._id,
-          `Order ${populated.orderNumber} delivered`,
-          "Your order has been delivered. We hope you love it!",
+          deliveredCopy.title,
+          deliveredCopy.message,
           `/dashboard/orders/${populated._id}`,
-          "success",
+          deliveredCopy.type,
         );
       }
     }

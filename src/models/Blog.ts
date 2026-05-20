@@ -54,6 +54,8 @@ const blogSchema = new Schema<IBlog>(
 
 // Indexing for faster searches
 blogSchema.index({ isPublished: 1, createdAt: -1 });
+// Text index for full-text search on title and content (avoids full collection regex scans)
+blogSchema.index({ title: 'text', content: 'text' });
 
 const Blog = mongoose.model<IBlog>('Blog', blogSchema);
 export default Blog;

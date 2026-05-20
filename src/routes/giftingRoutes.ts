@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { protect, restrictTo } from '../middleware/auth';
+import { createAdaptiveLimiter } from '../middleware/adaptiveRateLimit';
 import {
   getGiftableProducts,
   getGiftCategories,
@@ -20,6 +21,20 @@ import {
 
 const router = Router();
 
+const giftingSubmitLimiter = createAdaptiveLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 15,
+  prefix: 'gifting:submit',
+  message: 'Too many gifting requests. Please try again later.',
+});
+
+const giftingRespondLimiter = createAdaptiveLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  prefix: 'gifting:respond',
+  message: 'Too many quote responses. Please wait and try again.',
+});
+
 // Public (no auth required)
 router.get('/products', getGiftableProducts);
 router.get('/categories', getGiftCategories);
@@ -30,6 +45,7 @@ router.get('/categories', getGiftCategories);
 router.post(
   '/requests',
   protect,
+  giftingSubmitLimiter,
   uploadGiftingImages,
   processGiftingImages,
   validate(submitGiftingRequestSchema),
@@ -37,7 +53,13 @@ router.post(
 );
 router.get('/my-requests', protect, getMyGiftingRequests);
 router.get('/requests/:id', protect, getGiftingRequestById);
-router.post('/requests/:id/respond', protect, validate(giftingRespondSchema), userRespondToQuote);
+router.post(
+  '/requests/:id/respond',
+  protect,
+  giftingRespondLimiter,
+  validate(giftingRespondSchema),
+  userRespondToQuote
+);
 
 // Admin
 router.get('/requests', protect, restrictTo('admin'), getGiftingRequests);

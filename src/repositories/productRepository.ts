@@ -14,7 +14,8 @@ export const productRepository = {
       .limit(8)
       .select(
         "name slug price comparePrice images ratings category fabric isFeatured variants isCustomizable customFields",
-      );
+      )
+      .lean<Record<string, unknown>[]>();
   },
 
   findGiftable(filter: Record<string, unknown>, skip: number, limit: number, customSort?: Record<string, unknown>) {
@@ -23,11 +24,13 @@ export const productRepository = {
       query.select({ score: { $meta: "textScore" } });
     }
     const sortParams = customSort || (filter.$text ? { score: { $meta: "textScore" } } : { isFeatured: -1, createdAt: -1 });
-    
+
     return query
       .sort(sortParams as Parameters<typeof query.sort>[0])
       .skip(skip)
       .limit(limit)
-      .select("name slug price comparePrice images category description shortDescription tags giftOccasions isFeatured isActive minOrderQty isCustomizable customFields productDetails variants");
+      .select("name slug price comparePrice images category description shortDescription tags giftOccasions isFeatured isActive minOrderQty isCustomizable customFields productDetails variants")
+      .lean<Record<string, unknown>[]>();
   },
 };
+

@@ -4,6 +4,7 @@ import { IOrder } from '../types';
 const orderItemSchema = new Schema({
   product: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
   name: { type: String, required: true },
+  slug: { type: String }, // Made optional temporarily for backwards compatibility with old orders
   image: { type: String, required: true },
   variant: {
     size: String,
@@ -140,6 +141,12 @@ const orderSchema = new Schema<IOrder>(
     },
     /** Delhivery automation: package snapshot, waybills, tracking sync cache */
     delhivery: { type: Schema.Types.Mixed },
+    /**
+     * True when stock has been decremented for this order (at checkout intent or COD creation).
+     * Used as the authoritative flag for restock-on-cancel decisions.
+     * Replaces payment-method heuristics for orders created after this field was introduced.
+     */
+    inventoryReserved: { type: Boolean, default: false },
   },
   {
     timestamps: true,
@@ -171,7 +178,11 @@ orderSchema.pre<IOrder>('save', async function (next) {
 });
 
 orderSchema.index({ user: 1, createdAt: -1 });
+orderSchema.index({ user: 1, status: 1, createdAt: -1 });
 orderSchema.index({ status: 1 });
+orderSchema.index({ status: 1, updatedAt: -1 });
+orderSchema.index({ paymentStatus: 1, createdAt: -1 });
+orderSchema.index({ 'statusHistory.timestamp': -1 });
 /**
  * Paid orders: at most one per Razorpay order / payment id (prevents duplicate confirms).
  * Partial index avoids unique collisions on legacy unpaid or duplicate-pending rows.

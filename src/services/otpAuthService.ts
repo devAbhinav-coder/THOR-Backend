@@ -1,21 +1,36 @@
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
+import mongoose from "mongoose";
 import AuthOtp, { AuthOtpPurpose } from "../models/AuthOtp";
 import User from "../models/User";
 import { removeOfflineCustomerByEmail } from "./offlineCustomerService";
 import { emailTemplates } from "./emailService";
 import { deliverOtpEmail } from "./emailDeliveryService";
 import { assertOtpSendAllowed, recordOtpSend } from "./otpRateLimitService";
+import {
+  assertOtpVerifyAllowed,
+  clearOtpVerifyFailures,
+  recordOtpVerifyFailure,
+} from "./otpVerifyThrottleService";
 import { enqueueEmail } from "../queues/emailQueue";
 import { sendEmailNow } from "./emailService";
+import { issuePasswordResetToken } from "./passwordResetTokenService";
 import logger from "../utils/logger";
+import { normalizeEmail, normalizeIndianPhone, normalizeOtp } from "../auth/authNormalize";
+import { serviceError, OTP_INVALID, OTP_TOO_MANY } from "../auth/authErrors";
 
-/** Public API / frontend */
 export type OtpFlowType = "signup" | "login" | "forgot_password";
 
 const OTP_EXPIRY_MS = 10 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 60 * 1000;
+export const RESEND_COOLDOWN_SEC = Math.ceil(RESEND_COOLDOWN_MS / 1000);
 export const MAX_OTP_VERIFY_ATTEMPTS = 5;
+
+export function getResendCooldownSeconds(lastSentAt: Date | undefined): number {
+  if (!lastSentAt) return 0;
+  const remaining = RESEND_COOLDOWN_MS - (Date.now() - new Date(lastSentAt).getTime());
+  return remaining > 0 ? Math.ceil(remaining / 1000) : 0;
+}
 
 function mapFlowToPurpose(flow: OtpFlowType): AuthOtpPurpose {
   if (flow === "forgot_password") return "password_reset";
@@ -28,17 +43,6 @@ async function issueOtpCode(): Promise<{ plain: string; hash: string }> {
   return { plain, hash };
 }
 
-function err(message: string, statusCode: number): Error {
-  const e = new Error(message);
-  (e as Error & { statusCode?: number }).statusCode = statusCode;
-  return e;
-}
-
-/**
- * Welcome mail must not block the verify-otp HTTP response: SMTP can take tens of seconds
- * (or hang on blocked ports), while the frontend axios client times out at 15s — users see
- * "no response" even though OTP was valid and the account was created.
- */
 function scheduleWelcomeEmail(
   userId: string,
   emailLower: string,
@@ -72,43 +76,67 @@ function scheduleWelcomeEmail(
   })();
 }
 
-/** Creates the user after signup OTP is verified; welcome email is sent in the background. */
 export async function createVerifiedSignupUser(
   emailLower: string,
   signupPayload: SignupOtpPayload,
 ): Promise<InstanceType<typeof User>> {
-  const claim = await User.findOne({ email: emailLower, offlineLead: true }).select(
-    "+password",
-  );
-  if (claim) {
-    claim.name = signupPayload.name.trim().slice(0, 50);
-    claim.password = signupPayload.password;
-    if (signupPayload.phone?.trim()) {
-      const p10 = signupPayload.phone.replace(/\D/g, "").slice(-10);
-      if (/^[6-9]\d{9}$/.test(p10)) {
-        claim.phone = p10;
+  const session = await mongoose.startSession();
+  try {
+    let createdUser: InstanceType<typeof User> | null = null;
+    await session.withTransaction(async () => {
+      const claim = await User.findOne({
+        email: emailLower,
+        offlineLead: true,
+      })
+        .select("+password")
+        .session(session);
+
+      if (claim) {
+        claim.name = signupPayload.name.trim().slice(0, 50);
+        claim.password = signupPayload.password;
+        if (signupPayload.phone?.trim()) {
+          const p10 = normalizeIndianPhone(signupPayload.phone);
+          if (/^[6-9]\d{9}$/.test(p10)) {
+            claim.phone = p10;
+          }
+        }
+        claim.offlineLead = false;
+        claim.emailVerified = true;
+        await claim.save({ session });
+        createdUser = claim;
+      } else {
+        const existing = await User.findOne({ email: emailLower })
+          .select("_id offlineLead")
+          .session(session);
+        if (existing && !existing.offlineLead) {
+          throw serviceError("An account with this email already exists.", 409);
+        }
+        const created = await User.create(
+          [
+            {
+              name: signupPayload.name,
+              email: emailLower,
+              password: signupPayload.password,
+              phone: signupPayload.phone || undefined,
+              emailVerified: true,
+              addresses: [],
+            },
+          ],
+          { session },
+        );
+        createdUser = created[0]!;
       }
+    });
+    if (!createdUser) {
+      throw serviceError("Could not create account.", 500);
     }
-    claim.offlineLead = false;
-    claim.emailVerified = true;
-    await claim.save();
+    const user: InstanceType<typeof User> = createdUser;
     await removeOfflineCustomerByEmail(emailLower);
-    scheduleWelcomeEmail(String(claim._id), emailLower, signupPayload.name);
-    return claim;
+    scheduleWelcomeEmail(String(user._id), emailLower, signupPayload.name);
+    return user;
+  } finally {
+    await session.endSession();
   }
-
-  const user = await User.create({
-    name: signupPayload.name,
-    email: emailLower,
-    password: signupPayload.password,
-    phone: signupPayload.phone || undefined,
-    emailVerified: true,
-    addresses: [],
-  });
-
-  await removeOfflineCustomerByEmail(emailLower);
-  scheduleWelcomeEmail(String(user._id), emailLower, signupPayload.name);
-  return user;
 }
 
 export type SignupOtpBody = {
@@ -132,72 +160,64 @@ export type VerifyOtpResult =
       signupPayload: SignupOtpPayload;
     }
   | { ok: true; flow: "login"; user: InstanceType<typeof User> }
-  | { ok: true; flow: "forgot_password" }
-  | { ok: false; message: string; statusCode: number };
+  | { ok: true; flow: "forgot_password"; resetToken: string }
+  | { ok: false; message: string; statusCode: number; retryAfter?: number };
 
-/**
- * Sends a 6-digit OTP via Resend.
- * Enforces: 60s resend cooldown, max 3 sends / 10 min per email+flow (Redis or Mongo).
- */
 export async function sendOtp(params: {
   flow: OtpFlowType;
   email: string;
   signup?: SignupOtpBody;
 }): Promise<void> {
-  const emailLower = params.email.toLowerCase().trim();
+  const emailLower = normalizeEmail(params.email);
   const purpose = mapFlowToPurpose(params.flow);
 
-  const existing = await AuthOtp.findOne({ email: emailLower, purpose });
+  const existing = await AuthOtp.findOne({ email: emailLower, purpose }).lean();
   if (
     existing?.lastSentAt &&
     Date.now() - new Date(existing.lastSentAt).getTime() < RESEND_COOLDOWN_MS
   ) {
-    const waitSec = Math.ceil(
-      (RESEND_COOLDOWN_MS -
-        (Date.now() - new Date(existing.lastSentAt).getTime())) /
-        1000,
-    );
-    throw err(
+    const waitSec = getResendCooldownSeconds(existing.lastSentAt);
+    throw serviceError(
       `Please wait ${waitSec}s before requesting another code.`,
       429,
+      waitSec,
     );
   }
 
   if (params.flow === "signup") {
     const s = params.signup;
     if (!s?.name || !s.password || !s.phone) {
-      throw err("Name, password, and phone are required for signup.", 400);
+      throw serviceError("Name, password, and phone are required for signup.", 400);
     }
-    const taken = await User.findOne({ email: emailLower }).select("offlineLead");
+    const taken = await User.findOne({ email: emailLower }).select("offlineLead").lean();
     if (taken && !taken.offlineLead) {
-      throw err("An account with this email already exists.", 409);
+      throw serviceError("An account with this email already exists.", 409);
     }
   } else if (params.flow === "login") {
     const user = await User.findOne({ email: emailLower }).select(
-      "+googleId emailVerified isActive name",
+      "+googleId emailVerified isActive",
     );
     if (!user) {
-      throw err("No password account found for this email.", 404);
+      throw serviceError("No password account found for this email.", 404);
     }
     if (user.googleId) {
-      throw err(
+      throw serviceError(
         "This account uses Google sign-in. Use Sign in with Google.",
         400,
       );
     }
     if (!user.isActive) {
-      throw err(
+      throw serviceError(
         "Your account has been deactivated. Please contact support.",
         403,
       );
     }
     if (user.emailVerified === false) {
-      throw err("Please verify your email before signing in.", 403);
+      throw serviceError("Please verify your email before signing in.", 403);
     }
   } else if (params.flow === "forgot_password") {
-    const user = await User.findOne({ email: emailLower }).select("+googleId name");
+    const user = await User.findOne({ email: emailLower }).select("+googleId").lean();
     if (!user || user.googleId) {
-      /* Do not leak account existence */
       logger.info(`Forgot-password OTP skipped (no eligible account): ${emailLower}`);
       return;
     }
@@ -219,6 +239,7 @@ export async function sendOtp(params: {
         expiresAt,
         attempts: 0,
         lastSentAt: now,
+        $unset: { consumedAt: 1, resetTokenHash: 1, resetTokenExpiresAt: 1 },
         signupPayload: {
           name: params.signup.name,
           phone: params.signup.phone,
@@ -238,8 +259,8 @@ export async function sendOtp(params: {
   }
 
   if (params.flow === "login") {
-    const user = await User.findOne({ email: emailLower });
-    if (!user) throw err("No password account found for this email.", 404);
+    const user = await User.findOne({ email: emailLower }).lean();
+    if (!user) throw serviceError("No password account found for this email.", 404);
     await AuthOtp.findOneAndUpdate(
       { email: emailLower, purpose: "login" },
       {
@@ -249,7 +270,7 @@ export async function sendOtp(params: {
         expiresAt,
         attempts: 0,
         lastSentAt: now,
-        $unset: { signupPayload: 1 },
+        $unset: { signupPayload: 1, consumedAt: 1, resetTokenHash: 1, resetTokenExpiresAt: 1 },
       },
       { upsert: true, new: true, runValidators: true },
     );
@@ -263,8 +284,7 @@ export async function sendOtp(params: {
     return;
   }
 
-  /* forgot_password */
-  const user = await User.findOne({ email: emailLower });
+  const user = await User.findOne({ email: emailLower }).lean();
   if (!user || user.googleId) {
     return;
   }
@@ -277,7 +297,7 @@ export async function sendOtp(params: {
       expiresAt,
       attempts: 0,
       lastSentAt: now,
-      $unset: { signupPayload: 1 },
+      $unset: { signupPayload: 1, consumedAt: 1, resetTokenHash: 1, resetTokenExpiresAt: 1 },
     },
     { upsert: true, new: true, runValidators: true },
   );
@@ -290,33 +310,26 @@ export async function sendOtp(params: {
   });
 }
 
-/**
- * Resend flow: signup refreshes the code while keeping the stored signup payload.
- * Login / forgot behave like a new `sendOtp` (re-validates account rules).
- */
 export async function resendOtp(params: {
   flow: OtpFlowType;
   email: string;
 }): Promise<void> {
-  const emailLower = params.email.toLowerCase().trim();
+  const emailLower = normalizeEmail(params.email);
 
   if (params.flow === "signup") {
     const doc = await AuthOtp.findOne({ email: emailLower, purpose: "signup" });
     if (!doc?.signupPayload) {
-      throw err("No pending signup for this email. Please start again.", 400);
+      throw serviceError("No pending signup for this email. Please start again.", 400);
     }
     if (
       doc.lastSentAt &&
       Date.now() - new Date(doc.lastSentAt).getTime() < RESEND_COOLDOWN_MS
     ) {
-      const waitSec = Math.ceil(
-        (RESEND_COOLDOWN_MS -
-          (Date.now() - new Date(doc.lastSentAt).getTime())) /
-          1000,
-      );
-      throw err(
+      const waitSec = getResendCooldownSeconds(doc.lastSentAt);
+      throw serviceError(
         `Please wait ${waitSec}s before requesting another code.`,
         429,
+        waitSec,
       );
     }
     await assertOtpSendAllowed(emailLower, params.flow);
@@ -324,7 +337,7 @@ export async function resendOtp(params: {
     const expiresAt = new Date(Date.now() + OTP_EXPIRY_MS);
     const now = new Date();
     await AuthOtp.updateOne(
-      { _id: doc._id },
+      { _id: doc._id, consumedAt: { $exists: false } },
       {
         $set: {
           codeHash: hash,
@@ -332,6 +345,7 @@ export async function resendOtp(params: {
           attempts: 0,
           lastSentAt: now,
         },
+        $unset: { resetTokenHash: 1, resetTokenExpiresAt: 1 },
       },
     );
     const name = (doc.signupPayload as SignupOtpPayload).name;
@@ -349,45 +363,94 @@ export async function resendOtp(params: {
 }
 
 /**
- * Verifies OTP: checks hash, expiry, attempts. Deletes the OTP document on success
- * for signup and login. For forgot_password, keeps the document until reset-password consumes it.
+ * Atomic OTP verification: compare hash, consume once, prevent replay/races.
  */
 export async function verifyOtp(params: {
   flow: OtpFlowType;
   email: string;
   otp: string;
+  ip?: string;
 }): Promise<VerifyOtpResult> {
-  const emailLower = params.email.toLowerCase().trim();
+  const emailLower = normalizeEmail(params.email);
   const purpose = mapFlowToPurpose(params.flow);
+  const otpNorm = normalizeOtp(params.otp);
+  const ip = params.ip || "unknown";
 
-  const doc = await AuthOtp.findOne({ email: emailLower, purpose });
-  if (!doc || doc.expiresAt.getTime() < Date.now()) {
-    return { ok: false, message: "Invalid or expired verification code.", statusCode: 400 };
-  }
-  if (doc.attempts >= MAX_OTP_VERIFY_ATTEMPTS) {
-    return {
-      ok: false,
-      message: "Too many attempts. Please request a new code.",
-      statusCode: 429,
-    };
+  await assertOtpVerifyAllowed(emailLower, params.flow, ip);
+
+  const doc = await AuthOtp.findOne({
+    email: emailLower,
+    purpose,
+    consumedAt: { $exists: false },
+    expiresAt: { $gt: new Date() },
+    attempts: { $lt: MAX_OTP_VERIFY_ATTEMPTS },
+  });
+
+  if (!doc) {
+    const exhausted = await AuthOtp.findOne({
+      email: emailLower,
+      purpose,
+      consumedAt: { $exists: false },
+      expiresAt: { $gt: new Date() },
+      attempts: { $gte: MAX_OTP_VERIFY_ATTEMPTS },
+    }).lean();
+    if (exhausted) {
+      return { ok: false, message: OTP_TOO_MANY, statusCode: 429, retryAfter: RESEND_COOLDOWN_SEC };
+    }
+    return { ok: false, message: OTP_INVALID, statusCode: 400 };
   }
 
-  const match = await bcrypt.compare(String(params.otp), doc.codeHash);
+  const match = await bcrypt.compare(otpNorm, doc.codeHash);
   if (!match) {
-    await AuthOtp.updateOne({ _id: doc._id }, { $inc: { attempts: 1 } });
+    const bumped = await AuthOtp.findOneAndUpdate(
+      {
+        _id: doc._id,
+        consumedAt: { $exists: false },
+        attempts: { $lt: MAX_OTP_VERIFY_ATTEMPTS },
+      },
+      { $inc: { attempts: 1 } },
+      { new: true },
+    );
+    await recordOtpVerifyFailure(emailLower, params.flow, ip);
+    if (!bumped || bumped.attempts >= MAX_OTP_VERIFY_ATTEMPTS) {
+      return { ok: false, message: OTP_TOO_MANY, statusCode: 429, retryAfter: RESEND_COOLDOWN_SEC };
+    }
     return { ok: false, message: "Invalid verification code.", statusCode: 400 };
   }
 
+  /** Single-winner consume — prevents duplicate sessions on concurrent verify. */
+  const consumed = await AuthOtp.findOneAndUpdate(
+    {
+      _id: doc._id,
+      consumedAt: { $exists: false },
+      expiresAt: { $gt: new Date() },
+      attempts: { $lt: MAX_OTP_VERIFY_ATTEMPTS },
+    },
+    { $set: { consumedAt: new Date() } },
+    { new: true },
+  );
+
+  if (!consumed) {
+    return {
+      ok: false,
+      message: "This code was already used. Request a new one.",
+      statusCode: 400,
+    };
+  }
+
+  await clearOtpVerifyFailures(emailLower, params.flow, ip);
+
   if (params.flow === "signup") {
-    const payload = doc.signupPayload as SignupOtpPayload | undefined;
+    const payload = consumed.signupPayload as SignupOtpPayload | undefined;
     if (!payload?.name || !payload?.password) {
+      await AuthOtp.deleteOne({ _id: consumed._id });
       return {
         ok: false,
         message: "Signup session invalid. Please start again.",
         statusCode: 400,
       };
     }
-    await AuthOtp.deleteOne({ _id: doc._id });
+    await AuthOtp.deleteOne({ _id: consumed._id });
     return {
       ok: true,
       flow: "signup",
@@ -399,12 +462,23 @@ export async function verifyOtp(params: {
   if (params.flow === "login") {
     const user = await User.findOne({ email: emailLower }).select("+googleId");
     if (!user || user.googleId || !user.isActive || user.emailVerified === false) {
-      return { ok: false, message: "Invalid or expired verification code.", statusCode: 400 };
+      await AuthOtp.deleteOne({ _id: consumed._id });
+      return { ok: false, message: OTP_INVALID, statusCode: 400 };
     }
-    await AuthOtp.deleteOne({ _id: doc._id });
+    await AuthOtp.deleteOne({ _id: consumed._id });
     return { ok: true, flow: "login", user };
   }
 
-  /* forgot_password — only validates code; reset-password still required */
-  return { ok: true, flow: "forgot_password" };
+  const { raw, hash, expiresAt } = issuePasswordResetToken();
+  await AuthOtp.updateOne(
+    { _id: consumed._id },
+    {
+      $set: {
+        resetTokenHash: hash,
+        resetTokenExpiresAt: expiresAt,
+      },
+    },
+  );
+
+  return { ok: true, flow: "forgot_password", resetToken: raw };
 }
