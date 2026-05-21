@@ -6,8 +6,24 @@ import { CART_LOCK_KEY_PREFIX, CART_LOCK_TTL_SEC } from './cartConstants';
 const LOCK_RETRY_MS = 40;
 const LOCK_MAX_WAIT_MS = 2000;
 
+/** Serialize cart mutations per user when Redis is unavailable (local dev). */
+const memoryMutationChains = new Map<string, Promise<unknown>>();
+
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withInMemoryCartLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = memoryMutationChains.get(userId) ?? Promise.resolve();
+  const run = prev.catch(() => {}).then(() => fn());
+  memoryMutationChains.set(userId, run);
+  try {
+    return await run;
+  } finally {
+    if (memoryMutationChains.get(userId) === run) {
+      memoryMutationChains.delete(userId);
+    }
+  }
 }
 
 /**
@@ -18,7 +34,7 @@ export async function withCartMutationLock<T>(
   fn: () => Promise<T>
 ): Promise<T> {
   if (!redisEnabled) {
-    return fn();
+    return withInMemoryCartLock(userId, fn);
   }
 
   const lockKey = `${CART_LOCK_KEY_PREFIX}${userId}`;

@@ -2,7 +2,8 @@ import { Queue, Worker, JobsOptions, ConnectionOptions } from 'bullmq';
 import { deleteMultipleImages } from '../services/cloudinary';
 import {
   bullmqSkipRedisVersionChecks,
-  duplicateRedisForBullMq,
+  getBullMqQueueConnection,
+  getBullMqWorkerConnection,
   redisEnabled,
 } from '../config/redis';
 import logger from '../utils/logger';
@@ -17,7 +18,7 @@ export type ImageDeleteJobData = {
 
 const IMAGE_QUEUE_NAME = 'image-delete-jobs';
 const skipBullMqRedisChecks = bullmqSkipRedisVersionChecks();
-const imageQueueRedis = redisEnabled ? duplicateRedisForBullMq() : null;
+const imageQueueRedis = redisEnabled ? getBullMqQueueConnection() : null;
 
 export const imageQueue = imageQueueRedis
   ? new Queue<ImageDeleteJobData>(IMAGE_QUEUE_NAME, {
@@ -66,7 +67,7 @@ let imageWorker: Worker<ImageDeleteJobData> | null = null;
 export const startImageWorker = (): void => {
   if (imageWorker || !redisEnabled) return;
 
-  const workerRedis = duplicateRedisForBullMq();
+  const workerRedis = getBullMqWorkerConnection();
   imageWorker = new Worker<ImageDeleteJobData>(
     IMAGE_QUEUE_NAME,
     async (job) => {

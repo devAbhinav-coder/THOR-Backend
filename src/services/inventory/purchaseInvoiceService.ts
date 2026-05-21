@@ -112,7 +112,7 @@ export async function listPurchaseInvoices(params: {
     filter.invoiceDate = dateFilter;
   }
 
-  const [invoices, total] = await Promise.all([
+  const [invoices, total, summaryAgg] = await Promise.all([
     PurchaseInvoice.find(filter)
       .sort('-invoiceDate')
       .skip(skip)
@@ -121,9 +121,52 @@ export async function listPurchaseInvoices(params: {
       .lean()
       .maxTimeMS(INVENTORY_QUERY_MAX_MS),
     PurchaseInvoice.countDocuments(filter).maxTimeMS(INVENTORY_QUERY_MAX_MS),
+    PurchaseInvoice.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: null,
+          grandTotal: { $sum: '$grandTotal' },
+          totalTaxable: { $sum: '$totalTaxable' },
+          totalTax: { $sum: '$totalTax' },
+          unpaidCount: {
+            $sum: { $cond: [{ $eq: ['$paymentStatus', 'unpaid'] }, 1, 0] },
+          },
+          partialCount: {
+            $sum: { $cond: [{ $eq: ['$paymentStatus', 'partial'] }, 1, 0] },
+          },
+          unpaidAmount: {
+            $sum: {
+              $cond: [
+                { $eq: ['$paymentStatus', 'unpaid'] },
+                '$grandTotal',
+                {
+                  $cond: [
+                    { $eq: ['$paymentStatus', 'partial'] },
+                    { $max: [0, { $subtract: ['$grandTotal', '$paidAmount'] }] },
+                    0,
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      },
+    ]).option({ maxTimeMS: INVENTORY_QUERY_MAX_MS }),
   ]);
 
-  return { invoices, total };
+  const agg = summaryAgg[0] as Record<string, number> | undefined;
+  const summary = {
+    invoiceCount: total,
+    grandTotal: roundMoney(agg?.grandTotal ?? 0),
+    totalTaxable: roundMoney(agg?.totalTaxable ?? 0),
+    totalTax: roundMoney(agg?.totalTax ?? 0),
+    unpaidCount: agg?.unpaidCount ?? 0,
+    partialCount: agg?.partialCount ?? 0,
+    outstandingPayable: roundMoney(agg?.unpaidAmount ?? 0),
+  };
+
+  return { invoices, total, summary };
 }
 
 export async function getPurchaseInvoiceById(id: string) {

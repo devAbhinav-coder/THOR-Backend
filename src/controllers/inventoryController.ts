@@ -22,16 +22,24 @@ import { enqueueInventorySideEffect } from '../services/inventory/inventoryOutbo
 
 /** GET /admin/inventory */
 export const getInventoryOverviewHandler = catchAsync(async (req: Request, res: Response) => {
-  const page = Math.max(1, parseInt((req.query.page as string) || '1', 10));
-  const limit = Math.min(100, Math.max(1, parseInt((req.query.limit as string) || '20', 10)));
+  const q = req.query as {
+    page?: number;
+    limit?: number;
+    search?: string;
+    category?: string;
+    filter?: string;
+    sort?: string;
+  };
+  const page = Math.max(1, Number(q.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(q.limit) || 20));
 
   const { products, summary, total } = await getInventoryOverview({
     page,
     limit,
-    search: String(req.query.search || ''),
-    category: String(req.query.category || ''),
-    filter: String(req.query.filter || 'all'),
-    sort: String(req.query.sort || '-updatedAt'),
+    search: q.search ?? '',
+    category: q.category ?? '',
+    filter: q.filter ?? 'all',
+    sort: q.sort ?? '-updatedAt',
   });
 
   sendPaginated(res, { products, summary }, { page, limit, total });
@@ -95,7 +103,7 @@ export const listPurchaseInvoicesHandler = catchAsync(async (req: Request, res: 
   const page = Math.max(1, parseInt((req.query.page as string) || '1', 10));
   const limit = Math.min(100, Math.max(1, parseInt((req.query.limit as string) || '20', 10)));
 
-  const { invoices, total } = await listPurchaseInvoices({
+  const { invoices, total, summary } = await listPurchaseInvoices({
     page,
     limit,
     search: String(req.query.search || ''),
@@ -104,7 +112,7 @@ export const listPurchaseInvoicesHandler = catchAsync(async (req: Request, res: 
     to: String(req.query.to || '').trim() || undefined,
   });
 
-  sendPaginated(res, { invoices }, { page, limit, total });
+  sendPaginated(res, { invoices, summary }, { page, limit, total });
 });
 
 /** GET /admin/inventory/purchase-invoices/:id */

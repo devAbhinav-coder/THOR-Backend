@@ -56,21 +56,18 @@ export async function listRandomProducts(
     baseFilter._id = { $nin: excludeIds };
   }
 
-  const version = await getProductCacheVersion();
-  const excludeHash =
-    excludeIds.length === 0 ?
-      "excl0"
-    : excludeIds
-        .map((id) => id.toString())
-        .sort()
-        .join(",")
-        .slice(0, 200);
-  const countKey = randomPoolCountKey(version, excludeHash);
-
-  let poolSize = await getCache<number>(countKey);
-  if (poolSize === null) {
-    poolSize = await getCachedProductCount(baseFilter);
-    setCache(countKey, poolSize, RANDOM_COUNT_TTL).catch(() => {});
+  /** Count pool only on the first random page — later pages use batch size (much faster). */
+  let poolSize = 0;
+  if (excludeIds.length === 0) {
+    const version = await getProductCacheVersion();
+    const countKey = randomPoolCountKey(version, "excl0");
+    const cached = await getCache<number>(countKey);
+    if (cached !== null && Number.isFinite(cached)) {
+      poolSize = cached;
+    } else {
+      poolSize = await getCachedProductCount(baseFilter);
+      setCache(countKey, poolSize, RANDOM_COUNT_TTL).catch(() => {});
+    }
   }
 
   const products = await Product.aggregate<Record<string, unknown>>([
@@ -99,13 +96,17 @@ export async function listRandomProducts(
   ]).option({ maxTimeMS: 4000 });
 
   const loaded = excludeIds.length + products.length;
-  const hasNextPage = loaded < poolSize && products.length > 0;
+  const hasNextPage =
+    products.length > 0 &&
+    (excludeIds.length === 0 ?
+      loaded < poolSize && products.length >= parsed.limit
+    : products.length >= parsed.limit);
 
   return {
     products,
     page: 1,
     limit: parsed.limit,
-    total: poolSize,
+    total: poolSize || loaded,
     hasNextPage,
   };
 }
@@ -160,11 +161,17 @@ export async function listProductsViaApiFeatures(
     getCachedProductCount(mongoFilter),
   ]);
 
+  const page = features.getPage();
+  const limit = features.getLimit();
+  const skip = (page - 1) * limit;
+  const hasNextPage = products.length > 0 && skip + products.length < total;
+
   return {
     products,
-    page: features.getPage(),
-    limit: features.getLimit(),
+    page,
+    limit,
     total,
+    hasNextPage,
     searchMethod: parsed.search ? "text" : "basic",
   };
 }

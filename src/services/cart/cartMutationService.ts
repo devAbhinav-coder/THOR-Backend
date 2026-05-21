@@ -122,11 +122,16 @@ export const cartMutationService = {
     quantity: number
   ): Promise<CartDto> {
     return withCartMutationLock(userId, async () => {
-      await bumpCartVersion(
-        userId,
-        { $set: { 'items.$[line].quantity': quantity } },
-        { arrayFilters: [{ 'line.cartItemId': cartItemId }] }
-      );
+      const result = await Cart.findOneAndUpdate(
+        { user: userId, 'items.cartItemId': cartItemId },
+        { $set: { 'items.$.quantity': quantity }, $inc: { version: 1 } },
+        { new: true, lean: true }
+      ).maxTimeMS(CART_QUERY_MAX_MS);
+
+      if (!result) {
+        throw new AppError('Cart item not found.', 404);
+      }
+
       await cartCacheService.invalidate(userId);
       recordCartMetric('cart.item.updated', { userId, cartItemId });
       return cartHydrationService.getCartDto(userId, { skipCache: true });

@@ -17,7 +17,12 @@ export const getGiftableProducts = catchAsync(async (req: Request, res: Response
   sendPaginated(
     res,
     { products: result.products },
-    { page: result.page, limit: result.limit, total: result.total }
+    {
+      page: result.page,
+      limit: result.limit,
+      total: result.total,
+      hasNextPage: result.hasNextPage,
+    },
   );
 });
 

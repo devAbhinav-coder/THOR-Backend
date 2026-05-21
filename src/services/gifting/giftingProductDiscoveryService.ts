@@ -82,8 +82,12 @@ async function findRandomGiftable(
     ...(excludeIds.length && { _id: { $nin: excludeIds } }),
   };
 
-  const total = await Product.countDocuments(randomFilter).maxTimeMS(GIFTING_QUERY_MAX_MS);
-  if (total === 0) {
+  const skipCount = excludeIds.length > 0;
+  const total =
+    skipCount ?
+      0
+    : await Product.countDocuments(randomFilter).maxTimeMS(GIFTING_QUERY_MAX_MS);
+  if (!skipCount && total === 0) {
     return { products: [], total: 0 };
   }
 
@@ -91,11 +95,16 @@ async function findRandomGiftable(
 
   if (redisEnabled) {
     const conn = redisConnection as import('ioredis').default;
+    const excludeSet = new Set(excludeIds.map(String));
     let pool = await conn.smembers(RANDOM_POOL_KEY);
-    if (pool.length < limit * 2) {
+    let available = pool.filter((id) => !excludeSet.has(id)).length;
+    if (available < limit) {
       pool = await refreshRandomPool(randomFilter);
+      available = pool.filter((id) => !excludeSet.has(id)).length;
     }
-    pickedIds = pickRandomIds(pool, limit, excludeIds.map(String));
+    if (available > 0) {
+      pickedIds = pickRandomIds(pool, limit, excludeIds.map(String));
+    }
   }
 
   if (pickedIds.length < limit) {
@@ -143,7 +152,13 @@ export async function discoverGiftableProducts(query: Record<string, string>) {
       }, []);
 
     const { products, total } = await findRandomGiftable(filter, limit, excludeIds);
-    return { products, page: 1, limit, total };
+    const loaded = excludeIds.length + products.length;
+    const hasNextPage =
+      products.length > 0 &&
+      (excludeIds.length === 0 ?
+        loaded < total && products.length >= limit
+      : products.length >= limit);
+    return { products, page: 1, limit, total: total || loaded, hasNextPage };
   }
 
   const pageNum = Math.max(1, parseInt(page, 10));
@@ -152,11 +167,13 @@ export async function discoverGiftableProducts(query: Record<string, string>) {
 
   const cached = await getCache<{ products: Record<string, unknown>[]; total: number }>(cacheKey);
   if (cached) {
+    const loaded = skip + cached.products.length;
     return {
       products: normalizeProducts(cached.products),
       page: pageNum,
       limit,
       total: cached.total,
+      hasNextPage: cached.products.length > 0 && loaded < cached.total,
     };
   }
 
@@ -168,7 +185,10 @@ export async function discoverGiftableProducts(query: Record<string, string>) {
   const normalized = normalizeProducts(products as Record<string, unknown>[]);
   setCache(cacheKey, { products: normalized, total }, GIFTING_PRODUCT_CACHE_TTL).catch(() => {});
 
-  return { products: normalized, page: pageNum, limit, total };
+  const loaded = skip + normalized.length;
+  const hasNextPage = normalized.length > 0 && loaded < total;
+
+  return { products: normalized, page: pageNum, limit, total, hasNextPage };
 }
 
 export async function getGiftCategories() {

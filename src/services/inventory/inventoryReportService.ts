@@ -45,6 +45,8 @@ export async function getInventoryOverview(params: {
     match.totalStock = { $gt: 0, $lt: LOW_STOCK_ALERT_EXCLUSIVE_MAX };
   } else if (filter === 'out') {
     match.totalStock = 0;
+  } else if (filter === 'sold') {
+    match.soldCount = { $gt: 0 };
   }
 
   const sortMap: Record<string, Record<string, 1 | -1>> = {
@@ -52,6 +54,8 @@ export async function getInventoryOverview(params: {
     '-name': { name: -1 },
     stock: { totalStock: 1 },
     '-stock': { totalStock: -1 },
+    sold: { soldCount: 1 },
+    '-sold': { soldCount: -1 },
     category: { category: 1 },
     '-updatedAt': { updatedAt: -1 },
     updatedAt: { updatedAt: 1 },
@@ -70,12 +74,68 @@ export async function getInventoryOverview(params: {
     getInventorySummaryStats(),
   ]);
 
-  const productsWithTurnover = products.map((p) => ({
-    ...p,
-    turnover: p.totalStock > 0 ? p.soldCount / p.totalStock : p.soldCount > 0 ? 99 : 0,
-  }));
+  const productsWithTurnover = products.map((p) => {
+    const variants = (p.variants ?? []) as Array<{
+      stock?: number;
+      costPrice?: number;
+      price?: number;
+    }>;
+    const soldCount = Number(p.soldCount ?? 0);
+    const sellPrice = Number(p.price ?? 0);
+
+    let stockUnits = 0;
+    let stockCostValue = 0;
+    let costWeightedSum = 0;
+    let costWeightUnits = 0;
+
+    for (const v of variants) {
+      const stock = Number(v.stock ?? 0);
+      const cost = Number(v.costPrice ?? 0);
+      stockUnits += stock;
+      stockCostValue += cost * stock;
+      if (cost > 0 && stock > 0) {
+        costWeightedSum += cost * stock;
+        costWeightUnits += stock;
+      }
+    }
+
+    const avgCost =
+      costWeightUnits > 0
+        ? roundMoney(costWeightedSum / costWeightUnits)
+        : roundMoney(
+            variants.find((v) => typeof v.costPrice === 'number' && v.costPrice > 0)?.costPrice ?? 0
+          );
+
+    const estimatedRevenue = roundMoney(soldCount * sellPrice);
+    const estimatedCost = roundMoney(soldCount * avgCost);
+    const estimatedProfit = roundMoney(estimatedRevenue - estimatedCost);
+    const marginPercent =
+      sellPrice > 0 && avgCost > 0
+        ? Math.round(((sellPrice - avgCost) / sellPrice) * 100)
+        : null;
+
+    return {
+      ...p,
+      avgCost,
+      stockValue: roundMoney(stockCostValue),
+      stockUnits,
+      grossRevenue: estimatedRevenue,
+      grossCostOfSales: estimatedCost,
+      grossProfit: estimatedProfit,
+      estimatedRevenue,
+      estimatedCost,
+      estimatedProfit,
+      marginPercent,
+      turnover:
+        p.totalStock > 0 ? soldCount / p.totalStock : soldCount > 0 ? 99 : 0,
+    };
+  });
 
   return { products: productsWithTurnover, summary: stockStats, total };
+}
+
+function roundMoney(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
 export async function getInventoryValuation() {

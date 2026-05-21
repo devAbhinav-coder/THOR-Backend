@@ -14,9 +14,19 @@ export const inventoryOverviewQuerySchema = z.object({
       limit: z.coerce.number().int().min(1).max(100).default(20),
       search: z.string().max(200).optional(),
       category: z.string().max(100).optional(),
-      filter: z.enum(['all', 'low', 'out']).default('all'),
+      filter: z.enum(['all', 'low', 'out', 'sold']).default('all'),
       sort: z
-        .enum(['name', '-name', 'stock', '-stock', 'category', '-updatedAt', 'updatedAt'])
+        .enum([
+          'name',
+          '-name',
+          'stock',
+          '-stock',
+          'sold',
+          '-sold',
+          'category',
+          '-updatedAt',
+          'updatedAt',
+        ])
         .default('-updatedAt'),
     })
     .transform((q) => ({

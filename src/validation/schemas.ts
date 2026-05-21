@@ -833,4 +833,13 @@ export {
   stockAdjustmentSchema,
   createPurchaseInvoiceSchema,
   updatePurchaseInvoiceSchema,
+  inventoryOverviewQuerySchema,
 } from './inventorySchemas';
+
+export {
+  operatingExpenseListQuerySchema,
+  operatingExpenseSummaryQuerySchema,
+  createOperatingExpenseSchema,
+  updateOperatingExpenseSchema,
+  operatingExpenseIdParamsSchema,
+} from './operatingExpenseSchemas';

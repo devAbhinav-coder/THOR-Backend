@@ -11,7 +11,17 @@ const commonOptions: RedisOptions = {
   enableReadyCheck: true,
   lazyConnect: true,
   connectTimeout: 3000,
-  retryStrategy: (times: number) => Math.min(times * 250, 2000),
+  retryStrategy: (times: number) => {
+    if (times > 8) return null;
+    return Math.min(times * 250, 2000);
+  },
+  reconnectOnError: (err: Error) => {
+    const msg = err.message || '';
+    if (msg.includes('max number of clients') || msg.includes('ECONNRESET')) {
+      return false;
+    }
+    return true;
+  },
 };
 
 type RedisLike = Pick<
@@ -95,56 +105,96 @@ const fallbackRedis: RedisLike = {
   quit: async () => 'OK',
 } as unknown as RedisLike;
 
-export const redisConnection: RedisLike = redisEnabled
-  ? (redisUrl
-      ? new IORedis(redisUrl, commonOptions)
-      : new IORedis({
-          host: process.env.REDIS_HOST as string,
-          port: Number(process.env.REDIS_PORT || 6379),
-          password: process.env.REDIS_PASSWORD || undefined,
-          ...commonOptions,
-        }))
-  : fallbackRedis;
+function createRedisClient(): IORedis {
+  return redisUrl ?
+      new IORedis(redisUrl, commonOptions)
+    : new IORedis({
+        host: process.env.REDIS_HOST as string,
+        port: Number(process.env.REDIS_PORT || 6379),
+        password: process.env.REDIS_PASSWORD || undefined,
+        ...commonOptions,
+      });
+}
+
+export const redisConnection: RedisLike = redisEnabled ? createRedisClient() : fallbackRedis;
+
+/** Shared BullMQ queue connection (one per process — was leaking ~8 duplicates before). */
+let bullMqQueueConnection: IORedis | null = null;
+/** Shared BullMQ worker connection (blocking commands; separate from queue). */
+let bullMqWorkerConnection: IORedis | null = null;
+
+function attachRedisErrorLogger(client: IORedis, label: string): void {
+  let lastWarnTs = 0;
+  client.on('error', (err: Error) => {
+    const now = Date.now();
+    if (now - lastWarnTs > 15000) {
+      lastWarnTs = now;
+      logger.warn(`Redis (${label}): ${err.message || 'connection error'}`);
+    }
+  });
+}
 
 if (isProd && !redisEnabled) {
   throw new Error('Redis is required in production for queue/locks/rate-limits. Configure REDIS_URL.');
 }
 
-if (redisEnabled) {
-  let lastWarnTs = 0;
+if (redisEnabled && redisConnection instanceof IORedis) {
   redisConnection.on('connect', () => logger.info('Redis connected'));
-  redisConnection.on('error', (err: Error) => {
-    const now = Date.now();
-    if (now - lastWarnTs > 15000) {
-      lastWarnTs = now;
-      logger.warn(`Redis unavailable: ${err.message || 'connection failed'}`);
-    }
-  });
-} else {
+  attachRedisErrorLogger(redisConnection, 'app');
+} else if (!redisEnabled) {
   logger.warn('Redis not configured. Running with in-memory fallbacks for cache/locks/limits.');
 }
 
 /**
- * BullMQ must not share the app `redisConnection` — workers use blocking commands and will
- * break other callers ("Connection is closed"). Use one duplicate per Queue / Worker.
+ * @deprecated Prefer getBullMqQueueConnection / getBullMqWorkerConnection.
  */
 export function duplicateRedisForBullMq(): IORedis {
+  return getBullMqQueueConnection();
+}
+
+export function getBullMqQueueConnection(): IORedis {
   if (!redisEnabled) {
-    throw new Error('duplicateRedisForBullMq: Redis is not configured');
+    throw new Error('getBullMqQueueConnection: Redis is not configured');
   }
   if (!(redisConnection instanceof IORedis)) {
-    throw new Error('duplicateRedisForBullMq: in-memory Redis cannot run BullMQ');
+    throw new Error('getBullMqQueueConnection: in-memory Redis cannot run BullMQ');
   }
-  const dup = redisConnection.duplicate();
-  let lastDupWarnTs = 0;
-  dup.on('error', (err: Error) => {
-    const now = Date.now();
-    if (now - lastDupWarnTs > 15000) {
-      lastDupWarnTs = now;
-      logger.warn(`Redis (BullMQ): ${err.message || 'connection error'}`);
-    }
-  });
-  return dup;
+  if (!bullMqQueueConnection) {
+    bullMqQueueConnection = redisConnection.duplicate();
+    attachRedisErrorLogger(bullMqQueueConnection, 'bullmq-queue');
+  }
+  return bullMqQueueConnection;
+}
+
+export function getBullMqWorkerConnection(): IORedis {
+  if (!redisEnabled) {
+    throw new Error('getBullMqWorkerConnection: Redis is not configured');
+  }
+  if (!(redisConnection instanceof IORedis)) {
+    throw new Error('getBullMqWorkerConnection: in-memory Redis cannot run BullMQ');
+  }
+  if (!bullMqWorkerConnection) {
+    bullMqWorkerConnection = redisConnection.duplicate();
+    attachRedisErrorLogger(bullMqWorkerConnection, 'bullmq-worker');
+  }
+  return bullMqWorkerConnection;
+}
+
+/** Close app + BullMQ Redis connections (call on graceful shutdown / before hot reload). */
+export async function closeAllRedisConnections(): Promise<void> {
+  const closes: Promise<unknown>[] = [];
+  if (bullMqQueueConnection) {
+    closes.push(bullMqQueueConnection.quit().catch(() => {}));
+    bullMqQueueConnection = null;
+  }
+  if (bullMqWorkerConnection) {
+    closes.push(bullMqWorkerConnection.quit().catch(() => {}));
+    bullMqWorkerConnection = null;
+  }
+  if (redisConnection instanceof IORedis) {
+    closes.push(redisConnection.quit().catch(() => {}));
+  }
+  await Promise.all(closes);
 }
 
 /**
@@ -158,4 +208,3 @@ export function bullmqSkipRedisVersionChecks(): boolean {
   }
   return process.env.BULLMQ_SKIP_REDIS_VERSION_CHECK !== 'false';
 }
-

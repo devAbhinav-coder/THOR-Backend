@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getDashboardAnalytics }   from '../controllers/admin/adminAnalyticsController';
+import { getRevenuePeriodSummaryHandler } from '../controllers/admin/adminRevenueController';
 import { getAdminAuditLogs }       from '../controllers/admin/adminAuditController';
 import {
   getAllOrders,
@@ -64,6 +65,13 @@ import {
   getGstPurchaseSummary,
 } from '../controllers/inventoryController';
 import {
+  listOperatingExpensesHandler,
+  getOperatingExpenseSummaryHandler,
+  createOperatingExpenseHandler,
+  updateOperatingExpenseHandler,
+  voidOperatingExpenseHandler,
+} from '../controllers/operatingExpenseController';
+import {
   getDelhiveryIntegrationStatus,
   checkOrderPinServiceability,
   checkDelhiveryServiceabilityByPin,
@@ -102,6 +110,12 @@ import {
   stockAdjustmentSchema,
   createPurchaseInvoiceSchema,
   updatePurchaseInvoiceSchema,
+  inventoryOverviewQuerySchema,
+  operatingExpenseListQuerySchema,
+  operatingExpenseSummaryQuerySchema,
+  createOperatingExpenseSchema,
+  updateOperatingExpenseSchema,
+  operatingExpenseIdParamsSchema,
   adminProductListQuerySchema,
   adminProductSearchQuerySchema,
   adminProductIdParamSchema,
@@ -126,6 +140,7 @@ const adminSensitiveLimiter = createAdaptiveLimiter({
 router.use(protect, restrictTo('admin'));
 
 router.get('/analytics', getDashboardAnalytics);
+router.get('/revenue/summary', getRevenuePeriodSummaryHandler);
 router.get('/security/audit', getAdminAuditLogs);
 
 router.get('/products', validate(adminProductListQuerySchema), getAdminProducts);
@@ -223,7 +238,7 @@ router.patch('/categories/:id', uploadAvatar, processCategoryImage, updateCatego
 router.delete('/categories/:id', deleteCategory);
 
 // ─── Inventory Management ─────────────────────────────────────────────────────
-router.get('/inventory', getInventoryOverview);
+router.get('/inventory', validate(inventoryOverviewQuerySchema), getInventoryOverview);
 router.patch('/inventory/products/:id/variants/:sku/stock', adminSensitiveLimiter, validate(stockAdjustmentSchema), adjustVariantStock);
 router.get('/inventory/ledger', getStockLedger);
 router.get('/inventory/valuation', getInventoryValuation);
@@ -233,5 +248,12 @@ router.get('/inventory/purchase-invoices/:id', getPurchaseInvoice);
 router.put('/inventory/purchase-invoices/:id', adminSensitiveLimiter, validate(updatePurchaseInvoiceSchema), updatePurchaseInvoice);
 router.delete('/inventory/purchase-invoices/:id', adminSensitiveLimiter, deletePurchaseInvoice);
 router.get('/inventory/gst-summary', getGstPurchaseSummary);
+
+// ─── Operating expenses (shipping, packing, ads, misc.) ─────────────────────
+router.get('/operating-expenses', validate(operatingExpenseListQuerySchema), listOperatingExpensesHandler);
+router.get('/operating-expenses/summary', validate(operatingExpenseSummaryQuerySchema), getOperatingExpenseSummaryHandler);
+router.post('/operating-expenses', adminSensitiveLimiter, validate(createOperatingExpenseSchema), createOperatingExpenseHandler);
+router.put('/operating-expenses/:id', adminSensitiveLimiter, validate(updateOperatingExpenseSchema), updateOperatingExpenseHandler);
+router.delete('/operating-expenses/:id', adminSensitiveLimiter, validate(operatingExpenseIdParamsSchema), voidOperatingExpenseHandler);
 
 export default router;

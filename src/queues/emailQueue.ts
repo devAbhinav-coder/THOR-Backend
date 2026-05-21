@@ -1,7 +1,8 @@
 import { Queue, Worker, JobsOptions } from "bullmq";
 import {
   bullmqSkipRedisVersionChecks,
-  duplicateRedisForBullMq,
+  getBullMqQueueConnection,
+  getBullMqWorkerConnection,
   redisEnabled,
 } from "../config/redis";
 import logger from "../utils/logger";
@@ -28,8 +29,8 @@ const broadcastChunkQueueName = "email-broadcast-chunks";
 const BROADCAST_CHUNK_SIZE = 10;
 
 const skipBullMqRedisChecks = bullmqSkipRedisVersionChecks();
-const transactionalQueueRedis = redisEnabled ? duplicateRedisForBullMq() : null;
-const broadcastChunkQueueRedis = redisEnabled ? duplicateRedisForBullMq() : null;
+const transactionalQueueRedis = redisEnabled ? getBullMqQueueConnection() : null;
+const broadcastChunkQueueRedis = transactionalQueueRedis;
 
 export const emailQueue = transactionalQueueRedis
   ? new Queue<EmailJobData>(transactionalQueueName, {
@@ -153,8 +154,8 @@ export const startEmailWorker = (): void => {
   if (workerStarted || !redisEnabled) return;
   workerStarted = true;
 
-  const emailWorkerRedis = duplicateRedisForBullMq();
-  const broadcastWorkerRedis = duplicateRedisForBullMq();
+  const emailWorkerRedis = getBullMqWorkerConnection();
+  const broadcastWorkerRedis = emailWorkerRedis;
 
   emailWorker = new Worker<EmailJobData>(
     transactionalQueueName,

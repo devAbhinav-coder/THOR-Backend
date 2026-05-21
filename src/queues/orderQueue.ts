@@ -1,11 +1,11 @@
 import { Queue } from 'bullmq';
-import { redisEnabled, duplicateRedisForBullMq } from '../config/redis';
+import { redisEnabled, getBullMqQueueConnection } from '../config/redis';
 import logger from '../utils/logger';
 import { OrderEventPayload } from '../events/orderEvents';
 import { recordOrderMetric } from '../services/orderMetricsService';
 
 export const orderQueue = redisEnabled
-  ? new Queue<OrderEventPayload>('orderQueue', { connection: duplicateRedisForBullMq() })
+  ? new Queue<OrderEventPayload>('orderQueue', { connection: getBullMqQueueConnection() })
   : null;
 
 /** BullMQ rejects custom jobId values that contain `:`. */

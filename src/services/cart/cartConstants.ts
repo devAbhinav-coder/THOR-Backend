@@ -5,7 +5,7 @@ export const CART_CACHE_TTL_SEC = 1800;
 export const CART_LOCK_TTL_SEC = 8;
 
 /** Max optimistic-lock retries on version conflict. */
-export const CART_VERSION_MAX_RETRIES = 3;
+export const CART_VERSION_MAX_RETRIES = 8;
 
 /** Mongo query timeout for cart-related reads. */
 export const CART_QUERY_MAX_MS = 5000;

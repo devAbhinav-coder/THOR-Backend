@@ -153,6 +153,7 @@ export async function getDashboardAnalyticsData() {
     topProductsByProfit,
     categoryProfit,
     profitByMonth,
+    refundsByMonth,
     inventorySummaryStats,
   ] = await Promise.all([
     // ── Existing ────────────────────────────────────────────────────────────
@@ -454,6 +455,26 @@ export async function getDashboardAnalyticsData() {
       },
       { $sort: { "_id.year": 1 as const, "_id.month": 1 as const } },
     ]),
+    Order.aggregate([
+      { $match: { "refundData.amount": { $gt: 0 } } },
+      {
+        $addFields: {
+          refundAt: { $ifNull: ["$refundData.processedAt", "$updatedAt"] },
+        },
+      },
+      { $match: { refundAt: { $gte: startOfYearWindow } } },
+      {
+        $group: {
+          _id: {
+            year: { $year: { date: "$refundAt", timezone: IST_TZ } },
+            month: { $month: { date: "$refundAt", timezone: IST_TZ } },
+          },
+          refunds: { $sum: "$refundData.amount" },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { "_id.year": 1 as const, "_id.month": 1 as const } },
+    ]),
     getInventorySummaryStats(),
   ]);
 
@@ -699,6 +720,11 @@ export async function getDashboardAnalyticsData() {
       productRevenue: number;
       cogs: number;
       grossProfit: number;
+    }[],
+    refundsByMonth: refundsByMonth as {
+      _id: { year: number; month: number };
+      refunds: number;
+      count: number;
     }[],
   };
 }

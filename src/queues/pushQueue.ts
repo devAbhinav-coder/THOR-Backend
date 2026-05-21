@@ -2,7 +2,8 @@ import { Queue, Worker, JobsOptions } from 'bullmq';
 import { ConnectionOptions } from 'bullmq';
 import {
   bullmqSkipRedisVersionChecks,
-  duplicateRedisForBullMq,
+  getBullMqQueueConnection,
+  getBullMqWorkerConnection,
   redisEnabled,
 } from '../config/redis';
 import logger from '../utils/logger';
@@ -19,7 +20,7 @@ export type PushJobData = {
 
 const queueName = 'push-notification-jobs';
 const skipBullMqRedisChecks = bullmqSkipRedisVersionChecks();
-const pushQueueRedis = redisEnabled ? duplicateRedisForBullMq() : null;
+const pushQueueRedis = redisEnabled ? getBullMqQueueConnection() : null;
 
 export const pushQueue = pushQueueRedis
   ? new Queue<PushJobData>(queueName, {
@@ -63,7 +64,7 @@ export const startPushWorker = (): void => {
   if (workerStarted || !redisEnabled) return;
   workerStarted = true;
 
-  const pushWorkerRedis = duplicateRedisForBullMq();
+  const pushWorkerRedis = getBullMqWorkerConnection();
 
   pushWorker = new Worker<PushJobData>(
     queueName,

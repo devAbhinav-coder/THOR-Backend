@@ -21,7 +21,7 @@ import connectDB from "./config/db";
 import logger from "./utils/logger";
 import errorHandler from "./middleware/errorHandler";
 import AppError from "./utils/AppError";
-import { redisConnection, redisEnabled } from "./config/redis";
+import { closeAllRedisConnections, redisConnection, redisEnabled } from "./config/redis";
 
 import authRoutes from "./routes/authRoutes";
 import productRoutes from "./routes/productRoutes";
@@ -146,7 +146,7 @@ app.use(
       logger.warn(
         `CORS blocked request from origin: ${origin} (allowed: ${[...corsAllowSet].join(", ")})`,
       );
-      callback(new Error("Not allowed by CORS"));;
+      callback(new Error("Not allowed by CORS"));
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -185,59 +185,37 @@ app.use(
 
         objectSrc: ["'none'"],
 
-        scriptSrc: [
-          "'self'",
-          "'unsafe-inline'",
-        ],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
 
-        styleSrc: [
-          "'self'",
-          "'unsafe-inline'",
-          "https:",
-        ],
+        styleSrc: ["'self'", "'unsafe-inline'", "https:"],
 
-        imgSrc: [
-          "'self'",
-          "data:",
-          "https:",
-        ],
+        imgSrc: ["'self'", "data:", "https:"],
 
-        fontSrc: [
-          "'self'",
-          "https:",
-          "data:",
-        ],
+        fontSrc: ["'self'", "https:", "data:"],
 
-        connectSrc: [
-          "'self'",
-          "https:",
-          "wss:",
-        ],
+        connectSrc: ["'self'", "https:", "wss:"],
 
         upgradeInsecureRequests: [],
       },
     },
 
-    ...(process.env.NODE_ENV === "production"
-      ? {
-          strictTransportSecurity: {
-            maxAge: 63072000,
-            includeSubDomains: true,
-            preload: true,
-          },
-        }
-      : {}),
-  })
+    ...(process.env.NODE_ENV === "production" ?
+      {
+        strictTransportSecurity: {
+          maxAge: 63072000,
+          includeSubDomains: true,
+          preload: true,
+        },
+      }
+    : {}),
+  }),
 );
 const windowMs = parseInt(
   process.env.RATE_LIMIT_WINDOW_MS || String(15 * 60 * 1000),
-  10
+  10,
 );
 
-const configuredMax = parseInt(
-  process.env.RATE_LIMIT_MAX || "200",
-  10
-);
+const configuredMax = parseInt(process.env.RATE_LIMIT_MAX || "200", 10);
 const max =
   process.env.NODE_ENV === "production" ?
     Math.min(Math.max(100, configuredMax), 2000)
@@ -276,7 +254,7 @@ const limiter = rateLimit({
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 50,
   skip: (req) => req.method === "OPTIONS",
   message: {
     status: "error",
@@ -314,7 +292,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 /** Razorpay webhooks require raw body for HMAC verification (must run before express.json). */
 app.use(
   "/api/webhooks",
-  express.raw({ type: "application/json", limit: process.env.JSON_BODY_LIMIT || "512kb" }),
+  express.raw({
+    type: "application/json",
+    limit: process.env.JSON_BODY_LIMIT || "512kb",
+  }),
   webhookRoutes,
 );
 
@@ -343,7 +324,7 @@ app.get("/api/health", async (_req: Request, res: Response) => {
     if (redisEnabled) {
       const pong = await redisConnection.ping();
       redisOk = pong === "PONG";
-    } 
+    }
   } catch {
     redisOk = false;
   }
@@ -455,7 +436,7 @@ const shutdown = async (signal: string) => {
         await orderQueue.close();
       }
       await mongoose.connection.close();
-      await redisConnection.quit();
+      await closeAllRedisConnections();
       logger.info("Connections closed.");
     } catch (e) {
       logger.error(`Shutdown error: ${(e as Error).message}`);

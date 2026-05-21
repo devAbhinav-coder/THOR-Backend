@@ -1,5 +1,5 @@
 import { Worker, Job } from 'bullmq';
-import { redisEnabled, duplicateRedisForBullMq } from '../config/redis';
+import { redisEnabled, getBullMqWorkerConnection } from '../config/redis';
 import logger from '../utils/logger';
 import { OrderEventType, OrderEventPayload } from '../events/orderEvents';
 import { emailTemplates } from '../services/emailService';
@@ -98,7 +98,7 @@ export const startOrderWorker = () => {
         }
       }
     },
-    { connection: duplicateRedisForBullMq(), concurrency: 5 }
+    { connection: getBullMqWorkerConnection(), concurrency: 5 }
   );
 
   orderWorker.on('failed', (job, err) => {
