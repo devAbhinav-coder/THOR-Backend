@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck",
     "backfill:delivered-at": "ts-node --transpile-only scripts/backfill-delivered-at.ts",
-    "backfill:review-fields": "ts-node --transpile-only scripts/backfill-review-fields.ts"
+    "backfill:review-fields": "ts-node --transpile-only scripts/backfill-review-fields.ts",
+    "indexes:orders": "ts-node --transpile-only scripts/ensure-order-indexes.ts"
   },
   "dependencies": {
     "@opentelemetry/instrumentation": "^0.215.0",

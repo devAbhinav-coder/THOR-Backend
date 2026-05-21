@@ -448,7 +448,7 @@ export class AdvancedSearchService {
     const safeQuery = normalizeSearchQuery(query);
 
     const baseFilter: Record<string, unknown> = adminScope ?
-      {}
+      { category: { $ne: "Gifting" } }
     : {
         isActive: true,
         tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
@@ -646,7 +646,7 @@ export class AdvancedSearchService {
     } = options;
 
     const baseFilter: Record<string, unknown> = adminScope ?
-      {}
+      { category: { $ne: "Gifting" } }
     : {
         isActive: true,
         tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },

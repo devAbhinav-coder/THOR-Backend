@@ -32,7 +32,7 @@ export const getAdminProductById = catchAsync(
 
 /**
  * GET /api/admin/products
- * Admin catalog (all statuses, gifting, offline-tagged) — not exposed on public /products.
+ * Admin shop catalog (all statuses, offline-tagged). Gifting products only when category=Gifting.
  */
 export const getAdminProducts = catchAsync(
   async (req: Request, res: Response) => {

@@ -23,9 +23,10 @@ import { getCache, setCache } from "./cacheService";
 
 const RANDOM_COUNT_TTL = 300;
 
+/** Shop catalog excludes gifting; admin shop catalog does too unless `category` overrides below. */
 export function storefrontBaseFilter(adminScope: boolean): Record<string, unknown> {
   if (adminScope) {
-    return {};
+    return { category: { $ne: "Gifting" } };
   }
   return {
     isActive: true,
