@@ -128,6 +128,27 @@ import {
   processStorefrontAssets,
 } from '../middleware/upload';
 import { createAdaptiveLimiter } from '../middleware/adaptiveRateLimit';
+import {
+  getAdminAiStatus,
+  getAdminDailyBrief,
+  getAdminActionSuggestions,
+  explainAdminOrder,
+  explainAdminUser,
+  explainAdminReturns,
+  draftAdminProductCopy,
+  draftAdminReviewReply,
+  draftAdminMarketingEmail,
+  askAdminStore,
+} from '../controllers/admin/adminAiController';
+import {
+  adminAiAskSchema,
+  adminAiOrderIdSchema,
+  adminAiUserIdSchema,
+  adminAiReviewIdSchema,
+  adminAiProductDraftSchema,
+  adminAiMarketingDraftSchema,
+  adminAiBriefQuerySchema,
+} from '../validation/adminAiSchemas';
 
 const router = Router();
 const adminSensitiveLimiter = createAdaptiveLimiter({
@@ -137,10 +158,30 @@ const adminSensitiveLimiter = createAdaptiveLimiter({
   message: 'Too many admin-sensitive actions. Please retry shortly.',
 });
 
+const adminAiLimiter = createAdaptiveLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: parseInt(process.env.AI_ADMIN_HOURLY_MAX || '30', 10),
+  prefix: 'rl:adaptive:admin-ai:',
+  message: 'AI request limit reached. Please try again later.',
+});
+
 router.use(protect, restrictTo('admin'));
 
 router.get('/analytics', getDashboardAnalytics);
 router.get('/revenue/summary', getRevenuePeriodSummaryHandler);
+
+// ─── Admin AI (Groq) — server-side only, rate-limited ───────────────────────
+router.get('/ai/status', getAdminAiStatus);
+router.get('/ai/daily-brief', adminAiLimiter, validate(adminAiBriefQuerySchema), ...getAdminDailyBrief);
+router.get('/ai/action-suggestions', adminAiLimiter, ...getAdminActionSuggestions);
+router.get('/ai/explain/order/:orderId', adminAiLimiter, validate(adminAiOrderIdSchema), ...explainAdminOrder);
+router.get('/ai/explain/user/:userId', adminAiLimiter, validate(adminAiUserIdSchema), ...explainAdminUser);
+router.get('/ai/explain/returns', adminAiLimiter, ...explainAdminReturns);
+router.post('/ai/draft/product', adminAiLimiter, validate(adminAiProductDraftSchema), ...draftAdminProductCopy);
+router.post('/ai/draft/review/:reviewId', adminAiLimiter, validate(adminAiReviewIdSchema), ...draftAdminReviewReply);
+router.post('/ai/draft/marketing-email', adminAiLimiter, validate(adminAiMarketingDraftSchema), ...draftAdminMarketingEmail);
+router.post('/ai/ask', adminAiLimiter, validate(adminAiAskSchema), ...askAdminStore);
+
 router.get('/security/audit', getAdminAuditLogs);
 
 router.get('/products', validate(adminProductListQuerySchema), getAdminProducts);

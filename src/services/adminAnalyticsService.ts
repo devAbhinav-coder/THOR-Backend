@@ -561,7 +561,8 @@ export async function getDashboardAnalyticsData() {
   const istTodayStr = fmtIso.format(now);
   const anchor = new Date(`${istTodayStr}T12:00:00+05:30`);
   const revenueByDay: { date: string; revenue: number; orders: number }[] = [];
-  for (let i = 29; i >= 0; i--) {
+  // Oldest → newest (today last) for charts and AI "yesterday" = index length - 2
+  for (let i = 0; i < 30; i++) {
     const d = new Date(anchor.getTime() - (29 - i) * 86400000);
     const date = fmtIso.format(d);
     const row = dailyMap.get(date);
