@@ -1,8 +1,13 @@
 import Order from '../models/Order';
 import { istEndOfDay, istMidnight, istParts } from '../utils/istDate';
+import {
+  PAYMENT_STATUS_GROSS,
+  couponDiscountPipeline,
+  orderFeesPipeline,
+  taxCollectedPipeline,
+} from './orderFinanceAggregations';
 
 const IST_TZ = 'Asia/Kolkata';
-const PAYMENT_STATUS_GROSS = { paymentStatus: { $in: ['paid', 'refunded'] as const } };
 
 export type RevenuePeriod = 'month' | 'year' | 'lifetime';
 
@@ -150,6 +155,11 @@ export async function getRevenuePeriodSummary(
     topProductsByProfit,
     categoryProfit,
     orderCountAgg,
+    couponAgg,
+    orderFeesAgg,
+    taxAgg,
+    feesRetainedAgg,
+    paymentMethodMix,
   ] = await Promise.all([
     Order.aggregate([
       { $match: { ...PAYMENT_STATUS_GROSS, ...orderMatch } },
@@ -290,6 +300,30 @@ export async function getRevenuePeriodSummary(
       { $match: { ...PAYMENT_STATUS_GROSS, ...orderMatch } },
       { $group: { _id: null, count: { $sum: 1 } } },
     ]),
+    Order.aggregate(couponDiscountPipeline(orderMatch)),
+    Order.aggregate(orderFeesPipeline(orderMatch)),
+    Order.aggregate(taxCollectedPipeline(orderMatch)),
+    Order.aggregate([
+      ...refundStages,
+      {
+        $match: {
+          ...refundDateMatch(bounds),
+          'refundData.nonRefundableFees': { $gt: 0 },
+        },
+      },
+      { $group: { _id: null, total: { $sum: '$refundData.nonRefundableFees' } } },
+    ]),
+    Order.aggregate([
+      { $match: { ...PAYMENT_STATUS_GROSS, ...orderMatch } },
+      {
+        $group: {
+          _id: '$paymentMethod',
+          revenue: { $sum: '$total' },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { revenue: -1 } },
+    ]),
   ]);
 
   const grossRevenue = Math.round((grossAgg[0]?.total ?? 0) * 100) / 100;
@@ -327,6 +361,12 @@ export async function getRevenuePeriodSummary(
       grossProfit,
       grossMarginPercent,
       orders: orderCountAgg[0]?.count ?? grossAgg[0]?.orders ?? 0,
+      couponDiscountTotal: Math.round((couponAgg[0]?.totalDiscount ?? 0) * 100) / 100,
+      couponOrdersCount: couponAgg[0]?.count ?? 0,
+      shippingCollected: Math.round((orderFeesAgg[0]?.shipping ?? 0) * 100) / 100,
+      codFeeCollected: Math.round((orderFeesAgg[0]?.cod ?? 0) * 100) / 100,
+      taxCollected: Math.round((taxAgg[0]?.total ?? 0) * 100) / 100,
+      nonRefundableFeesRetained: Math.round((feesRetainedAgg[0]?.total ?? 0) * 100) / 100,
     },
     revenueByMonth: filterChartMonth(revenueByMonth as { _id: { year: number; month: number }; revenue: number; orders: number }[]),
     profitByMonth: filterChartMonth(
@@ -342,5 +382,6 @@ export async function getRevenuePeriodSummary(
     ),
     topProductsByProfit,
     categoryProfit,
+    paymentMethodMix: paymentMethodMix as { _id: string; revenue: number; count: number }[],
   };
 }

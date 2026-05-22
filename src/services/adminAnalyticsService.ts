@@ -4,6 +4,11 @@ import Product from "../models/Product";
 import Review from "../models/Review";
 import { LOW_STOCK_ALERT_EXCLUSIVE_MAX } from "../constants/inventory";
 import { getInventorySummaryStats } from "./inventory/inventoryCacheService";
+import {
+  couponDiscountPipeline,
+  orderFeesPipeline,
+  taxCollectedPipeline,
+} from "./orderFinanceAggregations";
 
 const stockListProjection = {
   $project: { _id: 1, name: 1, category: 1, totalStock: "$computedTotal" },
@@ -141,8 +146,7 @@ export async function getDashboardAnalyticsData() {
     couponDiscountMTD,
     paymentMethodMix,
     onlineVsOfflineMix,
-    shippingCollected,
-    codFeeCollected,
+    orderFeesAgg,
     taxCollected,
     cancellationCount,
     ordersByHour,
@@ -245,15 +249,9 @@ export async function getDashboardAnalyticsData() {
       { $sort: { _id: 1 } },
     ]),
 
-    // ── NEW: Coupon discount totals ─────────────────────────────────────────
-    Order.aggregate([
-      { $match: { ...PAYMENT_STATUS_GROSS, discount: { $gt: 0 } } },
-      { $group: { _id: null, totalDiscount: { $sum: "$discount" }, count: { $sum: 1 } } },
-    ]),
-    Order.aggregate([
-      { $match: { ...PAYMENT_STATUS_GROSS, discount: { $gt: 0 }, createdAt: { $gte: startOfMonth } } },
-      { $group: { _id: null, totalDiscount: { $sum: "$discount" }, count: { $sum: 1 } } },
-    ]),
+    // ── NEW: Coupon discount totals (stored discount or implied when coupon ref exists) ──
+    Order.aggregate(couponDiscountPipeline()),
+    Order.aggregate(couponDiscountPipeline({ createdAt: { $gte: startOfMonth } })),
 
     // ── NEW: Payment method revenue mix ────────────────────────────────────
     Order.aggregate([
@@ -282,23 +280,9 @@ export async function getDashboardAnalyticsData() {
       },
     ]),
 
-    // ── NEW: Shipping charges collected ────────────────────────────────────
-    Order.aggregate([
-      { $match: PAYMENT_STATUS_GROSS },
-      { $group: { _id: null, total: { $sum: "$shippingCharge" } } },
-    ]),
-
-    // ── NEW: COD fees collected ─────────────────────────────────────────────
-    Order.aggregate([
-      { $match: PAYMENT_STATUS_GROSS },
-      { $group: { _id: null, total: { $sum: "$codFee" } } },
-    ]),
-
-    // ── NEW: GST (output tax) collected on paid orders ──────────────────────
-    Order.aggregate([
-      { $match: { paymentStatus: "paid" } },
-      { $group: { _id: null, total: { $sum: "$tax" } } },
-    ]),
+    // ── NEW: Shipping / COD / GST ───────────────────────────────────────────
+    Order.aggregate(orderFeesPipeline()),
+    Order.aggregate(taxCollectedPipeline()),
 
     // ── NEW: Cancellation count ─────────────────────────────────────────────
     Order.countDocuments({ status: "cancelled" }),
@@ -655,8 +639,8 @@ export async function getDashboardAnalyticsData() {
       couponDiscountTotal: couponDiscountTotal[0]?.totalDiscount || 0,
       couponDiscountMTD: couponDiscountMTD[0]?.totalDiscount || 0,
       couponOrdersTotal: couponDiscountTotal[0]?.count || 0,
-      shippingCollected: shippingCollected[0]?.total || 0,
-      codFeeCollected: codFeeCollected[0]?.total || 0,
+      shippingCollected: orderFeesAgg[0]?.shipping || 0,
+      codFeeCollected: orderFeesAgg[0]?.cod || 0,
       taxCollected: taxCollected[0]?.total || 0,
       onlineRevenue,
       offlineRevenue,

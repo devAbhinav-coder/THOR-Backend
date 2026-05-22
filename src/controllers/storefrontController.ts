@@ -85,7 +85,7 @@ const FALLBACK_SETTINGS = {
     headlineLine1: "Our Gifting",
     headlineLine2: "Collections",
     description:
-      "Handmade gifts, corporate gifting, and curated hampers — everything you need for celebrations, clients, and loved ones. Browse ready-to-ship pieces or start a custom gifting request.",
+      "Also explore curated gift sets and occasion hampers — perfect alongside our saree collections for weddings and celebrations.",
     socialHandle: "@thehouseofrani",
     cards: [
       {
@@ -134,7 +134,7 @@ const FALLBACK_SETTINGS = {
   },
   footer: {
     description:
-      "Your destination for exquisite Indian ethnic wear. Curated sarees, lehengas, and more.",
+      "Your destination for exquisite Indian ethnic wear. Curated sarees, lehengas, salwar suits, and more — crafted with love and tradition.",
     contactAddress: "123 Silk Road, Textile Market, Surat, Gujarat 395003",
     contactPhone: "+91 98765 43210",
     contactEmail: "hello@houseofrani.in",
@@ -145,9 +145,12 @@ const FALLBACK_SETTINGS = {
     quickLinks: [
       { label: "Home", href: "/" },
       { label: "Shop All", href: "/shop" },
-      { label: "New Arrivals", href: "/shop?sort=-createdAt" },
-      { label: "Featured", href: "/shop?isFeatured=true" },
-      { label: "Cart", href: "/cart" },
+      { label: "About", href: "/about" },
+      { label: "Journal", href: "/blog" },
+      { label: "FAQ", href: "/faq" },
+      { label: "Gifting", href: "/gifting" },
+      { label: "Shipping", href: "/shipping" },
+      { label: "Returns", href: "/returns" },
     ],
     categoryLimit: 7,
   },
@@ -165,13 +168,68 @@ type StorefrontPayload = {
   footer?: Record<string, unknown>;
 };
 
+const LEGACY_HOME_GIFT_SNIPPET =
+  "Handmade gifts, corporate gifting, and curated hampers";
+
+function sanitizeHomeGiftDescription(desc: string): string {
+  return desc.includes(LEGACY_HOME_GIFT_SNIPPET) ?
+      FALLBACK_SETTINGS.homeGiftShowcase.description
+    : desc;
+}
+
+function sanitizeFooterDescription(desc: string): string {
+  if (desc.includes(LEGACY_HOME_GIFT_SNIPPET) || !desc.trim()) {
+    return FALLBACK_SETTINGS.footer.description;
+  }
+  return desc;
+}
+
+/** Persist one-time SEO copy fix for live DB (non-blocking). */
+function persistHomeSeoSanitizeIfNeeded(raw: Record<string, unknown>) {
+  const giftDesc = String(
+    (raw.homeGiftShowcase as { description?: string } | undefined)?.description ||
+      "",
+  );
+  const footerDesc = String(
+    (raw.footer as { description?: string } | undefined)?.description || "",
+  );
+  const needsGift = giftDesc.includes(LEGACY_HOME_GIFT_SNIPPET);
+  const needsFooter =
+    footerDesc.includes(LEGACY_HOME_GIFT_SNIPPET) || !footerDesc.trim();
+  if (!needsGift && !needsFooter) return;
+  const $set: Record<string, string> = {};
+  if (needsGift) {
+    $set["homeGiftShowcase.description"] =
+      FALLBACK_SETTINGS.homeGiftShowcase.description;
+  }
+  if (needsFooter) {
+    $set["footer.description"] = FALLBACK_SETTINGS.footer.description;
+  }
+  void StorefrontSettings.updateOne({}, { $set }).catch(() => {});
+  void deleteCache("cache:storefront:settings:default").catch(() => {});
+}
+
 const getSettingsDoc = async () => {
   const cacheKey = "cache:storefront:settings:default";
   const cached = await getCache<typeof FALLBACK_SETTINGS>(cacheKey);
-  if (cached) return cached;
+  if (cached) {
+    const giftDesc = String(cached.homeGiftShowcase?.description || "");
+    const footerDesc = String(cached.footer?.description || "");
+    if (
+      giftDesc.includes(LEGACY_HOME_GIFT_SNIPPET) ||
+      footerDesc.includes(LEGACY_HOME_GIFT_SNIPPET)
+    ) {
+      void deleteCache(cacheKey).catch(() => {});
+    } else {
+      return cached;
+    }
+  }
 
   const settings = await storefrontRepository.getDefaultSettingsLean();
   if (!settings) return FALLBACK_SETTINGS;
+  persistHomeSeoSanitizeIfNeeded(
+    settings as unknown as Record<string, unknown>,
+  );
   const payload = {
     announcementMessages:
       settings.announcementMessages?.length ?
@@ -208,6 +266,19 @@ const getSettingsDoc = async () => {
       settings.homeGiftShowcase || FALLBACK_SETTINGS.homeGiftShowcase,
     footer: settings.footer || FALLBACK_SETTINGS.footer,
   };
+  const giftShowcase = payload.homeGiftShowcase as {
+    description?: string;
+  };
+  giftShowcase.description = sanitizeHomeGiftDescription(
+    String(
+      giftShowcase.description ||
+        FALLBACK_SETTINGS.homeGiftShowcase.description,
+    ),
+  );
+  const footerBlock = payload.footer as { description?: string };
+  footerBlock.description = sanitizeFooterDescription(
+    String(footerBlock.description || FALLBACK_SETTINGS.footer.description),
+  );
   await setCache(cacheKey, payload, 120);
   return payload;
 };

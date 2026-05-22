@@ -4,7 +4,7 @@ import { sendSuccess } from '../../utils/response';
 import { getDashboardAnalyticsData } from '../../services/adminAnalyticsService';
 import { getCache, setCache } from '../../services/cacheService';
 
-const ANALYTICS_CACHE_KEY = 'analytics:dashboard';
+const ANALYTICS_CACHE_KEY = 'analytics:dashboard:v2';
 const ANALYTICS_TTL_SECONDS = 120; // 2 minutes
 
 export const getDashboardAnalytics = catchAsync(async (_req: Request, res: Response) => {
