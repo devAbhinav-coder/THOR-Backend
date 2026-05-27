@@ -9,6 +9,21 @@ function trimStr(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+/** Cloudinary URLs may differ by transform segment while pointing at the same asset. */
+function cloudinaryPathname(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url;
+  }
+}
+
+function sameCloudinaryAsset(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return cloudinaryPathname(a) === cloudinaryPathname(b);
+}
+
 /** If next has image URL matching previous but no public id, restore from previous. */
 export function mergeHeroSlides(
   payloadSlides: Record<string, unknown>[] | undefined,
@@ -59,14 +74,23 @@ export function mergeShopBanner(
     if (up) {
       out[imgKey] = up.url;
       out[idKey] = up.publicId;
-    } else if (prev) {
-      const nImg = trimStr(out[imgKey]);
-      const nId = trimStr(out[idKey]);
-      const pImg = trimStr(prev[imgKey]);
-      const pId = trimStr(prev[idKey]);
-      if (nImg && !nId && pImg === nImg && pId) {
-        out[idKey] = pId;
-      }
+      continue;
+    }
+
+    const nImg = trimStr(out[imgKey]);
+    const nId = trimStr(out[idKey]);
+    const pImg = trimStr(prev?.[imgKey]);
+    const pId = trimStr(prev?.[idKey]);
+
+    if (!nImg) {
+      out[imgKey] = "";
+      out[idKey] = "";
+      continue;
+    }
+
+    // Admin JSON often drops publicId on save — keep Cloudinary id so cleanup won't delete the file.
+    if (!nId && pId && pImg && (nImg === pImg || sameCloudinaryAsset(nImg, pImg))) {
+      out[idKey] = pId;
     }
   }
   return out;

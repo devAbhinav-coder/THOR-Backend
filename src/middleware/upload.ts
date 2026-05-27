@@ -245,7 +245,13 @@ export const processStorefrontAssets = async (
       promo?: { url: string; publicId: string };
       blogMain?: { url: string; publicId: string };
       blogSide?: { url: string; publicId: string };
-    } = { hero: {} };
+      shopBannerLeft?: { url: string; publicId: string };
+      shopBannerCenter?: { url: string; publicId: string };
+      shopBannerRight?: { url: string; publicId: string };
+      giftingHero: Record<string, { url: string; publicId: string }>;
+      giftingSecondary: Record<string, { url: string; publicId: string }>;
+      homeGiftCard: Record<string, { url: string; publicId: string }>;
+    } = { hero: {}, giftingHero: {}, giftingSecondary: {}, homeGiftCard: {} };
 
     for (const file of files) {
       if (file.fieldname.startsWith('heroImage_')) {
@@ -269,6 +275,39 @@ export const processStorefrontAssets = async (
           { width: 800, crop: 'limit' },
         ]);
         uploaded.blogSide = { url: result.secure_url, publicId: result.public_id };
+      } else if (file.fieldname === 'shopBannerLeftImage') {
+        const result = await uploadToCloudinary(file.buffer, 'house-of-rani/storefront/shop-banner', [
+          { width: 600, height: 800, crop: 'limit' },
+        ]);
+        uploaded.shopBannerLeft = { url: result.secure_url, publicId: result.public_id };
+      } else if (file.fieldname === 'shopBannerCenterImage') {
+        const result = await uploadToCloudinary(file.buffer, 'house-of-rani/storefront/shop-banner', [
+          { width: 1920, height: 480, crop: 'limit' },
+        ]);
+        uploaded.shopBannerCenter = { url: result.secure_url, publicId: result.public_id };
+      } else if (file.fieldname === 'shopBannerRightImage') {
+        const result = await uploadToCloudinary(file.buffer, 'house-of-rani/storefront/shop-banner', [
+          { width: 600, height: 800, crop: 'limit' },
+        ]);
+        uploaded.shopBannerRight = { url: result.secure_url, publicId: result.public_id };
+      } else if (file.fieldname.startsWith('giftingHeroImage_')) {
+        const index = file.fieldname.replace('giftingHeroImage_', '');
+        const result = await uploadToCloudinary(file.buffer, 'house-of-rani/storefront/gifting-hero', [
+          { width: 1600, height: 900, crop: 'limit' },
+        ]);
+        uploaded.giftingHero[index] = { url: result.secure_url, publicId: result.public_id };
+      } else if (file.fieldname.startsWith('giftingSecondaryImage_')) {
+        const index = file.fieldname.replace('giftingSecondaryImage_', '');
+        const result = await uploadToCloudinary(file.buffer, 'house-of-rani/storefront/gifting-secondary', [
+          { width: 1200, crop: 'limit' },
+        ]);
+        uploaded.giftingSecondary[index] = { url: result.secure_url, publicId: result.public_id };
+      } else if (file.fieldname.startsWith('homeGiftCardImage_')) {
+        const index = file.fieldname.replace('homeGiftCardImage_', '');
+        const result = await uploadToCloudinary(file.buffer, 'house-of-rani/storefront/home-gift', [
+          { width: 900, height: 1200, crop: 'limit' },
+        ]);
+        uploaded.homeGiftCard[index] = { url: result.secure_url, publicId: result.public_id };
       }
     }
 
