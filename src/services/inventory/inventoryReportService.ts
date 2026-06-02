@@ -31,7 +31,7 @@ export async function getInventoryOverview(params: {
   const filter = params.filter ?? "all";
   const sortParam = params.sort ?? "-updatedAt";
   //also not is isgiftable  true
-  const match: Record<string, unknown> = { isActive: true, isGiftable: false };
+  const match: Record<string, unknown> = { isActive: true };
   if (search) {
     const escapedSearch = escapeRegex(search);
     match.$or = [
@@ -149,7 +149,7 @@ export async function getInventoryValuation() {
 
   const [overall, byCategory] = await Promise.all([
     Product.aggregate([
-      { $match: { isActive: true, isGiftable: false } },
+      { $match: { isActive: true } },
       { $unwind: "$variants" },
       {
         $group: {
@@ -201,7 +201,7 @@ export async function getInventoryValuation() {
       },
     ]).option(aggOptions),
     Product.aggregate([
-      { $match: { isActive: true, isGiftable: false } },
+      { $match: { isActive: true } },
       { $unwind: "$variants" },
       {
         $group: {
