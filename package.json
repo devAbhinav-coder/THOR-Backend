@@ -13,7 +13,10 @@
     "check": "npm run typecheck",
     "backfill:delivered-at": "ts-node --transpile-only scripts/backfill-delivered-at.ts",
     "backfill:review-fields": "ts-node --transpile-only scripts/backfill-review-fields.ts",
-    "indexes:orders": "ts-node --transpile-only scripts/ensure-order-indexes.ts"
+    "backfill:blog-seo": "ts-node --transpile-only scripts/backfill-blog-seo-fields.ts",
+    "sync:embeddings": "ts-node --transpile-only scripts/sync-content-embeddings.ts",
+    "indexes:orders": "ts-node --transpile-only scripts/ensure-order-indexes.ts",
+    "seed:shop-catalog": "ts-node --transpile-only scripts/seed-shop-catalog.ts"
   },
   "dependencies": {
     "@opentelemetry/instrumentation": "^0.215.0",

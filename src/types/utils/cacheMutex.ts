@@ -1,9 +1,9 @@
-import { redisConnection } from "../config/redis";
+import { redisConnection } from "../../config/redis";
 import logger from "./logger";
 
 /**
  * Simple Redis‑based mutex to prevent cache stampede.
- * 
+ *
  * Usage:
  *   const mutex = new CacheMutex('product:slug:my-slug');
  *   const lock = await mutex.acquire();
@@ -26,10 +26,10 @@ export class CacheMutex {
   constructor(
     cacheKey: string,
     options?: {
-      ttlMs?: number;        // lock duration (default 10s)
+      ttlMs?: number; // lock duration (default 10s)
       retryDelayMs?: number; // delay between retries (default 100ms)
-      maxRetries?: number;   // max retries before giving up (default 3)
-    }
+      maxRetries?: number; // max retries before giving up (default 3)
+    },
   ) {
     this.key = `mutex:${cacheKey}`;
     this.ttlMs = options?.ttlMs ?? 10_000;
@@ -48,7 +48,7 @@ export class CacheMutex {
         "1",
         "PX",
         this.ttlMs,
-        "NX"
+        "NX",
       );
       if (acquired === "OK") {
         return true;
@@ -68,7 +68,9 @@ export class CacheMutex {
     try {
       await redisConnection.del(this.key);
     } catch (e) {
-      logger.warn(`CacheMutex release failed for ${this.key}: ${(e as Error).message}`);
+      logger.warn(
+        `CacheMutex release failed for ${this.key}: ${(e as Error).message}`,
+      );
     }
   }
 
@@ -91,7 +93,7 @@ export class CacheMutex {
 
 /**
  * Stale‑while‑revalidate helper.
- * 
+ *
  * 1. Return stale cached value immediately.
  * 2. If cache is older than `staleMs`, try to acquire mutex and recompute.
  * 3. If mutex acquired, compute new value, update cache, return new value.
@@ -102,11 +104,11 @@ export async function staleWhileRevalidate<T>(
   staleMs: number,
   fetchFresh: () => Promise<T>,
   getCached: (key: string) => Promise<{ value: T; timestamp: number } | null>,
-  setCached: (key: string, value: T) => Promise<void>
+  setCached: (key: string, value: T) => Promise<void>,
 ): Promise<T> {
   const cached = await getCached(cacheKey);
   const now = Date.now();
-  const isStale = !cached || (now - cached.timestamp) > staleMs;
+  const isStale = !cached || now - cached.timestamp > staleMs;
 
   if (!isStale) {
     return cached.value;
@@ -121,9 +123,13 @@ export async function staleWhileRevalidate<T>(
   };
 
   // Non‑blocking refresh attempt
-  mutex.withLock(refresh).catch((e) =>
-    logger.warn(`SWR background refresh failed for ${cacheKey}: ${(e as Error).message}`)
-  );
+  mutex
+    .withLock(refresh)
+    .catch((e) =>
+      logger.warn(
+        `SWR background refresh failed for ${cacheKey}: ${(e as Error).message}`,
+      ),
+    );
 
   // Return stale value while refresh runs in background
   return cached?.value ?? refresh();

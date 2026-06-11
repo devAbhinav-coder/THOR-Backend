@@ -1,6 +1,6 @@
 import { Resend } from "resend";
-import logger from "../utils/logger";
-import { htmlToPlainText } from "../utils/emailPlainText";
+import logger from "../types/utils/logger";
+import { htmlToPlainText } from "../types/utils/emailPlainText";
 
 export type DeliverableEmail = {
   to: string;

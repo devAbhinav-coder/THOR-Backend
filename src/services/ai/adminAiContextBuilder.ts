@@ -400,7 +400,7 @@ export async function buildMarketingDraftContext(input: {
     },
     brand: 'The House of Rani',
     brandVoice:
-      'Indian ethnic wear — sarees, suits, gifting. Polite Hinglish OK. Never invent discounts unless admin wrote them.',
+      'Indian ethnic wear — sarees, suits, gifting. Warm, trustworthy tone in professional English only. Never invent discounts unless admin wrote them.',
   };
 }
 
@@ -416,15 +416,15 @@ export function buildSmartActionSummary(
   const urgent = rules.filter((r) => r.priority === 'high').length;
   const intro =
     urgent > 0
-      ? `Aaj ${urgent} urgent priority — neeche cards se seedha action lo.`
+      ? `Today: ${urgent} urgent ${urgent === 1 ? 'priority' : 'priorities'} — use the action cards below.`
       : rules.length > 0
-        ? `${rules.length} suggested improvements — sab data store se.`
-        : 'Sab theek lag raha hai — koi urgent rule trigger nahi hua.';
+        ? `${rules.length} suggested improvements — all based on live store data.`
+        : 'Store looks healthy — no urgent rule triggers fired.';
 
   const bullets: string[] = [];
 
   if (o.ordersToday != null && o.revenueToday != null) {
-    bullets.push(`Aaj: ${o.ordersToday} orders, ₹${fmt(o.revenueToday)} revenue`);
+    bullets.push(`Today: ${o.ordersToday} orders, ₹${fmt(o.revenueToday)} revenue`);
   }
   if (o.monthRevenue != null && o.revenueGrowth != null) {
     const g = o.revenueGrowth;
@@ -442,10 +442,10 @@ export function buildSmartActionSummary(
     bullets.push(`Lifetime catalog gross profit: ₹${fmt(f.grossProfitLifetime)}`);
   }
   if ((o.pendingFulfillmentCount ?? 0) > 0) {
-    bullets.push(`${o.pendingFulfillmentCount} orders fulfilment queue mein hain`);
+    bullets.push(`${o.pendingFulfillmentCount} orders in the fulfilment queue`);
   }
   if ((o.refundedOrdersCount ?? 0) >= 2) {
-    bullets.push(`${o.refundedOrdersCount} refunded orders — returns page check karein`);
+    bullets.push(`${o.refundedOrdersCount} refunded orders — review the returns page`);
   }
 
   const trimmed = bullets.slice(0, 5);

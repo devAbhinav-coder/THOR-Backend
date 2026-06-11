@@ -1,14 +1,19 @@
 import {
   getOrderStatsForIstDayOffset,
   getOrderStatsForIstMonth,
-} from './istDayOrderStats';
-import { istParts } from '../../utils/istDate';
+} from "./istDayOrderStats";
+import { istParts } from "../../types/utils/istDate";
 
 type OperatingSummary = {
   yearTotal?: number;
   monthToDateTotal?: number;
   allTimeTotal?: number;
-  byCategory?: Array<{ category: string; label: string; total: number; count: number }>;
+  byCategory?: Array<{
+    category: string;
+    label: string;
+    total: number;
+    count: number;
+  }>;
 } | null;
 
 function round2(n: number): number {
@@ -38,7 +43,11 @@ export async function buildRichStoreSnapshot(
   ]);
 
   const paymentMethodMix = (
-    (analytics.paymentMethodMix || []) as { _id: string; revenue: number; count: number }[]
+    (analytics.paymentMethodMix || []) as {
+      _id: string;
+      revenue: number;
+      count: number;
+    }[]
   )
     .slice(0, 6)
     .map((r) => ({
@@ -68,11 +77,17 @@ export async function buildRichStoreSnapshot(
   }));
 
   const packingPrintRelated = byCategory.filter((c) =>
-    ['packing', 'ads', 'miscellaneous', 'shipping_outbound', 'other'].includes(c.category),
+    ["packing", "ads", "miscellaneous", "shipping_outbound", "other"].includes(
+      c.category,
+    ),
   );
 
   const topSellers = (
-    (analytics.topProducts || []) as { name?: string; totalSold?: number; revenue?: number }[]
+    (analytics.topProducts || []) as {
+      name?: string;
+      totalSold?: number;
+      revenue?: number;
+    }[]
   )
     .slice(0, 10)
     .map((p) => ({
@@ -100,7 +115,10 @@ export async function buildRichStoreSnapshot(
     }));
 
   const revenueByMonth = (
-    (analytics.revenueByMonth || []) as { _id?: { year: number; month: number }; total?: number }[]
+    (analytics.revenueByMonth || []) as {
+      _id?: { year: number; month: number };
+      total?: number;
+    }[]
   )
     .slice(-6)
     .map((r) => ({
@@ -141,25 +159,30 @@ export async function buildRichStoreSnapshot(
     }));
 
   const topViewedRaw = analytics.topViewedProducts;
-  const topViewedDetailed = (Array.isArray(topViewedRaw) ? topViewedRaw : []).slice(0, 12).map(
-    (p: {
-      name?: string;
-      views?: number;
-      viewCount?: number;
-      sold?: number;
-      conversionPercent?: number;
-      conversionRate?: number;
-      price?: number;
-    }) => ({
-      name: p.name,
-      views: p.views ?? p.viewCount ?? 0,
-      sold: p.sold ?? 0,
-      conversionPercent: p.conversionPercent ?? p.conversionRate ?? 0,
-      price: p.price,
-    }),
-  );
+  const topViewedDetailed = (Array.isArray(topViewedRaw) ? topViewedRaw : [])
+    .slice(0, 12)
+    .map(
+      (p: {
+        name?: string;
+        views?: number;
+        viewCount?: number;
+        sold?: number;
+        conversionPercent?: number;
+        conversionRate?: number;
+        price?: number;
+      }) => ({
+        name: p.name,
+        views: p.views ?? p.viewCount ?? 0,
+        sold: p.sold ?? 0,
+        conversionPercent: p.conversionPercent ?? p.conversionRate ?? 0,
+        price: p.price,
+      }),
+    );
 
-  const oos = (base.outOfStockAlerts || []) as { name?: string; soldCount?: number }[];
+  const oos = (base.outOfStockAlerts || []) as {
+    name?: string;
+    soldCount?: number;
+  }[];
   const low = (base.lowStockAlerts || []) as {
     name?: string;
     stock?: number;
@@ -172,7 +195,7 @@ export async function buildRichStoreSnapshot(
       .map((p) => ({
         name: p.name,
         soldCount: p.soldCount,
-        reason: 'Out of stock + recent sales',
+        reason: "Out of stock + recent sales",
       })),
     ...low
       .filter((p) => (p.soldCount ?? 0) >= 1)
@@ -180,30 +203,31 @@ export async function buildRichStoreSnapshot(
         name: p.name,
         stock: p.stock,
         soldCount: p.soldCount,
-        reason: `Low stock (${p.stock ?? '?'} units)`,
+        reason: `Low stock (${p.stock ?? "?"} units)`,
       })),
   ].slice(0, 12);
 
   return {
-    generatedAtIst: `${ist.year}-${String(ist.month + 1).padStart(2, '0')}-${String(ist.day).padStart(2, '0')}`,
+    generatedAtIst: `${ist.year}-${String(ist.month + 1).padStart(2, "0")}-${String(ist.day).padStart(2, "0")}`,
     capabilities: [
-      'Kal / aaj / is mahine — total + online + offline/POS + payment method (IST)',
-      'Actual money: gross profit, operating costs, estimated net MTD',
-      'Operating expenses by category (packing, ads, shipping, rent…)',
-      'Top sellers, views, stock, returns',
-      'Lifetime online vs offline split & month projection',
+      "Yesterday / today / this month — total + online + offline/POS + payment method (IST)",
+      "Actual money: gross profit, operating costs, estimated net MTD",
+      "Operating expenses by category (packing, ads, shipping, rent…)",
+      "Top sellers, views, stock, returns",
+      "Lifetime online vs offline split & month projection",
     ],
     dataGuide: {
-      timezone: 'Asia/Kolkata (IST)',
+      timezone: "Asia/Kolkata (IST)",
       ordersInclude:
         'All paid + refunded orders — website checkout AND offline/POS (offlineMeta). Not "online only".',
-      today: 'timePeriods.today — total + online + offline + paymentBreakdown',
-      yesterday: 'timePeriods.yesterday — same structure',
-      thisMonth: 'timePeriods.thisMonth — month-to-date with channel split',
-      lifetime: 'timePeriods.lifetime + channelMix.lifetime — all-time',
-      forbidden: 'NEVER compute yesterday as lifetime minus month',
-      profit: 'profitSummary — catalog gross profit; estimatedNetMtd subtracts operating costs',
-      payments: 'paymentBreakdown: razorpay, cod, offline_upi, offline_cash',
+      today: "timePeriods.today — total + online + offline + paymentBreakdown",
+      yesterday: "timePeriods.yesterday — same structure",
+      thisMonth: "timePeriods.thisMonth — month-to-date with channel split",
+      lifetime: "timePeriods.lifetime + channelMix.lifetime — all-time",
+      forbidden: "NEVER compute yesterday as lifetime minus month",
+      profit:
+        "profitSummary — catalog gross profit; estimatedNetMtd subtracts operating costs",
+      payments: "paymentBreakdown: razorpay, cod, offline_upi, offline_cash",
     },
     timePeriods: {
       today: todayStats,
@@ -235,7 +259,7 @@ export async function buildRichStoreSnapshot(
       operatingCostsMtdInr: opMtd,
       operatingCostsYearInr: opYear,
       estimatedNetProfitMtdInr: estimatedNetMtd,
-      note: 'estimatedNetProfitMtd = monthGrossProfit - operatingCostsMtd (rough; excludes tax/refunds timing)',
+      note: "estimatedNetProfitMtd = monthGrossProfit - operatingCostsMtd (rough; excludes tax/refunds timing)",
     },
     operatingExpenses: {
       year: new Date().getFullYear(),
@@ -245,7 +269,7 @@ export async function buildRichStoreSnapshot(
       byCategory,
       packingAdsPrintRelated: packingPrintRelated,
       topSpendCategories: byCategory.slice(0, 5),
-      adminPath: '/admin/operating-expenses',
+      adminPath: "/admin/operating-expenses",
     },
     projections: {
       avgDailyRevenueThisMonthInr: round2(avgDailyRev),
@@ -275,8 +299,9 @@ export async function buildRichStoreSnapshot(
       refundedOrdersCount: overview.refundedOrdersCount ?? 0,
       pendingFulfillmentCount: overview.pendingFulfillmentCount ?? 0,
       cancellationRatePercent: overview.cancellationRate ?? 0,
-      refundsByReason: Array.isArray(base.refundsByReason)
-        ? base.refundsByReason.slice(0, 5)
+      refundsByReason:
+        Array.isArray(base.refundsByReason) ?
+          base.refundsByReason.slice(0, 5)
         : [],
     },
     topSellersByUnits: topSellers,

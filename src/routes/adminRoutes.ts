@@ -129,6 +129,15 @@ import {
 } from '../middleware/upload';
 import { createAdaptiveLimiter } from '../middleware/adaptiveRateLimit';
 import {
+  getContentPlans,
+  createContentPlan,
+  bulkCreateContentPlans,
+  updateContentPlan,
+  deleteContentPlan,
+} from '../controllers/blogContentPlanController';
+import { getNewsletterSubscribersAdmin } from '../controllers/newsletterController';
+import { adminNewsletterListQuerySchema } from '../validation/newsletterSchemas';
+import {
   getAdminAiStatus,
   getAdminDailyBrief,
   getAdminActionSuggestions,
@@ -138,6 +147,8 @@ import {
   draftAdminProductCopy,
   draftAdminReviewReply,
   draftAdminMarketingEmail,
+  draftAdminBlogPost,
+  planAdminBlogCalendar,
   askAdminStore,
 } from '../controllers/admin/adminAiController';
 import {
@@ -147,6 +158,8 @@ import {
   adminAiReviewIdSchema,
   adminAiProductDraftSchema,
   adminAiMarketingDraftSchema,
+  adminAiBlogDraftSchema,
+  adminAiBlogCalendarSchema,
   adminAiBriefQuerySchema,
 } from '../validation/adminAiSchemas';
 
@@ -180,6 +193,8 @@ router.get('/ai/explain/returns', adminAiLimiter, ...explainAdminReturns);
 router.post('/ai/draft/product', adminAiLimiter, validate(adminAiProductDraftSchema), ...draftAdminProductCopy);
 router.post('/ai/draft/review/:reviewId', adminAiLimiter, validate(adminAiReviewIdSchema), ...draftAdminReviewReply);
 router.post('/ai/draft/marketing-email', adminAiLimiter, validate(adminAiMarketingDraftSchema), ...draftAdminMarketingEmail);
+router.post('/ai/draft/blog', adminAiLimiter, validate(adminAiBlogDraftSchema), ...draftAdminBlogPost);
+router.post('/ai/blog-calendar/plan', adminAiLimiter, validate(adminAiBlogCalendarSchema), ...planAdminBlogCalendar);
 router.post('/ai/ask', adminAiLimiter, validate(adminAiAskSchema), ...askAdminStore);
 
 router.get('/security/audit', getAdminAuditLogs);
@@ -230,6 +245,11 @@ router.get('/returns/insights', getReturnsInsights);
 router.get('/returns', getReturns);
 
 router.get('/users/stats', getUserDirectoryStats);
+router.get(
+  '/newsletter-subscribers',
+  validate(adminNewsletterListQuerySchema),
+  getNewsletterSubscribersAdmin,
+);
 router.get('/offline-customers', getOfflineCustomers);
 router.get('/users', getAllUsers);
 router.get('/users/:id/insights', getUserInsights);
@@ -296,5 +316,12 @@ router.get('/operating-expenses/summary', validate(operatingExpenseSummaryQueryS
 router.post('/operating-expenses', adminSensitiveLimiter, validate(createOperatingExpenseSchema), createOperatingExpenseHandler);
 router.put('/operating-expenses/:id', adminSensitiveLimiter, validate(updateOperatingExpenseSchema), updateOperatingExpenseHandler);
 router.delete('/operating-expenses/:id', adminSensitiveLimiter, validate(operatingExpenseIdParamsSchema), voidOperatingExpenseHandler);
+
+// ─── Blog content calendar ────────────────────────────────────────────────────
+router.get('/blog-content-plans', getContentPlans);
+router.post('/blog-content-plans', createContentPlan);
+router.post('/blog-content-plans/bulk', bulkCreateContentPlans);
+router.patch('/blog-content-plans/:id', updateContentPlan);
+router.delete('/blog-content-plans/:id', deleteContentPlan);
 
 export default router;

@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
-import catchAsync from "../utils/catchAsync";
-import AppError from "../utils/AppError";
-import { sendSuccess } from "../utils/response";
+import catchAsync from "../types/utils/catchAsync";
+import AppError from "../types/utils/AppError";
+import { sendSuccess } from "../types/utils/response";
 import Order from "../models/Order";
 import {
   delhiveryIsConfigured,
@@ -55,7 +55,8 @@ export const checkOrderPinServiceability = catchAsync(
     const order = await Order.findById(req.params.id);
     if (!order) return next(new AppError("Order not found.", 404));
     const pin = order.shippingAddress?.pincode;
-    if (!pin) return next(new AppError("Order has no destination pincode.", 400));
+    if (!pin)
+      return next(new AppError("Order has no destination pincode.", 400));
     try {
       const r = await checkPincodeServiceability(pin);
       sendSuccess(res, {
@@ -66,7 +67,9 @@ export const checkOrderPinServiceability = catchAsync(
       });
     } catch (e) {
       if ((e as { statusCode?: number }).statusCode === 503) {
-        return next(new AppError("Delhivery integration is not configured.", 503));
+        return next(
+          new AppError("Delhivery integration is not configured.", 503),
+        );
       }
       throw e;
     }
@@ -90,7 +93,9 @@ export const checkDelhiveryServiceabilityByPin = catchAsync(
       });
     } catch (e) {
       if ((e as { statusCode?: number }).statusCode === 503) {
-        return next(new AppError("Delhivery integration is not configured.", 503));
+        return next(
+          new AppError("Delhivery integration is not configured.", 503),
+        );
       }
       throw e;
     }
@@ -98,7 +103,14 @@ export const checkDelhiveryServiceabilityByPin = catchAsync(
 );
 
 function formatShipAddress(a: IAddress): string {
-  const parts = [a.house, a.street, a.landmark ? `Landmark: ${a.landmark}` : "", a.city, a.state, a.pincode]
+  const parts = [
+    a.house,
+    a.street,
+    a.landmark ? `Landmark: ${a.landmark}` : "",
+    a.city,
+    a.state,
+    a.pincode,
+  ]
     .filter(Boolean)
     .join(", ");
   return sanitizeManifestText(parts);
@@ -150,7 +162,9 @@ export const estimateDelhiveryForOrder = catchAsync(
 
     const oPin = delhiveryOriginPincode();
     if (!oPin || !delhiveryIsConfigured()) {
-      return next(new AppError("Delhivery integration is not configured.", 503));
+      return next(
+        new AppError("Delhivery integration is not configured.", 503),
+      );
     }
 
     const dPin = order.shippingAddress?.pincode?.replace(/\D/g, "").slice(0, 6);
@@ -163,16 +177,28 @@ export const estimateDelhiveryForOrder = catchAsync(
     const h = Number(heightCm);
     const w = Number(weightGm);
     if ([l, b, h, w].some((x) => !Number.isFinite(x) || x <= 0)) {
-      return next(new AppError("Dimensions and weight must be positive numbers.", 400));
+      return next(
+        new AppError("Dimensions and weight must be positive numbers.", 400),
+      );
     }
     if (l + b + h < 15) {
-      return next(new AppError("Length + breadth + height must be at least 15 cm (Delhivery).", 400));
+      return next(
+        new AppError(
+          "Length + breadth + height must be at least 15 cm (Delhivery).",
+          400,
+        ),
+      );
     }
     if (w < 50) {
-      return next(new AppError("Package weight must be at least 50 g (Delhivery).", 400));
+      return next(
+        new AppError("Package weight must be at least 50 g (Delhivery).", 400),
+      );
     }
 
-    const boxes = Math.min(5, Math.max(1, Math.floor(Number(boxCountRaw) || 1)));
+    const boxes = Math.min(
+      5,
+      Math.max(1, Math.floor(Number(boxCountRaw) || 1)),
+    );
     const perBoxDead = perBoxDeadWeightGm(w, boxes);
     const cgm = chargeableWeightGrams(l, b, h, perBoxDead);
     const pt = order.paymentMethod === "cod" ? "COD" : ("Pre-paid" as const);
@@ -192,7 +218,12 @@ export const estimateDelhiveryForOrder = catchAsync(
       });
     } catch (e) {
       const err = e as { message?: string; statusCode?: number };
-      return next(new AppError(err.message || "Delhivery charges request failed", err.statusCode || 502));
+      return next(
+        new AppError(
+          err.message || "Delhivery charges request failed",
+          err.statusCode || 502,
+        ),
+      );
     }
 
     const tat = await fetchTatHint({
@@ -243,14 +274,18 @@ export const createDelhiveryShipmentForOrder = catchAsync(
     const pickupName = delhiveryPickupLocationName();
     const oPin = delhiveryOriginPincode();
     if (!pickupName || !oPin || !delhiveryIsConfigured()) {
-      return next(new AppError("Delhivery integration is not configured.", 503));
+      return next(
+        new AppError("Delhivery integration is not configured.", 503),
+      );
     }
 
     const order = await Order.findById(req.params.id);
     if (!order) return next(new AppError("Order not found.", 404));
 
     if (order.status === "cancelled" || order.status === "refunded") {
-      return next(new AppError("Cannot ship a cancelled or refunded order.", 400));
+      return next(
+        new AppError("Cannot ship a cancelled or refunded order.", 400),
+      );
     }
     if (order.status === "shipped" || order.status === "delivered") {
       return next(new AppError("Order is already shipped or delivered.", 400));
@@ -280,16 +315,27 @@ export const createDelhiveryShipmentForOrder = catchAsync(
     }
 
     if ([l, b, h, totalW].some((x) => !Number.isFinite(x) || x <= 0)) {
-      return next(new AppError("Dimensions and weight must be positive numbers.", 400));
+      return next(
+        new AppError("Dimensions and weight must be positive numbers.", 400),
+      );
     }
     if (l + b + h < 15) {
-      return next(new AppError("Length + breadth + height must be at least 15 cm (Delhivery).", 400));
+      return next(
+        new AppError(
+          "Length + breadth + height must be at least 15 cm (Delhivery).",
+          400,
+        ),
+      );
     }
     if (totalW < 50) {
-      return next(new AppError("Package weight must be at least 50 g (Delhivery).", 400));
+      return next(
+        new AppError("Package weight must be at least 50 g (Delhivery).", 400),
+      );
     }
 
-    const destPin = order.shippingAddress?.pincode?.replace(/\D/g, "").slice(0, 6);
+    const destPin = order.shippingAddress?.pincode
+      ?.replace(/\D/g, "")
+      .slice(0, 6);
     if (!destPin || destPin.length !== 6) {
       return next(new AppError("Invalid destination pincode.", 400));
     }
@@ -309,12 +355,19 @@ export const createDelhiveryShipmentForOrder = catchAsync(
 
     const phone = normalizePhone(order.shippingAddress.phone || "");
     if (phone.length !== 10) {
-      return next(new AppError("Consignee phone must be a valid 10-digit Indian mobile.", 400));
+      return next(
+        new AppError(
+          "Consignee phone must be a valid 10-digit Indian mobile.",
+          400,
+        ),
+      );
     }
 
     const addr = formatShipAddress(order.shippingAddress as IAddress);
     if (addr.length < 8) {
-      return next(new AppError("Shipping address is too short for Delhivery.", 400));
+      return next(
+        new AppError("Shipping address is too short for Delhivery.", 400),
+      );
     }
 
     const names = order.items.map((i) => i.name).join(", ");
@@ -322,10 +375,14 @@ export const createDelhiveryShipmentForOrder = catchAsync(
 
     const paymentMode = order.paymentMethod === "cod" ? "COD" : "Prepaid";
     const codAmount =
-      order.paymentMethod === "cod" ? String(Math.round(order.total * 100) / 100) : "";
+      order.paymentMethod === "cod" ?
+        String(Math.round(order.total * 100) / 100)
+      : "";
 
     const waybills =
-      boxes === 1 ? [await fetchSingleWaybill()] : await fetchBulkWaybills(boxes);
+      boxes === 1 ?
+        [await fetchSingleWaybill()]
+      : await fetchBulkWaybills(boxes);
 
     const shipments: DelhiveryManifestShipment[] = [];
 
@@ -395,9 +452,16 @@ export const createDelhiveryShipmentForOrder = catchAsync(
         pickup_location: { name: pickupName },
       });
     } catch (e) {
-      const err = e as { message?: string; statusCode?: number; body?: unknown };
+      const err = e as {
+        message?: string;
+        statusCode?: number;
+        body?: unknown;
+      };
       return next(
-        new AppError(err.message || "Delhivery create shipment failed", err.statusCode || 502),
+        new AppError(
+          err.message || "Delhivery create shipment failed",
+          err.statusCode || 502,
+        ),
       );
     }
 
@@ -407,7 +471,8 @@ export const createDelhiveryShipmentForOrder = catchAsync(
     if (!primaryWb) {
       return next(
         new AppError(
-          parsed.errorMessage || "Delhivery did not return a waybill. Check Delhivery response.",
+          parsed.errorMessage ||
+            "Delhivery did not return a waybill. Check Delhivery response.",
           502,
         ),
       );
@@ -461,8 +526,13 @@ export const createDelhiveryShipmentForOrder = catchAsync(
       boxes,
     });
 
-    const populated = await Order.findById(order._id).populate("user", "name email");
-    const user = populated?.user as unknown as { name?: string; email?: string; _id?: string } | undefined;
+    const populated = await Order.findById(order._id).populate(
+      "user",
+      "name email",
+    );
+    const user = populated?.user as unknown as
+      | { name?: string; email?: string; _id?: string }
+      | undefined;
     if (populated && user?.email) {
       const tpl = emailTemplates.orderStatusUpdate(
         user.name || "Customer",
@@ -474,7 +544,11 @@ export const createDelhiveryShipmentForOrder = catchAsync(
           trackingUrl: trackUrl,
         },
       );
-      await enqueueEmail({ to: user.email, subject: tpl.subject, html: tpl.html });
+      await enqueueEmail({
+        to: user.email,
+        subject: tpl.subject,
+        html: tpl.html,
+      });
       const shippedCopy = getOrderShippedCopy(populated.orderNumber!, {
         carrier: "Delhivery",
         awb: primaryWb,
@@ -489,7 +563,10 @@ export const createDelhiveryShipmentForOrder = catchAsync(
       );
     }
 
-    sendSuccess(res, { order: populated || order, delhivery: { waybill: primaryWb, trackingUrl: trackUrl } });
+    sendSuccess(res, {
+      order: populated || order,
+      delhivery: { waybill: primaryWb, trackingUrl: trackUrl },
+    });
   },
 );
 
@@ -501,9 +578,14 @@ export const syncDelhiveryTrackingForOrder = catchAsync(
         return next(new AppError("Order not found.", 404));
       }
       if (r.summary === "Delhivery not configured") {
-        return next(new AppError("Delhivery integration is not configured.", 503));
+        return next(
+          new AppError("Delhivery integration is not configured.", 503),
+        );
       }
-      if (r.summary === "Skip cancelled/refunded" || r.summary === "Not a Delhivery shipment") {
+      if (
+        r.summary === "Skip cancelled/refunded" ||
+        r.summary === "Not a Delhivery shipment"
+      ) {
         return next(new AppError(r.summary, 400));
       }
       return next(
@@ -530,7 +612,9 @@ export const syncDelhiveryTrackingForOrder = catchAsync(
 export const getDelhiveryPackingSlip = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     if (!delhiveryIsConfigured()) {
-      return next(new AppError("Delhivery integration is not configured.", 503));
+      return next(
+        new AppError("Delhivery integration is not configured.", 503),
+      );
     }
     const order = await Order.findById(req.params.id);
     if (!order) return next(new AppError("Order not found.", 404));
@@ -546,7 +630,9 @@ export const getDelhiveryPackingSlip = catchAsync(
     }
     const waybill = order.trackingNumber?.trim();
     if (!waybill || waybill.length < 6) {
-      return next(new AppError("This order has no Delhivery waybill (AWB).", 400));
+      return next(
+        new AppError("This order has no Delhivery waybill (AWB).", 400),
+      );
     }
 
     const rawSize = String(req.query.pdf_size || "4R").toUpperCase();
@@ -571,18 +657,23 @@ export const getDelhiveryPackingSlip = catchAsync(
     } catch (e) {
       if (e instanceof DelhiveryApiError) {
         if (e.statusCode === 503) {
-          return next(new AppError("Delhivery integration is not configured.", 503));
+          return next(
+            new AppError("Delhivery integration is not configured.", 503),
+          );
         }
         return next(
           new AppError(
             e.message,
-            e.statusCode && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 502,
+            e.statusCode && e.statusCode >= 400 && e.statusCode < 600 ?
+              e.statusCode
+            : 502,
           ),
         );
       }
       return next(
         new AppError(
-          (e as Error).message || "Could not generate packing slip from Delhivery.",
+          (e as Error).message ||
+            "Could not generate packing slip from Delhivery.",
           502,
         ),
       );
@@ -594,7 +685,9 @@ export const getDelhiveryPackingSlip = catchAsync(
 export const getDelhiveryPackingSlipJson = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     if (!delhiveryIsConfigured()) {
-      return next(new AppError("Delhivery integration is not configured.", 503));
+      return next(
+        new AppError("Delhivery integration is not configured.", 503),
+      );
     }
     const order = await Order.findById(req.params.id);
     if (!order) return next(new AppError("Order not found.", 404));
@@ -610,7 +703,9 @@ export const getDelhiveryPackingSlipJson = catchAsync(
     }
     const waybill = order.trackingNumber?.trim();
     if (!waybill || waybill.length < 6) {
-      return next(new AppError("This order has no Delhivery waybill (AWB).", 400));
+      return next(
+        new AppError("This order has no Delhivery waybill (AWB).", 400),
+      );
     }
 
     const rawSize = String(req.query.pdf_size || "4R").toUpperCase();
@@ -631,18 +726,23 @@ export const getDelhiveryPackingSlipJson = catchAsync(
     } catch (e) {
       if (e instanceof DelhiveryApiError) {
         if (e.statusCode === 503) {
-          return next(new AppError("Delhivery integration is not configured.", 503));
+          return next(
+            new AppError("Delhivery integration is not configured.", 503),
+          );
         }
         return next(
           new AppError(
             e.message,
-            e.statusCode && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 502,
+            e.statusCode && e.statusCode >= 400 && e.statusCode < 600 ?
+              e.statusCode
+            : 502,
           ),
         );
       }
       return next(
         new AppError(
-          (e as Error).message || "Could not load packing slip JSON from Delhivery.",
+          (e as Error).message ||
+            "Could not load packing slip JSON from Delhivery.",
           502,
         ),
       );
@@ -654,7 +754,9 @@ export const getDelhiveryPackingSlipJson = catchAsync(
 export const downloadDelhiveryPackingSlipFile = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     if (!delhiveryIsConfigured()) {
-      return next(new AppError("Delhivery integration is not configured.", 503));
+      return next(
+        new AppError("Delhivery integration is not configured.", 503),
+      );
     }
     const order = await Order.findById(req.params.id);
     if (!order) return next(new AppError("Order not found.", 404));
@@ -670,7 +772,9 @@ export const downloadDelhiveryPackingSlipFile = catchAsync(
     }
     const waybill = order.trackingNumber?.trim();
     if (!waybill || waybill.length < 6) {
-      return next(new AppError("This order has no Delhivery waybill (AWB).", 400));
+      return next(
+        new AppError("This order has no Delhivery waybill (AWB).", 400),
+      );
     }
 
     const rawSize = String(req.query.pdf_size || "4R").toUpperCase();
@@ -698,12 +802,16 @@ export const downloadDelhiveryPackingSlipFile = catchAsync(
     } catch (e) {
       if (e instanceof DelhiveryApiError) {
         if (e.statusCode === 503) {
-          return next(new AppError("Delhivery integration is not configured.", 503));
+          return next(
+            new AppError("Delhivery integration is not configured.", 503),
+          );
         }
         return next(
           new AppError(
             e.message,
-            e.statusCode && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 502,
+            e.statusCode && e.statusCode >= 400 && e.statusCode < 600 ?
+              e.statusCode
+            : 502,
           ),
         );
       }

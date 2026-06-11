@@ -296,10 +296,22 @@ export interface ICoupon extends Document {
   updatedAt: Date;
 }
 
+export type BlogImageLayout =
+  | 'hero'
+  | 'wide'
+  | 'portrait'
+  | 'square'
+  | 'inline'
+  | 'split';
+
+export type BlogImagePlacement = 'cover' | 'article' | 'gallery';
+
 export interface IBlogImage {
   url: string;
   publicId: string;
   caption?: string;
+  layout?: BlogImageLayout;
+  placement?: BlogImagePlacement;
 }
 
 export interface IBlog extends Document {
@@ -312,6 +324,35 @@ export interface IBlog extends Document {
   likes: Types.ObjectId[];
   isPublished: boolean;
   viewCount: number;
+  excerpt?: string;
+  seoTitle?: string;
+  seoDescription?: string;
+  keywords: string[];
+  tags: string[];
+  category: string;
+  relatedProductIds: Types.ObjectId[];
+  readingTimeMin: number;
+  aiGenerated: boolean;
+  aiPromptSnapshot?: string;
+  contentEmbedding?: number[];
+  scheduledPublishAt?: Date | null;
+  shopClickCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type BlogContentPlanStatus = 'planned' | 'drafted' | 'published' | 'skipped';
+
+export interface IBlogContentPlan extends Document {
+  _id: Types.ObjectId;
+  topic: string;
+  keywords: string[];
+  category: string;
+  plannedDate: Date;
+  status: BlogContentPlanStatus;
+  notes?: string;
+  blog?: Types.ObjectId;
+  createdBy: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }

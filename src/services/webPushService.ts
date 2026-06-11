@@ -1,6 +1,6 @@
 import webpush from "web-push";
 import { PushSubscriptionModel } from "../models/PushSubscription";
-import logger from "../utils/logger";
+import logger from "../types/utils/logger";
 import { sendExpoPushToUser } from "./expoPushService";
 
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "";
@@ -83,8 +83,9 @@ export async function sendWebPushToUser(
             { endpoint: sub.endpoint },
             { isActive: false },
           );
-          const { trackInvalidPushToken } = await import('./notifications/pushDeliveryTrackingService');
-          void trackInvalidPushToken('web');
+          const { trackInvalidPushToken } =
+            await import("./notifications/pushDeliveryTrackingService");
+          void trackInvalidPushToken("web");
           logger.info("Deactivated stale web push subscription", {
             userId,
             endpoint: sub.endpoint,

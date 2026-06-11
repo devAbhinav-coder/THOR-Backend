@@ -15,8 +15,12 @@ import {
 import { enqueueEmail } from "../queues/emailQueue";
 import { sendEmailNow } from "./emailService";
 import { issuePasswordResetToken } from "./passwordResetTokenService";
-import logger from "../utils/logger";
-import { normalizeEmail, normalizeIndianPhone, normalizeOtp } from "../auth/authNormalize";
+import logger from "../types/utils/logger";
+import {
+  normalizeEmail,
+  normalizeIndianPhone,
+  normalizeOtp,
+} from "../auth/authNormalize";
 import { serviceError, OTP_INVALID, OTP_TOO_MANY } from "../auth/authErrors";
 
 export type OtpFlowType = "signup" | "login" | "forgot_password";
@@ -28,7 +32,8 @@ export const MAX_OTP_VERIFY_ATTEMPTS = 5;
 
 export function getResendCooldownSeconds(lastSentAt: Date | undefined): number {
   if (!lastSentAt) return 0;
-  const remaining = RESEND_COOLDOWN_MS - (Date.now() - new Date(lastSentAt).getTime());
+  const remaining =
+    RESEND_COOLDOWN_MS - (Date.now() - new Date(lastSentAt).getTime());
   return remaining > 0 ? Math.ceil(remaining / 1000) : 0;
 }
 
@@ -187,9 +192,14 @@ export async function sendOtp(params: {
   if (params.flow === "signup") {
     const s = params.signup;
     if (!s?.name || !s.password || !s.phone) {
-      throw serviceError("Name, password, and phone are required for signup.", 400);
+      throw serviceError(
+        "Name, password, and phone are required for signup.",
+        400,
+      );
     }
-    const taken = await User.findOne({ email: emailLower }).select("offlineLead").lean();
+    const taken = await User.findOne({ email: emailLower })
+      .select("offlineLead")
+      .lean();
     if (taken && !taken.offlineLead) {
       throw serviceError("An account with this email already exists.", 409);
     }
@@ -216,9 +226,13 @@ export async function sendOtp(params: {
       throw serviceError("Please verify your email before signing in.", 403);
     }
   } else if (params.flow === "forgot_password") {
-    const user = await User.findOne({ email: emailLower }).select("+googleId").lean();
+    const user = await User.findOne({ email: emailLower })
+      .select("+googleId")
+      .lean();
     if (!user || user.googleId) {
-      logger.info(`Forgot-password OTP skipped (no eligible account): ${emailLower}`);
+      logger.info(
+        `Forgot-password OTP skipped (no eligible account): ${emailLower}`,
+      );
       return;
     }
   }
@@ -260,7 +274,8 @@ export async function sendOtp(params: {
 
   if (params.flow === "login") {
     const user = await User.findOne({ email: emailLower }).lean();
-    if (!user) throw serviceError("No password account found for this email.", 404);
+    if (!user)
+      throw serviceError("No password account found for this email.", 404);
     await AuthOtp.findOneAndUpdate(
       { email: emailLower, purpose: "login" },
       {
@@ -270,7 +285,12 @@ export async function sendOtp(params: {
         expiresAt,
         attempts: 0,
         lastSentAt: now,
-        $unset: { signupPayload: 1, consumedAt: 1, resetTokenHash: 1, resetTokenExpiresAt: 1 },
+        $unset: {
+          signupPayload: 1,
+          consumedAt: 1,
+          resetTokenHash: 1,
+          resetTokenExpiresAt: 1,
+        },
       },
       { upsert: true, new: true, runValidators: true },
     );
@@ -297,7 +317,12 @@ export async function sendOtp(params: {
       expiresAt,
       attempts: 0,
       lastSentAt: now,
-      $unset: { signupPayload: 1, consumedAt: 1, resetTokenHash: 1, resetTokenExpiresAt: 1 },
+      $unset: {
+        signupPayload: 1,
+        consumedAt: 1,
+        resetTokenHash: 1,
+        resetTokenExpiresAt: 1,
+      },
     },
     { upsert: true, new: true, runValidators: true },
   );
@@ -319,7 +344,10 @@ export async function resendOtp(params: {
   if (params.flow === "signup") {
     const doc = await AuthOtp.findOne({ email: emailLower, purpose: "signup" });
     if (!doc?.signupPayload) {
-      throw serviceError("No pending signup for this email. Please start again.", 400);
+      throw serviceError(
+        "No pending signup for this email. Please start again.",
+        400,
+      );
     }
     if (
       doc.lastSentAt &&
@@ -395,7 +423,12 @@ export async function verifyOtp(params: {
       attempts: { $gte: MAX_OTP_VERIFY_ATTEMPTS },
     }).lean();
     if (exhausted) {
-      return { ok: false, message: OTP_TOO_MANY, statusCode: 429, retryAfter: RESEND_COOLDOWN_SEC };
+      return {
+        ok: false,
+        message: OTP_TOO_MANY,
+        statusCode: 429,
+        retryAfter: RESEND_COOLDOWN_SEC,
+      };
     }
     return { ok: false, message: OTP_INVALID, statusCode: 400 };
   }
@@ -413,9 +446,18 @@ export async function verifyOtp(params: {
     );
     await recordOtpVerifyFailure(emailLower, params.flow, ip);
     if (!bumped || bumped.attempts >= MAX_OTP_VERIFY_ATTEMPTS) {
-      return { ok: false, message: OTP_TOO_MANY, statusCode: 429, retryAfter: RESEND_COOLDOWN_SEC };
+      return {
+        ok: false,
+        message: OTP_TOO_MANY,
+        statusCode: 429,
+        retryAfter: RESEND_COOLDOWN_SEC,
+      };
     }
-    return { ok: false, message: "Invalid verification code.", statusCode: 400 };
+    return {
+      ok: false,
+      message: "Invalid verification code.",
+      statusCode: 400,
+    };
   }
 
   /** Single-winner consume — prevents duplicate sessions on concurrent verify. */
@@ -461,7 +503,12 @@ export async function verifyOtp(params: {
 
   if (params.flow === "login") {
     const user = await User.findOne({ email: emailLower }).select("+googleId");
-    if (!user || user.googleId || !user.isActive || user.emailVerified === false) {
+    if (
+      !user ||
+      user.googleId ||
+      !user.isActive ||
+      user.emailVerified === false
+    ) {
       await AuthOtp.deleteOne({ _id: consumed._id });
       return { ok: false, message: OTP_INVALID, statusCode: 400 };
     }

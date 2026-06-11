@@ -5,7 +5,7 @@ import { LOW_STOCK_ALERT_EXCLUSIVE_MAX } from "../../constants/inventory";
 import { INVENTORY_QUERY_MAX_MS } from "../../constants/inventoryQuery";
 import { getInventorySummaryStats } from "./inventoryCacheService";
 import { recordInventoryTiming } from "./inventoryMetricsService";
-import { sumMoney } from "../../utils/financialMath";
+import { sumMoney } from "../../types/utils/financialMath";
 
 function escapeRegex(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -3,10 +3,10 @@ import { Request, Response, NextFunction } from "express";
 import { OAuth2Client } from "google-auth-library";
 import mongoose from "mongoose";
 import User from "../models/User";
-import AppError from "../utils/AppError";
-import catchAsync from "../utils/catchAsync";
+import AppError from "../types/utils/AppError";
+import catchAsync from "../types/utils/catchAsync";
 import { AuthRequest } from "../types";
-import logger from "../utils/logger";
+import logger from "../types/utils/logger";
 import { emailTemplates, sendEmailNow } from "../services/emailService";
 import { enqueueEmail } from "../queues/emailQueue";
 import {
@@ -24,7 +24,7 @@ import {
   hashToken,
 } from "../services/authTokenService";
 import { assertRefreshAllowed } from "../services/refreshRateLimiter";
-import { sendSuccess } from "../utils/response";
+import { sendSuccess } from "../types/utils/response";
 import { writeAdminAudit } from "../services/adminAuditService";
 import { removeOfflineCustomerByEmail } from "../services/offlineCustomerService";
 import {
@@ -33,11 +33,8 @@ import {
 } from "../services/passwordResetService";
 import { emitAuthEvent } from "../services/authEventService";
 import { authRequestMeta, normalizeUnicodeText } from "../auth/authNormalize";
-import {
-  LOGIN_FAILED_GENERIC,
-  RESET_GENERIC,
-} from "../auth/authErrors";
-import { securityLog } from "../utils/securityLog";
+import { LOGIN_FAILED_GENERIC, RESET_GENERIC } from "../auth/authErrors";
+import { securityLog } from "../types/utils/securityLog";
 
 const googleClient =
   process.env.GOOGLE_CLIENT_ID ?
@@ -222,10 +219,7 @@ export const refresh = catchAsync(
     const doc = await RefreshToken.findOne({ tokenHash: hashToken(raw) });
 
     if (doc) {
-      await assertRefreshAllowed(
-        String(doc.user),
-        authRequestMeta(req).ip,
-      );
+      await assertRefreshAllowed(String(doc.user), authRequestMeta(req).ip);
     }
 
     try {
@@ -278,7 +272,10 @@ export const resetPassword = catchAsync(
       );
     } else {
       return next(
-        new AppError("Reset token or email and verification code required.", 400),
+        new AppError(
+          "Reset token or email and verification code required.",
+          400,
+        ),
       );
     }
 
@@ -320,7 +317,9 @@ export const googleAuth = catchAsync(
 
     try {
       await session.withTransaction(async () => {
-        let found: InstanceType<typeof User> | null = await User.findOne({ googleId: sub })
+        let found: InstanceType<typeof User> | null = await User.findOne({
+          googleId: sub,
+        })
           .select("+googleId +password +welcomeEmailAt")
           .session(session);
 
@@ -344,7 +343,10 @@ export const googleAuth = catchAsync(
 
             byEmail.googleId = sub;
             if (byEmail.offlineLead) byEmail.offlineLead = false;
-            if (picture && (!byEmail.avatar || !String(byEmail.avatar).trim())) {
+            if (
+              picture &&
+              (!byEmail.avatar || !String(byEmail.avatar).trim())
+            ) {
               byEmail.avatar = picture;
             }
             await byEmail.save({ session });
@@ -373,10 +375,7 @@ export const googleAuth = catchAsync(
             found = created[0]!;
             isNewGoogleSignup = true;
           }
-        } else if (
-          picture &&
-          (!found.avatar || !String(found.avatar).trim())
-        ) {
+        } else if (picture && (!found.avatar || !String(found.avatar).trim())) {
           found.avatar = picture;
           await found.save({ session });
         }
@@ -520,7 +519,8 @@ export const addAddress = catchAsync(
       phone,
       house: house ? normalizeUnicodeText(String(house), 120) : undefined,
       street: normalizeUnicodeText(String(street), 200),
-      landmark: landmark ? normalizeUnicodeText(String(landmark), 160) : undefined,
+      landmark:
+        landmark ? normalizeUnicodeText(String(landmark), 160) : undefined,
       city: normalizeUnicodeText(String(city), 80),
       state: normalizeUnicodeText(String(state), 80),
       pincode,

@@ -5,9 +5,9 @@ import SalesInvoice, {
   type ISalesInvoiceLine,
   type SalesInvoiceTaxMode,
 } from "../models/SalesInvoice";
-import AppError from "../utils/AppError";
-import catchAsync from "../utils/catchAsync";
-import { sendPaginated, sendSuccess } from "../utils/response";
+import AppError from "../types/utils/AppError";
+import catchAsync from "../types/utils/catchAsync";
+import { sendPaginated, sendSuccess } from "../types/utils/response";
 import { writeAdminAudit } from "../services/adminAuditService";
 import type { AuthRequest } from "../types";
 
@@ -220,10 +220,7 @@ export const listSalesInvoices = catchAsync(
     }
 
     const [items, total] = await Promise.all([
-      SalesInvoice.find(filter)
-        .sort({ updatedAt: -1 })
-        .skip(skip)
-        .limit(limit),
+      SalesInvoice.find(filter).sort({ updatedAt: -1 }).skip(skip).limit(limit),
       SalesInvoice.countDocuments(filter),
     ]);
 

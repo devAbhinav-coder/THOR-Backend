@@ -1,8 +1,8 @@
 import { Response } from "express";
-import catchAsync from "../utils/catchAsync";
+import catchAsync from "../types/utils/catchAsync";
 import { AuthRequest } from "../types";
-import { sendSuccess } from "../utils/response";
-import AppError from "../utils/AppError";
+import { sendSuccess } from "../types/utils/response";
+import AppError from "../types/utils/AppError";
 import {
   listActiveSessions,
   revokeSessionById,
@@ -15,20 +15,22 @@ import {
   clearTokenCookies,
 } from "../services/authTokenService";
 
-export const getSessions = catchAsync(async (req: AuthRequest, res: Response) => {
-  const raw = readRefreshTokenFromRequest(req);
-  const sessions = await listActiveSessions(String(req.user!._id), raw);
-  sendSuccess(res, {
-    sessions: sessions.map((s) => ({
-      id: s.id,
-      deviceLabel: s.deviceLabel,
-      ip: s.ip,
-      createdAt: s.createdAt.toISOString(),
-      lastUsedAt: s.lastUsedAt?.toISOString(),
-      current: s.current,
-    })),
-  });
-});
+export const getSessions = catchAsync(
+  async (req: AuthRequest, res: Response) => {
+    const raw = readRefreshTokenFromRequest(req);
+    const sessions = await listActiveSessions(String(req.user!._id), raw);
+    sendSuccess(res, {
+      sessions: sessions.map((s) => ({
+        id: s.id,
+        deviceLabel: s.deviceLabel,
+        ip: s.ip,
+        createdAt: s.createdAt.toISOString(),
+        lastUsedAt: s.lastUsedAt?.toISOString(),
+        current: s.current,
+      })),
+    });
+  },
+);
 
 export const revokeSession = catchAsync(
   async (req: AuthRequest, res: Response) => {
@@ -53,7 +55,7 @@ export const logoutAllDevices = catchAsync(
       exceptHash,
       req,
     );
-    sendSuccess(res, { revoked: count }, 'Signed out of other devices.');
+    sendSuccess(res, { revoked: count }, "Signed out of other devices.");
   },
 );
 

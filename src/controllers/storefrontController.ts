@@ -1,20 +1,21 @@
 import { Request, Response } from "express";
-import catchAsync from "../utils/catchAsync";
+import catchAsync from "../types/utils/catchAsync";
 import StorefrontSettings from "../models/StorefrontSettings";
 import { deleteMultipleImages } from "../services/cloudinary";
 import { deleteCache, getCache, setCache } from "../services/cacheService";
 import { storefrontRepository } from "../repositories/storefrontRepository";
-import { safeJsonParse } from "../utils/safeJson";
+import { safeJsonParse } from "../types/utils/safeJson";
 import {
   mergeBlogBanner,
   mergeGiftingHeroBanners,
   mergeGiftingSecondaryBanners,
   mergeHeroSlides,
+  mergeHomeEditorialTiles,
   mergeHomeGiftCards,
   mergePromoBanner,
   mergeShopBanner,
-} from "../utils/storefrontImageMerge";
-import { sendSuccess } from "../utils/response";
+} from "../types/utils/storefrontImageMerge";
+import { sendSuccess } from "../types/utils/response";
 
 const FALLBACK_SETTINGS = {
   announcementMessages: ["New arrivals added every week"],
@@ -35,8 +36,8 @@ const FALLBACK_SETTINGS = {
     },
   ],
   shopBanner: {
-    title: "Shop Our Collection",
-    subtitle: "Discover premium ethnic wear crafted for every occasion.",
+    title: "",
+    subtitle: "",
     leftImage: "",
     leftImagePublicId: "",
     centerImage: "",
@@ -57,6 +58,15 @@ const FALLBACK_SETTINGS = {
     secondaryButtonText: "Browse All",
     secondaryButtonLink: "/shop",
     perks: ["Premium fabrics", "Curated colors", "Easy to shop"],
+  },
+  homeEditorialGallery: {
+    eyebrow: "",
+    title: "",
+    subtitle: "",
+    ctaText: "",
+    ctaLink: "",
+    isActive: true,
+    tiles: [],
   },
   giftingHeroBanners: [
     {
@@ -164,6 +174,7 @@ type StorefrontPayload = {
   giftingHeroBanners?: Record<string, unknown>[];
   giftingSecondaryBanners?: Record<string, unknown>[];
   homeGiftShowcase?: Record<string, unknown>;
+  homeEditorialGallery?: Record<string, unknown>;
   announcementMessages?: string[];
   footer?: Record<string, unknown>;
 };
@@ -187,8 +198,8 @@ function sanitizeFooterDescription(desc: string): string {
 /** Persist one-time SEO copy fix for live DB (non-blocking). */
 function persistHomeSeoSanitizeIfNeeded(raw: Record<string, unknown>) {
   const giftDesc = String(
-    (raw.homeGiftShowcase as { description?: string } | undefined)?.description ||
-      "",
+    (raw.homeGiftShowcase as { description?: string } | undefined)
+      ?.description || "",
   );
   const footerDesc = String(
     (raw.footer as { description?: string } | undefined)?.description || "",
@@ -264,6 +275,8 @@ const getSettingsDoc = async () => {
       : FALLBACK_SETTINGS.giftingSecondaryBanners,
     homeGiftShowcase:
       settings.homeGiftShowcase || FALLBACK_SETTINGS.homeGiftShowcase,
+    homeEditorialGallery:
+      settings.homeEditorialGallery || FALLBACK_SETTINGS.homeEditorialGallery,
     footer: settings.footer || FALLBACK_SETTINGS.footer,
   };
   const giftShowcase = payload.homeGiftShowcase as {
@@ -317,6 +330,7 @@ export const updateStorefrontSettings = catchAsync(
           giftingHero: Record<string, { url: string; publicId: string }>;
           giftingSecondary: Record<string, { url: string; publicId: string }>;
           homeGiftCard: Record<string, { url: string; publicId: string }>;
+          homeEditorialTile: Record<string, { url: string; publicId: string }>;
         };
       }
     ).uploadedStorefrontImages;
@@ -335,29 +349,35 @@ export const updateStorefrontSettings = catchAsync(
       prevHeroSlides,
     );
 
-    const prevShop = previous?.shopBanner as Record<string, unknown> | undefined;
+    const prevShop = previous?.shopBanner as
+      | Record<string, unknown>
+      | undefined;
     const nextShopBanner = mergeShopBanner(
       { ...(payload.shopBanner || {}) },
       uploaded,
       prevShop,
     );
 
-    const prevPromo = previous?.promoBanner as Record<string, unknown> | undefined;
+    const prevPromo = previous?.promoBanner as
+      | Record<string, unknown>
+      | undefined;
     const nextPromo = mergePromoBanner(
       { ...(payload.promoBanner || {}) },
       uploaded?.promo,
       prevPromo,
     );
 
-    const prevBlog = previous?.blogBanner as Record<string, unknown> | undefined;
+    const prevBlog = previous?.blogBanner as
+      | Record<string, unknown>
+      | undefined;
     const nextBlogBanner = mergeBlogBanner(
       { ...(payload.blogBanner || {}) },
-      uploaded
-        ? {
-            blogMain: uploaded.blogMain,
-            blogSide: uploaded.blogSide,
-          }
-        : undefined,
+      uploaded ?
+        {
+          blogMain: uploaded.blogMain,
+          blogSide: uploaded.blogSide,
+        }
+      : undefined,
       prevBlog,
     );
 
@@ -388,7 +408,9 @@ export const updateStorefrontSettings = catchAsync(
         (showcasePayload.cards as Record<string, unknown>[])
       : [];
     const prevGiftCards = (
-      previous?.homeGiftShowcase as { cards?: Array<{ image?: string; imagePublicId?: string }> } | undefined
+      previous?.homeGiftShowcase as
+        | { cards?: Array<{ image?: string; imagePublicId?: string }> }
+        | undefined
     )?.cards;
     const nextGiftCards = mergeHomeGiftCards(
       cardsIn.slice(0, 3),
@@ -399,6 +421,28 @@ export const updateStorefrontSettings = catchAsync(
       ...FALLBACK_SETTINGS.homeGiftShowcase,
       ...showcasePayload,
       cards: nextGiftCards,
+    };
+
+    const editorialPayload = (payload.homeEditorialGallery ||
+      {}) as Record<string, unknown>;
+    const editorialTilesIn =
+      Array.isArray(editorialPayload.tiles) ?
+        (editorialPayload.tiles as Record<string, unknown>[])
+      : [];
+    const prevEditorialTiles = (
+      previous?.homeEditorialGallery as
+        | { tiles?: Array<{ image?: string; imagePublicId?: string }> }
+        | undefined
+    )?.tiles;
+    const nextEditorialTiles = mergeHomeEditorialTiles(
+      editorialTilesIn.slice(0, 3),
+      uploaded,
+      prevEditorialTiles,
+    );
+    const nextHomeEditorialGallery = {
+      ...FALLBACK_SETTINGS.homeEditorialGallery,
+      ...editorialPayload,
+      tiles: nextEditorialTiles,
     };
 
     const usedPublicIds = new Set<string>();
@@ -467,6 +511,11 @@ export const updateStorefrontSettings = catchAsync(
         usedPublicIds.add(card.imagePublicId);
       }
     }
+    for (const tile of nextEditorialTiles as Array<{ imagePublicId?: string }>) {
+      if (typeof tile.imagePublicId === "string" && tile.imagePublicId.trim()) {
+        usedPublicIds.add(tile.imagePublicId);
+      }
+    }
 
     const oldPublicIds: string[] = [];
     if (previous?.heroSlides?.length) {
@@ -529,6 +578,14 @@ export const updateStorefrontSettings = catchAsync(
         if (card.imagePublicId) oldPublicIds.push(card.imagePublicId);
       }
     }
+    const prevEditorial = previous?.homeEditorialGallery as
+      | { tiles?: Array<{ imagePublicId?: string }> }
+      | undefined;
+    if (prevEditorial?.tiles?.length) {
+      for (const tile of prevEditorial.tiles) {
+        if (tile.imagePublicId) oldPublicIds.push(tile.imagePublicId);
+      }
+    }
 
     const stalePublicIds = oldPublicIds.filter((id) => !usedPublicIds.has(id));
     if (stalePublicIds.length > 0) {
@@ -547,6 +604,7 @@ export const updateStorefrontSettings = catchAsync(
         giftingHeroBanners: nextGiftingHero,
         giftingSecondaryBanners: nextGiftingSecondary,
         homeGiftShowcase: nextHomeGiftShowcase,
+        homeEditorialGallery: nextHomeEditorialGallery,
         footer: payload.footer || {},
       },
       {

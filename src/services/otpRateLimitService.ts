@@ -1,12 +1,16 @@
 import { redisEnabled, redisConnection } from "../config/redis";
-import logger from "../utils/logger";
+import logger from "../types/utils/logger";
 import OtpSendLog from "../models/OtpSendLog";
 import { serviceError } from "../auth/authErrors";
 
 const WINDOW_MS = 10 * 60 * 1000;
 const MAX_SENDS_PER_WINDOW = 3;
 const REDIS_KEY_PREFIX = "otp:send:window:";
-export type OtpRateLimitFlow = "signup" | "login" | "forgot_password" | "generic";
+export type OtpRateLimitFlow =
+  | "signup"
+  | "login"
+  | "forgot_password"
+  | "generic";
 
 function normalizeEmail(email: string): string {
   return email.toLowerCase().trim();
@@ -48,7 +52,10 @@ export async function assertOtpSendAllowed(
           )) as string[];
           if (oldest?.length >= 2) {
             const oldestMs = parseInt(oldest[1], 10) || now;
-            retryAfter = Math.max(1, Math.ceil((oldestMs + WINDOW_MS - now) / 1000));
+            retryAfter = Math.max(
+              1,
+              Math.ceil((oldestMs + WINDOW_MS - now) / 1000),
+            );
           }
         } catch {
           /* use default */
@@ -62,7 +69,9 @@ export async function assertOtpSendAllowed(
     } catch (e) {
       const err = e as Error & { statusCode?: number };
       if (err.statusCode === 429) throw e;
-      logger.warn(`OTP rate limit Redis check failed, using DB fallback: ${err.message}`);
+      logger.warn(
+        `OTP rate limit Redis check failed, using DB fallback: ${err.message}`,
+      );
       await assertOtpSendAllowedMongo(email, flow, windowStart);
     }
     return;
@@ -86,7 +95,9 @@ export async function recordOtpSend(
       await redisConnection.call("zadd", key, String(now), member);
       await redisConnection.call("pexpire", key, String(WINDOW_MS + 60_000));
     } catch (e) {
-      logger.warn(`OTP rate limit Redis record failed: ${(e as Error).message}`);
+      logger.warn(
+        `OTP rate limit Redis record failed: ${(e as Error).message}`,
+      );
       await OtpSendLog.create({ email, flow });
     }
     return;

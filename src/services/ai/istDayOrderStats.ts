@@ -1,14 +1,16 @@
-import Order from '../../models/Order';
-import { istEndOfDay, istMidnight, istParts } from '../../utils/istDate';
+import Order from "../../models/Order";
+import { istEndOfDay, istMidnight, istParts } from "../../types/utils/istDate";
 
 /** Paid + refunded gross revenue (online checkout + offline/POS). */
-const PAYMENT_STATUS_GROSS = { paymentStatus: { $in: ['paid', 'refunded'] as const } };
+const PAYMENT_STATUS_GROSS = {
+  paymentStatus: { $in: ["paid", "refunded"] as const },
+};
 
 const PAYMENT_LABELS: Record<string, string> = {
-  razorpay: 'Online — Razorpay/UPI',
-  cod: 'Online — COD',
-  offline_upi: 'Offline — UPI',
-  offline_cash: 'Offline — Cash',
+  razorpay: "Online — Razorpay/UPI",
+  cod: "Online — COD",
+  offline_upi: "Offline — UPI",
+  offline_cash: "Offline — Cash",
 };
 
 export type DayChannelStats = {
@@ -32,11 +34,11 @@ export type IstDayOrderStats = {
 
 /** Format YYYY-MM-DD in Asia/Kolkata for a given instant. */
 export function istDateString(date: Date): string {
-  return new Intl.DateTimeFormat('sv-SE', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(date);
 }
 
@@ -48,7 +50,8 @@ export function istDayBoundsFromOffset(dayOffset: number): {
 } {
   const now = new Date();
   const ist = istParts(now);
-  const anchorMs = istMidnight(ist.year, ist.month, ist.day).getTime() + dayOffset * 86400000;
+  const anchorMs =
+    istMidnight(ist.year, ist.month, ist.day).getTime() + dayOffset * 86400000;
   const anchor = new Date(anchorMs);
   const p = istParts(anchor);
   const start = istMidnight(p.year, p.month, p.day);
@@ -63,7 +66,7 @@ function istMonthBounds(): { start: Date; end: Date; label: string } {
   return {
     start,
     end,
-    label: `${ist.year}-${String(ist.month + 1).padStart(2, '0')}`,
+    label: `${ist.year}-${String(ist.month + 1).padStart(2, "0")}`,
   };
 }
 
@@ -86,16 +89,19 @@ function foldDayAggregation(
     const rev = Math.round((r.revenue ?? 0) * 100) / 100;
     orders += o;
     revenueInr += rev;
-    if (r._id.channel === 'offline') {
+    if (r._id.channel === "offline") {
       offline.orders += o;
       offline.revenueInr += rev;
     } else {
       online.orders += o;
       online.revenueInr += rev;
     }
-    const method = String(r._id.paymentMethod || 'unknown');
+    const method = String(r._id.paymentMethod || "unknown");
     const prev = payMap.get(method) || { orders: 0, revenue: 0 };
-    payMap.set(method, { orders: prev.orders + o, revenue: prev.revenue + rev });
+    payMap.set(method, {
+      orders: prev.orders + o,
+      revenue: prev.revenue + rev,
+    });
   }
 
   revenueInr = Math.round(revenueInr * 100) / 100;
@@ -114,7 +120,11 @@ function foldDayAggregation(
   return { date, orders, revenueInr, online, offline, paymentBreakdown };
 }
 
-async function aggregateOrdersInRange(start: Date, end: Date, dateLabel: string): Promise<IstDayOrderStats> {
+async function aggregateOrdersInRange(
+  start: Date,
+  end: Date,
+  dateLabel: string,
+): Promise<IstDayOrderStats> {
   const rows = await Order.aggregate([
     {
       $match: {
@@ -126,12 +136,12 @@ async function aggregateOrdersInRange(start: Date, end: Date, dateLabel: string)
       $group: {
         _id: {
           channel: {
-            $cond: [{ $ifNull: ['$offlineMeta', false] }, 'offline', 'online'],
+            $cond: [{ $ifNull: ["$offlineMeta", false] }, "offline", "online"],
           },
-          paymentMethod: '$paymentMethod',
+          paymentMethod: "$paymentMethod",
         },
         orders: { $sum: 1 },
-        revenue: { $sum: '$total' },
+        revenue: { $sum: "$total" },
       },
     },
   ]);
@@ -140,7 +150,9 @@ async function aggregateOrdersInRange(start: Date, end: Date, dateLabel: string)
 }
 
 /** 0 = today, -1 = yesterday (IST). Includes online + offline/POS paid orders. */
-export async function getOrderStatsForIstDayOffset(dayOffset: number): Promise<IstDayOrderStats> {
+export async function getOrderStatsForIstDayOffset(
+  dayOffset: number,
+): Promise<IstDayOrderStats> {
   const { date, start, end } = istDayBoundsFromOffset(dayOffset);
   return aggregateOrdersInRange(start, end, date);
 }
@@ -164,5 +176,5 @@ export function formatDayStatsBullets(stats: IstDayOrderStats): string[] {
 }
 
 function fmtInr(n: number): string {
-  return `₹${Math.round(n).toLocaleString('en-IN')}`;
+  return `₹${Math.round(n).toLocaleString("en-IN")}`;
 }

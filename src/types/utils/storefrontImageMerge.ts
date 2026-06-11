@@ -215,6 +215,34 @@ export function mergeGiftingSecondaryBanners(
   });
 }
 
+export function mergeHomeEditorialTiles(
+  tiles: Record<string, unknown>[],
+  uploaded:
+    | { homeEditorialTile: Record<string, { url: string; publicId: string }> }
+    | undefined,
+  previousTiles: Array<{ image?: string; imagePublicId?: string }> | undefined,
+): Record<string, unknown>[] {
+  return tiles.map((tile, index) => {
+    const up = uploaded?.homeEditorialTile?.[String(index)];
+    if (up) {
+      return { ...tile, image: up.url, imagePublicId: up.publicId };
+    }
+    const img = typeof tile.image === "string" ? tile.image.trim() : "";
+    if (!img) {
+      const { imagePublicId: _removed, ...rest } = tile;
+      return { ...rest, image: "" };
+    }
+    let pid = trimStr(tile.imagePublicId);
+    const prev = previousTiles?.[index];
+    const prevImg = trimStr(prev?.image);
+    const prevPid = trimStr(prev?.imagePublicId);
+    if (prevPid && prevImg === img && !pid) {
+      return { ...tile, image: img, imagePublicId: prevPid };
+    }
+    return tile;
+  });
+}
+
 export function mergeHomeGiftCards(
   cards: Record<string, unknown>[],
   uploaded:

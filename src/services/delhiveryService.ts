@@ -3,7 +3,7 @@ import {
   delhiveryIsConfigured,
   delhiveryToken,
 } from "../config/delhivery";
-import logger from "../utils/logger";
+import logger from "../types/utils/logger";
 
 const AUTH_HEADER = () => ({
   Authorization: `Token ${delhiveryToken()!}`,
@@ -26,7 +26,10 @@ async function delhiveryFetch(
   init?: RequestInit,
 ): Promise<Response> {
   const base = delhiveryBaseUrl();
-  const url = path.startsWith("http") ? path : `${base}${path.startsWith("/") ? "" : "/"}${path}`;
+  const url =
+    path.startsWith("http") ? path : (
+      `${base}${path.startsWith("/") ? "" : "/"}${path}`
+    );
   return fetch(url, init);
 }
 
@@ -103,11 +106,7 @@ export async function fetchSingleWaybill(): Promise<string> {
   try {
     json = JSON.parse(text);
   } catch {
-    throw new DelhiveryApiError(
-      `Waybill fetch: non-JSON`,
-      res.status,
-      text,
-    );
+    throw new DelhiveryApiError(`Waybill fetch: non-JSON`, res.status, text);
   }
   if (!res.ok) {
     throw new DelhiveryApiError(
@@ -141,11 +140,7 @@ export async function fetchBulkWaybills(count: number): Promise<string[]> {
   try {
     json = JSON.parse(text);
   } catch {
-    throw new DelhiveryApiError(
-      `Bulk waybill: non-JSON`,
-      res.status,
-      text,
-    );
+    throw new DelhiveryApiError(`Bulk waybill: non-JSON`, res.status, text);
   }
   if (!res.ok) {
     throw new DelhiveryApiError(
@@ -165,12 +160,7 @@ function extractWaybill(json: unknown): string | null {
   if (typeof json === "string" && /^\d+$/.test(json.trim())) return json.trim();
   if (json && typeof json === "object") {
     const o = json as Record<string, unknown>;
-    const candidates = [
-      o.waybill,
-      o.airway_bill_number,
-      o.AWB,
-      o.packages,
-    ];
+    const candidates = [o.waybill, o.airway_bill_number, o.AWB, o.packages];
     for (const c of candidates) {
       if (typeof c === "string" && c.trim()) return c.trim();
     }
@@ -228,11 +218,7 @@ export async function createCmuShipment(body: {
   try {
     json = JSON.parse(text);
   } catch {
-    throw new DelhiveryApiError(
-      `Create shipment: non-JSON`,
-      res.status,
-      text,
-    );
+    throw new DelhiveryApiError(`Create shipment: non-JSON`, res.status, text);
   }
   if (!res.ok) {
     throw new DelhiveryApiError(
@@ -269,7 +255,11 @@ export async function trackPackages(params: {
     throw new DelhiveryApiError(`Track: non-JSON`, res.status, text);
   }
   if (!res.ok) {
-    throw new DelhiveryApiError(`Track failed: ${res.status}`, res.status, json);
+    throw new DelhiveryApiError(
+      `Track failed: ${res.status}`,
+      res.status,
+      json,
+    );
   }
   return json;
 }
@@ -328,11 +318,16 @@ function scorePdfUrlCandidate(u: string): number {
   const lower = u.toLowerCase();
   let s = 0;
   if (lower.includes(".pdf")) s += 120;
-  if (lower.includes("amazonaws.com") || lower.includes("cloudfront.net")) s += 60;
+  if (lower.includes("amazonaws.com") || lower.includes("cloudfront.net"))
+    s += 60;
   if (lower.includes("s3.")) s += 40;
   if (/(pack|slip|label|shipping|manifest|document)/i.test(u)) s += 25;
   if (lower.includes("/track") || lower.includes("tracking")) s -= 150;
-  if (lower.includes("delhivery.com") && !lower.includes(".pdf") && !lower.includes("s3"))
+  if (
+    lower.includes("delhivery.com") &&
+    !lower.includes(".pdf") &&
+    !lower.includes("s3")
+  )
     s -= 40;
   return s;
 }
@@ -508,8 +503,7 @@ export async function fetchRemotePdfBuffer(
     }
     const buf = Buffer.from(await res.arrayBuffer());
     const rawCt = res.headers.get("content-type");
-    const contentType =
-      rawCt?.split(";")[0]?.trim() || "application/pdf";
+    const contentType = rawCt?.split(";")[0]?.trim() || "application/pdf";
     return { buffer: buf, contentType };
   } finally {
     clearTimeout(timer);
@@ -544,15 +538,12 @@ export async function estimateShippingCharges(params: {
   if (params.h != null) q.set("h", String(Math.round(params.h)));
   if (params.ipkg_type) q.set("ipkg_type", params.ipkg_type);
 
-  const res = await delhiveryFetch(
-    `/api/kinko/v1/invoice/charges/.json?${q}`,
-    {
-      headers: {
-        ...AUTH_HEADER(),
-        "Content-Type": "application/json",
-      },
+  const res = await delhiveryFetch(`/api/kinko/v1/invoice/charges/.json?${q}`, {
+    headers: {
+      ...AUTH_HEADER(),
+      "Content-Type": "application/json",
     },
-  );
+  });
   const text = await res.text();
   let json: unknown;
   try {
@@ -582,7 +573,8 @@ export async function fetchTatHint(params: {
     throw new DelhiveryApiError("Delhivery is not configured", 503);
   }
   const customPath = process.env.DELHIVERY_TAT_PATH?.trim();
-  const paths = customPath ?
+  const paths =
+    customPath ?
       [customPath]
     : [
         `/api/dc/fetch/tat?origin_pin=${encodeURIComponent(params.origin_pin)}&destination_pin=${encodeURIComponent(params.destination_pin)}&mot=${params.mot}`,
@@ -621,7 +613,8 @@ function extractTatDays(json: unknown): number | undefined {
   ];
   for (const c of candidates) {
     if (typeof c === "number" && Number.isFinite(c)) return Math.round(c);
-    if (typeof c === "string" && /^\d+$/.test(c.trim())) return parseInt(c.trim(), 10);
+    if (typeof c === "string" && /^\d+$/.test(c.trim()))
+      return parseInt(c.trim(), 10);
   }
   if (typeof o.data === "object" && o.data) {
     return extractTatDays(o.data);
@@ -630,7 +623,10 @@ function extractTatDays(json: unknown): number | undefined {
 }
 
 export function sanitizeManifestText(s: string): string {
-  return s.replace(/[&\\#%;]/g, " ").replace(/\s+/g, " ").trim();
+  return s
+    .replace(/[&\\#%;]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /** Chargeable weight (g): max(actual, volumetric) — volumetric from cm ÷ 5000 → kg → g */
@@ -649,12 +645,19 @@ export function chargeableWeightGrams(
  * Dead weight per box (g) for multi-piece — must match manifest `weight` on each box.
  * Same rule as Delhivery UI: max(50g floor, ceil(total / boxes)).
  */
-export function perBoxDeadWeightGm(totalGrams: number, boxCount: number): number {
+export function perBoxDeadWeightGm(
+  totalGrams: number,
+  boxCount: number,
+): number {
   const boxes = Math.min(5, Math.max(1, Math.floor(boxCount)));
   return Math.max(50, Math.ceil(totalGrams / boxes));
 }
 
-export function volumetricWeightGrams(lengthCm: number, breadthCm: number, heightCm: number): number {
+export function volumetricWeightGrams(
+  lengthCm: number,
+  breadthCm: number,
+  heightCm: number,
+): number {
   const volKg = (lengthCm * breadthCm * heightCm) / 5000;
   return Math.ceil(volKg * 1000);
 }
@@ -665,7 +668,8 @@ export function parseCreateShipmentResult(json: unknown): {
   waybills: string[];
   errorMessage?: string;
 } {
-  if (json == null) return { ok: false, waybills: [], errorMessage: "Empty response" };
+  if (json == null)
+    return { ok: false, waybills: [], errorMessage: "Empty response" };
   const waybills: string[] = [];
 
   const pushWb = (v: unknown) => {
@@ -710,7 +714,8 @@ export function parseCreateShipmentResult(json: unknown): {
         }
       }
     }
-    if (o.success === false && typeof o.error === "string") errorMessage = o.error;
+    if (o.success === false && typeof o.error === "string")
+      errorMessage = o.error;
   }
 
   const ok = waybills.length > 0;

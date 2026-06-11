@@ -24,7 +24,28 @@ class APIFeatures<T> {
 
   filter(): this {
     const queryObj = { ...this.queryString };
-    const excludedFields = ['page', 'sort', 'limit', 'fields', 'search', 'minRating'];
+    const excludedFields = [
+      'page',
+      'sort',
+      'limit',
+      'fields',
+      'search',
+      'minRating',
+      'categories',
+      'category',
+      'fabrics',
+      'fabric',
+      'ratings',
+      'rating',
+      'minPrice',
+      'maxPrice',
+      'isFeatured',
+      'isRandom',
+      'excludeIds',
+      'q',
+      'sortBy',
+      'sortOrder',
+    ];
     excludedFields.forEach((el) => delete queryObj[el]);
 
     let queryStr = JSON.stringify(queryObj);
@@ -44,6 +65,22 @@ class APIFeatures<T> {
       // Project the textScore metadata so we can sort by it
       this.query = this.query.select({ score: { $meta: 'textScore' } });
     }
+    return this;
+  }
+
+  /** Case-insensitive partial match — better for short queries and typos than $text. */
+  searchRegex(fields: string[]): this {
+    const term = (this.queryString.search || "").trim();
+    if (!term) return this;
+
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = { $regex: escaped, $options: "i" };
+    this.searchExpr = {
+      $or: fields.map((field) => ({ [field]: pattern })),
+    };
+    this.query = this.query.find(
+      this.searchExpr as Parameters<typeof this.query.find>[0],
+    );
     return this;
   }
 

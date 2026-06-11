@@ -1,49 +1,51 @@
-import { Request, Response, NextFunction } from 'express';
-import { AuthRequest } from '../types';
-import AppError from '../utils/AppError';
-import catchAsync from '../utils/catchAsync';
-import { sendPaginated, sendSuccess } from '../utils/response';
-import { normalizeIdempotencyKey } from '../services/checkoutConcurrency';
-import { adjustVariantStock } from '../services/inventory/inventoryAdjustmentService';
+import { Request, Response, NextFunction } from "express";
+import { AuthRequest } from "../types";
+import AppError from "../types/utils/AppError";
+import catchAsync from "../types/utils/catchAsync";
+import { sendPaginated, sendSuccess } from "../types/utils/response";
+import { normalizeIdempotencyKey } from "../services/checkoutConcurrency";
+import { adjustVariantStock } from "../services/inventory/inventoryAdjustmentService";
 import {
   createPurchaseInvoice,
   getPurchaseInvoiceById,
   listPurchaseInvoices,
   updatePurchaseInvoice,
   voidPurchaseInvoice,
-} from '../services/inventory/purchaseInvoiceService';
-import { listStockLedger } from '../services/inventory/stockLedgerService';
+} from "../services/inventory/purchaseInvoiceService";
+import { listStockLedger } from "../services/inventory/stockLedgerService";
 import {
   getGstPurchaseSummary as fetchGstPurchaseSummary,
   getInventoryOverview,
   getInventoryValuation,
-} from '../services/inventory/inventoryReportService';
-import { enqueueInventorySideEffect } from '../services/inventory/inventoryOutboxService';
+} from "../services/inventory/inventoryReportService";
+import { enqueueInventorySideEffect } from "../services/inventory/inventoryOutboxService";
 
 /** GET /admin/inventory */
-export const getInventoryOverviewHandler = catchAsync(async (req: Request, res: Response) => {
-  const q = req.query as {
-    page?: number;
-    limit?: number;
-    search?: string;
-    category?: string;
-    filter?: string;
-    sort?: string;
-  };
-  const page = Math.max(1, Number(q.page) || 1);
-  const limit = Math.min(100, Math.max(1, Number(q.limit) || 20));
+export const getInventoryOverviewHandler = catchAsync(
+  async (req: Request, res: Response) => {
+    const q = req.query as {
+      page?: number;
+      limit?: number;
+      search?: string;
+      category?: string;
+      filter?: string;
+      sort?: string;
+    };
+    const page = Math.max(1, Number(q.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(q.limit) || 20));
 
-  const { products, summary, total } = await getInventoryOverview({
-    page,
-    limit,
-    search: q.search ?? '',
-    category: q.category ?? '',
-    filter: q.filter ?? 'all',
-    sort: q.sort ?? '-updatedAt',
-  });
+    const { products, summary, total } = await getInventoryOverview({
+      page,
+      limit,
+      search: q.search ?? "",
+      category: q.category ?? "",
+      filter: q.filter ?? "all",
+      sort: q.sort ?? "-updatedAt",
+    });
 
-  sendPaginated(res, { products, summary }, { page, limit, total });
-});
+    sendPaginated(res, { products, summary }, { page, limit, total });
+  },
+);
 
 /** PATCH /admin/inventory/products/:id/variants/:sku/stock */
 export const adjustVariantStockHandler = catchAsync(
@@ -67,80 +69,100 @@ export const adjustVariantStockHandler = catchAsync(
         costPrice,
         price,
       });
-      sendSuccess(res, { product }, 'Stock adjusted successfully.');
+      sendSuccess(res, { product }, "Stock adjusted successfully.");
     } catch (err) {
       next(err);
     }
-  }
+  },
 );
 
 /** GET /admin/inventory/ledger */
-export const getStockLedger = catchAsync(async (req: Request, res: Response) => {
-  const page = Math.max(1, parseInt((req.query.page as string) || '1', 10));
-  const limit = Math.min(100, Math.max(1, parseInt((req.query.limit as string) || '30', 10)));
+export const getStockLedger = catchAsync(
+  async (req: Request, res: Response) => {
+    const page = Math.max(1, parseInt((req.query.page as string) || "1", 10));
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt((req.query.limit as string) || "30", 10)),
+    );
 
-  const { entries, total } = await listStockLedger({
-    page,
-    limit,
-    productId: String(req.query.product || '').trim() || undefined,
-    sku: String(req.query.sku || '').trim() || undefined,
-    reason: String(req.query.reason || '').trim() || undefined,
-    from: String(req.query.from || '').trim() || undefined,
-    to: String(req.query.to || '').trim() || undefined,
-  });
+    const { entries, total } = await listStockLedger({
+      page,
+      limit,
+      productId: String(req.query.product || "").trim() || undefined,
+      sku: String(req.query.sku || "").trim() || undefined,
+      reason: String(req.query.reason || "").trim() || undefined,
+      from: String(req.query.from || "").trim() || undefined,
+      to: String(req.query.to || "").trim() || undefined,
+    });
 
-  sendPaginated(res, { entries }, { page, limit, total });
-});
+    sendPaginated(res, { entries }, { page, limit, total });
+  },
+);
 
 /** GET /admin/inventory/valuation */
-export const getInventoryValuationHandler = catchAsync(async (_req: Request, res: Response) => {
-  const data = await getInventoryValuation();
-  sendSuccess(res, data);
-});
+export const getInventoryValuationHandler = catchAsync(
+  async (_req: Request, res: Response) => {
+    const data = await getInventoryValuation();
+    sendSuccess(res, data);
+  },
+);
 
 /** GET /admin/inventory/purchase-invoices */
-export const listPurchaseInvoicesHandler = catchAsync(async (req: Request, res: Response) => {
-  const page = Math.max(1, parseInt((req.query.page as string) || '1', 10));
-  const limit = Math.min(100, Math.max(1, parseInt((req.query.limit as string) || '20', 10)));
+export const listPurchaseInvoicesHandler = catchAsync(
+  async (req: Request, res: Response) => {
+    const page = Math.max(1, parseInt((req.query.page as string) || "1", 10));
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt((req.query.limit as string) || "20", 10)),
+    );
 
-  const { invoices, total, summary } = await listPurchaseInvoices({
-    page,
-    limit,
-    search: String(req.query.search || ''),
-    paymentStatus: String(req.query.paymentStatus || '').trim() || undefined,
-    from: String(req.query.from || '').trim() || undefined,
-    to: String(req.query.to || '').trim() || undefined,
-  });
+    const { invoices, total, summary } = await listPurchaseInvoices({
+      page,
+      limit,
+      search: String(req.query.search || ""),
+      paymentStatus: String(req.query.paymentStatus || "").trim() || undefined,
+      from: String(req.query.from || "").trim() || undefined,
+      to: String(req.query.to || "").trim() || undefined,
+    });
 
-  sendPaginated(res, { invoices, summary }, { page, limit, total });
-});
+    sendPaginated(res, { invoices, summary }, { page, limit, total });
+  },
+);
 
 /** GET /admin/inventory/purchase-invoices/:id */
-export const getPurchaseInvoice = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
-  const inv = await getPurchaseInvoiceById(req.params.id);
-  if (!inv) return next(new AppError('Purchase invoice not found.', 404));
-  sendSuccess(res, { invoice: inv });
-});
+export const getPurchaseInvoice = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const inv = await getPurchaseInvoiceById(req.params.id);
+    if (!inv) return next(new AppError("Purchase invoice not found.", 404));
+    sendSuccess(res, { invoice: inv });
+  },
+);
 
 /** POST /admin/inventory/purchase-invoices */
 export const createPurchaseInvoiceHandler = catchAsync(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     const body = req.body as Parameters<typeof createPurchaseInvoice>[1];
-    if (!body.lineItems?.length) return next(new AppError('At least one line item is required.', 400));
+    if (!body.lineItems?.length)
+      return next(new AppError("At least one line item is required.", 400));
 
     const idempotencyKey =
-      normalizeIdempotencyKey(req.headers['idempotency-key'] as string | undefined) ?? undefined;
+      normalizeIdempotencyKey(
+        req.headers["idempotency-key"] as string | undefined,
+      ) ?? undefined;
 
-    const invoice = await createPurchaseInvoice(req, { ...body, idempotencyKey });
+    const invoice = await createPurchaseInvoice(req, {
+      ...body,
+      idempotencyKey,
+    });
 
     void enqueueInventorySideEffect(
-      'invalidate_summary',
+      "invalidate_summary",
       {},
-      `summary:${String(invoice._id)}`
+      `summary:${String(invoice._id)}`,
     );
 
-    sendSuccess(res, { invoice }, 'Purchase invoice created.', 201);
-  }
+    sendSuccess(res, { invoice }, "Purchase invoice created.", 201);
+  },
 );
 
 /** PUT /admin/inventory/purchase-invoices/:id */
@@ -152,7 +174,7 @@ export const updatePurchaseInvoiceHandler = catchAsync(
     } catch (err) {
       next(err);
     }
-  }
+  },
 );
 
 /** DELETE /admin/inventory/purchase-invoices/:id — soft-void (audit-safe, same API contract). */
@@ -164,19 +186,24 @@ export const deletePurchaseInvoice = catchAsync(
     } catch (err) {
       next(err);
     }
-  }
+  },
 );
 
 /** GET /admin/inventory/gst-summary */
-export const getGstPurchaseSummary = catchAsync(async (req: Request, res: Response) => {
-  const year = parseInt((req.query.year as string) || String(new Date().getFullYear()), 10);
-  const data = await fetchGstPurchaseSummary({
-    year,
-    month: req.query.month as string | undefined,
-    quarter: req.query.quarter as string | undefined,
-  });
-  sendSuccess(res, data);
-});
+export const getGstPurchaseSummary = catchAsync(
+  async (req: Request, res: Response) => {
+    const year = parseInt(
+      (req.query.year as string) || String(new Date().getFullYear()),
+      10,
+    );
+    const data = await fetchGstPurchaseSummary({
+      year,
+      month: req.query.month as string | undefined,
+      quarter: req.query.quarter as string | undefined,
+    });
+    sendSuccess(res, data);
+  },
+);
 
 // Legacy export names used by adminRoutes
 export {

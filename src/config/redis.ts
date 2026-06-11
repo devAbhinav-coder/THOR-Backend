@@ -1,10 +1,10 @@
-import IORedis, { RedisOptions } from 'ioredis';
-import logger from '../utils/logger';
+import IORedis, { RedisOptions } from "ioredis";
+import logger from "../types/utils/logger";
 
 const redisUrl = process.env.REDIS_URL;
 const hasHostConfig = Boolean(process.env.REDIS_HOST || process.env.REDIS_PORT);
 export const redisEnabled = Boolean(redisUrl || hasHostConfig);
-const isProd = process.env.NODE_ENV === 'production';
+const isProd = process.env.NODE_ENV === "production";
 
 const commonOptions: RedisOptions = {
   maxRetriesPerRequest: null as null,
@@ -16,8 +16,8 @@ const commonOptions: RedisOptions = {
     return Math.min(times * 250, 2000);
   },
   reconnectOnError: (err: Error) => {
-    const msg = err.message || '';
-    if (msg.includes('max number of clients') || msg.includes('ECONNRESET')) {
+    const msg = err.message || "";
+    if (msg.includes("max number of clients") || msg.includes("ECONNRESET")) {
       return false;
     }
     return true;
@@ -26,7 +26,16 @@ const commonOptions: RedisOptions = {
 
 type RedisLike = Pick<
   IORedis,
-  'call' | 'get' | 'set' | 'del' | 'incr' | 'expire' | 'ping' | 'quit' | 'on' | 'keys'
+  | "call"
+  | "get"
+  | "set"
+  | "del"
+  | "incr"
+  | "expire"
+  | "ping"
+  | "quit"
+  | "on"
+  | "keys"
 >;
 
 const memoryStore = new Map<string, string>();
@@ -35,8 +44,8 @@ const memoryCounters = new Map<string, number>();
 
 /** In-memory KEYS fallback: only `*` is treated as a glob segment; other regex metacharacters are escaped. */
 function redisGlobPatternToRegExp(pattern: string): RegExp {
-  const escapeRe = (s: string) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
-  const body = pattern.split('*').map(escapeRe).join('.*');
+  const escapeRe = (s: string) => s.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+  const body = pattern.split("*").map(escapeRe).join(".*");
   return new RegExp(`^${body}$`);
 }
 
@@ -60,16 +69,16 @@ const fallbackRedis: RedisLike = {
     return memoryStore.get(key) ?? null;
   },
   set: async (key: string, value: string, ...args: unknown[]) => {
-    const hasNx = args.includes('NX');
+    const hasNx = args.includes("NX");
     if (hasNx && memoryStore.has(key) && !isExpired(key)) {
       return null;
     }
-    const exIndex = args.findIndex((a) => a === 'EX');
-    if (exIndex >= 0 && typeof args[exIndex + 1] === 'number') {
+    const exIndex = args.findIndex((a) => a === "EX");
+    if (exIndex >= 0 && typeof args[exIndex + 1] === "number") {
       memoryExpiry.set(key, Date.now() + Number(args[exIndex + 1]) * 1000);
     }
     memoryStore.set(key, value);
-    return 'OK';
+    return "OK";
   },
   del: async (...keys: string[]) => {
     let count = 0;
@@ -101,8 +110,8 @@ const fallbackRedis: RedisLike = {
     memoryExpiry.set(key, Date.now() + sec * 1000);
     return 1;
   },
-  ping: async () => 'PONG',
-  quit: async () => 'OK',
+  ping: async () => "PONG",
+  quit: async () => "OK",
 } as unknown as RedisLike;
 
 function createRedisClient(): IORedis {
@@ -116,7 +125,8 @@ function createRedisClient(): IORedis {
       });
 }
 
-export const redisConnection: RedisLike = redisEnabled ? createRedisClient() : fallbackRedis;
+export const redisConnection: RedisLike =
+  redisEnabled ? createRedisClient() : fallbackRedis;
 
 /** Shared BullMQ queue connection (one per process — was leaking ~8 duplicates before). */
 let bullMqQueueConnection: IORedis | null = null;
@@ -125,24 +135,28 @@ let bullMqWorkerConnection: IORedis | null = null;
 
 function attachRedisErrorLogger(client: IORedis, label: string): void {
   let lastWarnTs = 0;
-  client.on('error', (err: Error) => {
+  client.on("error", (err: Error) => {
     const now = Date.now();
     if (now - lastWarnTs > 15000) {
       lastWarnTs = now;
-      logger.warn(`Redis (${label}): ${err.message || 'connection error'}`);
+      logger.warn(`Redis (${label}): ${err.message || "connection error"}`);
     }
   });
 }
 
 if (isProd && !redisEnabled) {
-  throw new Error('Redis is required in production for queue/locks/rate-limits. Configure REDIS_URL.');
+  throw new Error(
+    "Redis is required in production for queue/locks/rate-limits. Configure REDIS_URL.",
+  );
 }
 
 if (redisEnabled && redisConnection instanceof IORedis) {
-  redisConnection.on('connect', () => logger.info('Redis connected'));
-  attachRedisErrorLogger(redisConnection, 'app');
+  redisConnection.on("connect", () => logger.info("Redis connected"));
+  attachRedisErrorLogger(redisConnection, "app");
 } else if (!redisEnabled) {
-  logger.warn('Redis not configured. Running with in-memory fallbacks for cache/locks/limits.');
+  logger.warn(
+    "Redis not configured. Running with in-memory fallbacks for cache/locks/limits.",
+  );
 }
 
 /**
@@ -154,28 +168,32 @@ export function duplicateRedisForBullMq(): IORedis {
 
 export function getBullMqQueueConnection(): IORedis {
   if (!redisEnabled) {
-    throw new Error('getBullMqQueueConnection: Redis is not configured');
+    throw new Error("getBullMqQueueConnection: Redis is not configured");
   }
   if (!(redisConnection instanceof IORedis)) {
-    throw new Error('getBullMqQueueConnection: in-memory Redis cannot run BullMQ');
+    throw new Error(
+      "getBullMqQueueConnection: in-memory Redis cannot run BullMQ",
+    );
   }
   if (!bullMqQueueConnection) {
     bullMqQueueConnection = redisConnection.duplicate();
-    attachRedisErrorLogger(bullMqQueueConnection, 'bullmq-queue');
+    attachRedisErrorLogger(bullMqQueueConnection, "bullmq-queue");
   }
   return bullMqQueueConnection;
 }
 
 export function getBullMqWorkerConnection(): IORedis {
   if (!redisEnabled) {
-    throw new Error('getBullMqWorkerConnection: Redis is not configured');
+    throw new Error("getBullMqWorkerConnection: Redis is not configured");
   }
   if (!(redisConnection instanceof IORedis)) {
-    throw new Error('getBullMqWorkerConnection: in-memory Redis cannot run BullMQ');
+    throw new Error(
+      "getBullMqWorkerConnection: in-memory Redis cannot run BullMQ",
+    );
   }
   if (!bullMqWorkerConnection) {
     bullMqWorkerConnection = redisConnection.duplicate();
-    attachRedisErrorLogger(bullMqWorkerConnection, 'bullmq-worker');
+    attachRedisErrorLogger(bullMqWorkerConnection, "bullmq-worker");
   }
   return bullMqWorkerConnection;
 }
@@ -203,8 +221,8 @@ export async function closeAllRedisConnections(): Promise<void> {
  * unless BULLMQ_SKIP_REDIS_VERSION_CHECK=true (not recommended).
  */
 export function bullmqSkipRedisVersionChecks(): boolean {
-  if (process.env.NODE_ENV === 'production') {
-    return process.env.BULLMQ_SKIP_REDIS_VERSION_CHECK === 'true';
+  if (process.env.NODE_ENV === "production") {
+    return process.env.BULLMQ_SKIP_REDIS_VERSION_CHECK === "true";
   }
-  return process.env.BULLMQ_SKIP_REDIS_VERSION_CHECK !== 'false';
+  return process.env.BULLMQ_SKIP_REDIS_VERSION_CHECK !== "false";
 }

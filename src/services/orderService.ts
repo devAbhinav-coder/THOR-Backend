@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import Product from "../models/Product";
-import AppError from "../utils/AppError";
-import { refProductId } from "../utils/productStock";
+import AppError from "../types/utils/AppError";
+import { refProductId } from "../types/utils/productStock";
 
 export const getGiftMinQty = (product: InstanceType<typeof Product>) => {
   const isCorporateGift = (product.giftOccasions || []).some(
@@ -50,11 +50,7 @@ const COD_HANDLING_FEE = 99;
 export function computeOrderTotals(
   subtotal: number,
   discount: number,
-  paymentMethod:
-    | "razorpay"
-    | "cod"
-    | "offline_upi"
-    | "offline_cash" = "cod",
+  paymentMethod: "razorpay" | "cod" | "offline_upi" | "offline_cash" = "cod",
 ) {
   const TAX_RATE = 0;
   const subtotalAfterDiscount = subtotal - discount;

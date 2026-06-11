@@ -1,14 +1,14 @@
-import { redisConnection, redisEnabled } from '../../config/redis';
-import logger from '../../utils/logger';
-import { getRequestContext } from '../../utils/requestContext';
-import { REVIEW_EVENT_CHANNEL_PREFIX } from './reviewConstants';
+import { redisConnection, redisEnabled } from "../../config/redis";
+import logger from "../../types/utils/logger";
+import { getRequestContext } from "../../types/utils/requestContext";
+import { REVIEW_EVENT_CHANNEL_PREFIX } from "./reviewConstants";
 
 export type ReviewEventType =
-  | 'review.created'
-  | 'review.helpful_vote'
-  | 'review.reported'
-  | 'review.deleted'
-  | 'review.moderated';
+  | "review.created"
+  | "review.helpful_vote"
+  | "review.reported"
+  | "review.deleted"
+  | "review.moderated";
 
 export type ReviewEventPayload = {
   type: ReviewEventType;
@@ -22,7 +22,7 @@ export type ReviewEventPayload = {
 };
 
 export function emitReviewEvent(
-  payload: Omit<ReviewEventPayload, 'occurredAt'>
+  payload: Omit<ReviewEventPayload, "occurredAt">,
 ): void {
   const ctx = getRequestContext();
   const event: ReviewEventPayload = {
@@ -33,7 +33,7 @@ export function emitReviewEvent(
   };
 
   logger.info({
-    msg: 'review_event',
+    msg: "review_event",
     reviewEventType: event.type,
     reviewId: event.reviewId,
     productId: event.productId,
@@ -46,11 +46,13 @@ export function emitReviewEvent(
   if (!redisEnabled) return;
 
   const channel = `${REVIEW_EVENT_CHANNEL_PREFIX}${event.type}`;
-  redisConnection.call('PUBLISH', channel, JSON.stringify(event)).catch((err: Error) => {
-    logger.warn({
-      msg: 'review_event_publish_failed',
-      reviewId: event.reviewId,
-      error: err.message,
+  redisConnection
+    .call("PUBLISH", channel, JSON.stringify(event))
+    .catch((err: Error) => {
+      logger.warn({
+        msg: "review_event_publish_failed",
+        reviewId: event.reviewId,
+        error: err.message,
+      });
     });
-  });
 }

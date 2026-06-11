@@ -1,5 +1,5 @@
 import ExpoPushToken from "../models/ExpoPushToken";
-import logger from "../utils/logger";
+import logger from "../types/utils/logger";
 
 /** Lazy-load ESM-only `expo-server-sdk` from CommonJS (`ts-node` / `require` cannot load it at top level). */
 async function loadExpo() {
@@ -11,7 +11,10 @@ export async function sendExpoPushToUser(
   userId: string,
   payload: { title: string; body: string; link?: string; tag?: string },
 ): Promise<void> {
-  const docs = await ExpoPushToken.find({ user: userId, isActive: { $ne: false } }).lean();
+  const docs = await ExpoPushToken.find({
+    user: userId,
+    isActive: { $ne: false },
+  }).lean();
   if (!docs.length) return;
 
   let Expo: Awaited<ReturnType<typeof loadExpo>>["Expo"];
@@ -57,9 +60,12 @@ export async function sendExpoPushToUser(
           const err = ticket.details?.error;
           if (err === "DeviceNotRegistered" || err === "InvalidCredentials") {
             if (tok) {
-              void ExpoPushToken.updateMany({ token: tok }, { isActive: false }).catch(() => {});
-              void import("./notifications/pushDeliveryTrackingService").then((m) =>
-                m.trackInvalidPushToken("expo"),
+              void ExpoPushToken.updateMany(
+                { token: tok },
+                { isActive: false },
+              ).catch(() => {});
+              void import("./notifications/pushDeliveryTrackingService").then(
+                (m) => m.trackInvalidPushToken("expo"),
               );
             }
           }

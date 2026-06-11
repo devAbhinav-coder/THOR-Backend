@@ -1,7 +1,7 @@
-import { ClientSession, Types } from 'mongoose';
-import Product from '../../models/Product';
-import AppError from '../../utils/AppError';
-import { recordInventoryMetric } from './inventoryMetricsService';
+import { ClientSession, Types } from "mongoose";
+import Product from "../../models/Product";
+import AppError from "../../types/utils/AppError";
+import { recordInventoryMetric } from "./inventoryMetricsService";
 
 export interface StockIncrementOp {
   productId: string;
@@ -18,17 +18,19 @@ export interface BulkWriteValidation {
   failedSkus: string[];
 }
 
-function buildIncrementOp(op: StockIncrementOp): Parameters<typeof Product.bulkWrite>[0][number] {
+function buildIncrementOp(
+  op: StockIncrementOp,
+): Parameters<typeof Product.bulkWrite>[0][number] {
   return {
     updateOne: {
-      filter: { _id: op.productId, 'variants.sku': op.sku },
+      filter: { _id: op.productId, "variants.sku": op.sku },
       update: {
-        $inc: { 'variants.$[v].stock': op.quantity, totalStock: op.quantity },
-        ...(op.updateCostPrice !== false && op.unitCost !== undefined
-          ? { $set: { 'variants.$[v].costPrice': op.unitCost } }
-          : {}),
+        $inc: { "variants.$[v].stock": op.quantity, totalStock: op.quantity },
+        ...(op.updateCostPrice !== false && op.unitCost !== undefined ?
+          { $set: { "variants.$[v].costPrice": op.unitCost } }
+        : {}),
       },
-      arrayFilters: [{ 'v.sku': op.sku }],
+      arrayFilters: [{ "v.sku": op.sku }],
     },
   };
 }
@@ -38,10 +40,15 @@ function buildIncrementOp(op: StockIncrementOp): Parameters<typeof Product.bulkW
  */
 export async function executeStockIncrements(
   ops: StockIncrementOp[],
-  session?: ClientSession
+  session?: ClientSession,
 ): Promise<BulkWriteValidation> {
   if (ops.length === 0) {
-    return { expectedOps: 0, matchedCount: 0, modifiedCount: 0, failedSkus: [] };
+    return {
+      expectedOps: 0,
+      matchedCount: 0,
+      modifiedCount: 0,
+      failedSkus: [],
+    };
   }
 
   const bulkOps = ops.map(buildIncrementOp);
@@ -59,21 +66,21 @@ export async function executeStockIncrements(
     for (const op of ops) {
       let existsQuery = Product.exists({
         _id: new Types.ObjectId(op.productId),
-        'variants.sku': op.sku,
+        "variants.sku": op.sku,
       });
       if (session) existsQuery = existsQuery.session(session);
       const exists = await existsQuery;
       if (!exists) failedSkus.push(op.sku);
     }
-    recordInventoryMetric('inventory.bulk_write.mismatch', {
+    recordInventoryMetric("inventory.bulk_write.mismatch", {
       expectedOps,
       matchedCount,
       modifiedCount,
       failedCount: failedSkus.length,
     });
     throw new AppError(
-      `Stock update failed for SKU(s): ${failedSkus.join(', ') || 'unknown'}. Invoice rolled back.`,
-      409
+      `Stock update failed for SKU(s): ${failedSkus.join(", ") || "unknown"}. Invoice rolled back.`,
+      409,
     );
   }
 
@@ -83,10 +90,10 @@ export async function executeStockIncrements(
 /** Recompute denormalized totalStock from variant stocks for one product. */
 export async function syncProductTotalStock(
   productId: string,
-  session?: ClientSession
+  session?: ClientSession,
 ): Promise<number | null> {
   const product = await Product.findById(productId)
-    .select('variants.stock')
+    .select("variants.stock")
     .session(session ?? null)
     .lean();
   if (!product) return null;
@@ -95,7 +102,7 @@ export async function syncProductTotalStock(
   await Product.updateOne(
     { _id: productId },
     { $set: { totalStock: total } },
-    { ...(session ? { session } : {}) }
+    { ...(session ? { session } : {}) },
   );
   return total;
 }
@@ -103,13 +110,15 @@ export async function syncProductTotalStock(
 export async function readVariantStockAfter(
   productId: string,
   sku: string,
-  session?: ClientSession
+  session?: ClientSession,
 ): Promise<number> {
   const product = await Product.findById(productId)
-    .select('variants.sku variants.stock')
+    .select("variants.sku variants.stock")
     .session(session ?? null)
     .lean();
   if (!product) return 0;
-  const variant = (product.variants as { sku: string; stock: number }[]).find((v) => v.sku === sku);
+  const variant = (product.variants as { sku: string; stock: number }[]).find(
+    (v) => v.sku === sku,
+  );
   return variant?.stock ?? 0;
 }

@@ -1,4 +1,4 @@
-import AppError from "../utils/AppError";
+import AppError from "../types/utils/AppError";
 
 /** Same copy for every failed password login — avoids account enumeration. */
 export const LOGIN_FAILED_GENERIC = "Invalid email or password.";
@@ -9,10 +9,7 @@ export const SESSION_EXPIRED = "Session expired. Please sign in again.";
 export const RESET_GENERIC =
   "If an account exists for this email, you will receive a reset code shortly.";
 
-export function authAppError(
-  message: string,
-  statusCode: number,
-): AppError {
+export function authAppError(message: string, statusCode: number): AppError {
   return new AppError(message, statusCode);
 }
 
@@ -31,8 +28,10 @@ export function serviceError(
   return e;
 }
 
-export function toAppError(err: ServiceError | Error & { statusCode?: number }): AppError {
+export function toAppError(
+  err: ServiceError | (Error & { statusCode?: number }),
+): AppError {
   const statusCode = err.statusCode ?? 500;
-  const retryAfter = 'retryAfter' in err ? err.retryAfter : undefined;
+  const retryAfter = "retryAfter" in err ? err.retryAfter : undefined;
   return new AppError(err.message, statusCode, retryAfter);
 }

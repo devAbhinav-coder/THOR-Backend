@@ -1,12 +1,11 @@
-import logger from "../utils/logger";
+import logger from "../types/utils/logger";
 
-const VERIFY_URL =
-  "https://challenges.cloudflare.com/turnstile/v0/siteverify";
+const VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
 export function turnstileEnabled(): boolean {
   return Boolean(
     process.env.TURNSTILE_SECRET_KEY?.trim() &&
-      process.env.TURNSTILE_ENFORCE === "true",
+    process.env.TURNSTILE_ENFORCE === "true",
   );
 }
 

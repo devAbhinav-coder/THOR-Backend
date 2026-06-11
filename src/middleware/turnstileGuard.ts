@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import AppError from "../utils/AppError";
+import AppError from "../types/utils/AppError";
 import { verifyTurnstileToken } from "../services/turnstileService";
 import { authRequestMeta } from "../auth/authNormalize";
 

@@ -1,14 +1,14 @@
-import User from '../models/User';
-import { Notification } from '../models/Notification';
-import logger from '../utils/logger';
-import { Types } from 'mongoose';
-import { queuePushForUser } from './notifications/notificationDeliveryService';
-import { onNotificationCreated } from './notifications/notificationReadService';
-import { enqueueEmail } from '../queues/emailQueue';
+import User from "../models/User";
+import { Notification } from "../models/Notification";
+import logger from "../types/utils/logger";
+import { Types } from "mongoose";
+import { queuePushForUser } from "./notifications/notificationDeliveryService";
+import { onNotificationCreated } from "./notifications/notificationReadService";
+import { enqueueEmail } from "../queues/emailQueue";
 
 export async function notifyAdminsEmail(subject: string, html: string) {
   try {
-    const admins = await User.find({ role: 'admin', isActive: true }, 'email');
+    const admins = await User.find({ role: "admin", isActive: true }, "email");
     if (admins.length === 0) return;
 
     await Promise.all(
@@ -17,20 +17,27 @@ export async function notifyAdminsEmail(subject: string, html: string) {
           to: admin.email,
           subject,
           html,
-        }).catch((err) => logger.error(`Failed to send email to admin ${admin.email}`, { err }))
-      )
+        }).catch((err) =>
+          logger.error(`Failed to send email to admin ${admin.email}`, { err }),
+        ),
+      ),
     );
   } catch (err) {
-    logger.error('Failed to notify admins by email', { err });
+    logger.error("Failed to notify admins by email", { err });
   }
 }
 
-export async function notifyAdmins(title: string, message: string, link?: string, type: 'order' | 'system' | 'alert' = 'system') {
+export async function notifyAdmins(
+  title: string,
+  message: string,
+  link?: string,
+  type: "order" | "system" | "alert" = "system",
+) {
   try {
-    const admins = await User.find({ role: 'admin', isActive: true }, '_id');
+    const admins = await User.find({ role: "admin", isActive: true }, "_id");
     if (admins.length === 0) return;
 
-    const notifications = admins.map(admin => ({
+    const notifications = admins.map((admin) => ({
       user: admin._id,
       title,
       message,
@@ -50,12 +57,12 @@ export async function notifyAdmins(title: string, message: string, link?: string
             link,
             notificationId: String(n._id),
           },
-          { category: type }
+          { category: type },
         );
-      })
+      }),
     );
   } catch (err) {
-    logger.error('Failed to notify admins', { err });
+    logger.error("Failed to notify admins", { err });
   }
 }
 
@@ -64,7 +71,14 @@ export async function notifyUser(
   title: string,
   message: string,
   link?: string,
-  type: 'order' | 'promotion' | 'alert' | 'info' | 'success' | 'error' | 'system' = 'order'
+  type:
+    | "order"
+    | "promotion"
+    | "alert"
+    | "info"
+    | "success"
+    | "error"
+    | "system" = "order",
 ) {
   try {
     const created = await Notification.create({
@@ -83,9 +97,9 @@ export async function notifyUser(
         link,
         notificationId: String(created._id),
       },
-      { category: type }
+      { category: type },
     );
   } catch (err) {
-    logger.error('Failed to notify user', { userId: String(userId), err });
+    logger.error("Failed to notify user", { userId: String(userId), err });
   }
 }

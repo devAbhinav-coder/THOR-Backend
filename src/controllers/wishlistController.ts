@@ -1,37 +1,40 @@
-import { Response } from 'express';
-import catchAsync from '../utils/catchAsync';
-import { AuthRequest } from '../types';
-import { sendSuccess } from '../utils/response';
-import { wishlistService } from '../services/wishlist/wishlistService';
-import { parseWishlistListQuery } from '../validation/wishlistSchemas';
+import { Response } from "express";
+import catchAsync from "../types/utils/catchAsync";
+import { AuthRequest } from "../types";
+import { sendSuccess } from "../types/utils/response";
+import { wishlistService } from "../services/wishlist/wishlistService";
+import { parseWishlistListQuery } from "../validation/wishlistSchemas";
 
-export const getWishlist = catchAsync(async (req: AuthRequest, res: Response) => {
-  const userId = String(req.user!._id);
-  const listQuery = parseWishlistListQuery(
-    req.query as { page?: number; limit?: number }
-  );
-
-  const result = await wishlistService.getWishlist(userId, listQuery);
-
-  if (result.paginated && result.pagination) {
-    sendSuccess(
-      res,
-      { products: result.products },
-      'OK',
-      200,
-      { pagination: result.pagination }
+export const getWishlist = catchAsync(
+  async (req: AuthRequest, res: Response) => {
+    const userId = String(req.user!._id);
+    const listQuery = parseWishlistListQuery(
+      req.query as { page?: number; limit?: number },
     );
-    return;
-  }
 
-  sendSuccess(res, { products: result.products });
-});
+    const result = await wishlistService.getWishlist(userId, listQuery);
 
-export const toggleWishlist = catchAsync(async (req: AuthRequest, res: Response) => {
-  const userId = String(req.user!._id);
-  const { productId } = req.params as { productId: string };
+    if (result.paginated && result.pagination) {
+      sendSuccess(res, { products: result.products }, "OK", 200, {
+        pagination: result.pagination,
+      });
+      return;
+    }
 
-  const { wishlistCount, action } = await wishlistService.toggleProduct(userId, productId);
+    sendSuccess(res, { products: result.products });
+  },
+);
 
-  sendSuccess(res, { wishlistCount, action });
-});
+export const toggleWishlist = catchAsync(
+  async (req: AuthRequest, res: Response) => {
+    const userId = String(req.user!._id);
+    const { productId } = req.params as { productId: string };
+
+    const { wishlistCount, action } = await wishlistService.toggleProduct(
+      userId,
+      productId,
+    );
+
+    sendSuccess(res, { wishlistCount, action });
+  },
+);

@@ -1,7 +1,7 @@
-import { getCache, setCache, deleteCache } from '../cacheService';
-import { redisConnection, redisEnabled } from '../../config/redis';
-import logger from '../../utils/logger';
-import { getRequestContext } from '../../utils/requestContext';
+import { getCache, setCache, deleteCache } from "../cacheService";
+import { redisConnection, redisEnabled } from "../../config/redis";
+import logger from "../../types/utils/logger";
+import { getRequestContext } from "../../types/utils/requestContext";
 import {
   FEATURED_REVIEWS_CACHE_KEY,
   FEATURED_REVIEWS_TTL_SEC,
@@ -10,7 +10,7 @@ import {
   productReviewsCacheKey,
   productRatingSummaryCacheKey,
   ReviewSortKey,
-} from './reviewConstants';
+} from "./reviewConstants";
 
 export type FeaturedReviewsCachePayload = {
   reviews: Record<string, unknown>[];
@@ -34,17 +34,21 @@ export const reviewCacheService = {
   },
 
   async setFeatured(payload: FeaturedReviewsCachePayload): Promise<void> {
-    await setCache(FEATURED_REVIEWS_CACHE_KEY, payload, FEATURED_REVIEWS_TTL_SEC);
+    await setCache(
+      FEATURED_REVIEWS_CACHE_KEY,
+      payload,
+      FEATURED_REVIEWS_TTL_SEC,
+    );
   },
 
   async getProductPage(
     productId: string,
     page: number,
     limit: number,
-    sort: ReviewSortKey
+    sort: ReviewSortKey,
   ): Promise<ProductReviewsCachePayload | null> {
     return getCache<ProductReviewsCachePayload>(
-      productReviewsCacheKey(productId, page, limit, sort)
+      productReviewsCacheKey(productId, page, limit, sort),
     );
   },
 
@@ -53,24 +57,31 @@ export const reviewCacheService = {
     page: number,
     limit: number,
     sort: ReviewSortKey,
-    payload: ProductReviewsCachePayload
+    payload: ProductReviewsCachePayload,
   ): Promise<void> {
     await setCache(
       productReviewsCacheKey(productId, page, limit, sort),
       payload,
-      PRODUCT_REVIEWS_CACHE_TTL_SEC
+      PRODUCT_REVIEWS_CACHE_TTL_SEC,
     );
   },
 
-  async getRatingSummary(productId: string): Promise<RatingSummaryCachePayload | null> {
-    return getCache<RatingSummaryCachePayload>(productRatingSummaryCacheKey(productId));
+  async getRatingSummary(
+    productId: string,
+  ): Promise<RatingSummaryCachePayload | null> {
+    return getCache<RatingSummaryCachePayload>(
+      productRatingSummaryCacheKey(productId),
+    );
   },
 
-  async setRatingSummary(productId: string, payload: RatingSummaryCachePayload): Promise<void> {
+  async setRatingSummary(
+    productId: string,
+    payload: RatingSummaryCachePayload,
+  ): Promise<void> {
     await setCache(
       productRatingSummaryCacheKey(productId),
       payload,
-      PRODUCT_RATING_SUMMARY_CACHE_TTL_SEC
+      PRODUCT_RATING_SUMMARY_CACHE_TTL_SEC,
     );
   },
 
@@ -78,7 +89,7 @@ export const reviewCacheService = {
     this.invalidateProduct(productId).catch((err: Error) => {
       const ctx = getRequestContext();
       logger.warn({
-        msg: 'review_cache_invalidation_failed',
+        msg: "review_cache_invalidation_failed",
         productId,
         requestId: ctx?.requestId,
         error: err.message,
@@ -90,7 +101,7 @@ export const reviewCacheService = {
     deleteCache(FEATURED_REVIEWS_CACHE_KEY).catch((err: Error) => {
       const ctx = getRequestContext();
       logger.warn({
-        msg: 'review_featured_cache_invalidation_failed',
+        msg: "review_featured_cache_invalidation_failed",
         requestId: ctx?.requestId,
         error: err.message,
       });
@@ -113,7 +124,7 @@ export const reviewCacheService = {
     await deleteCache(FEATURED_REVIEWS_CACHE_KEY);
     if (!redisEnabled) return;
     try {
-      const keys = await redisConnection.keys('cache:reviews:*');
+      const keys = await redisConnection.keys("cache:reviews:*");
       if (keys.length) await redisConnection.del(...keys);
     } catch {
       // Non-fatal

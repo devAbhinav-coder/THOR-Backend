@@ -1,33 +1,33 @@
-import mongoose from 'mongoose';
-import Coupon from '../../models/Coupon';
-import AppError from '../../utils/AppError';
+import mongoose from "mongoose";
+import Coupon from "../../models/Coupon";
+import AppError from "../../types/utils/AppError";
 import {
   assertCouponBusinessRules,
   COUPON_QUERY_MAX_MS,
   normalizeCouponCode,
   normalizeExpiryDate,
-} from './couponBusinessRules';
-import { COUPON_ADMIN_PROJECTION, toCouponAdminListDto } from './couponDto';
-import { invalidateCouponCaches } from './couponCacheService';
-import { recordCouponMetric } from './couponMetricsService';
+} from "./couponBusinessRules";
+import { COUPON_ADMIN_PROJECTION, toCouponAdminListDto } from "./couponDto";
+import { invalidateCouponCaches } from "./couponCacheService";
+import { recordCouponMetric } from "./couponMetricsService";
 
 const ALLOWED_UPDATE_FIELDS = [
-  'description',
-  'discountType',
-  'discountValue',
-  'minOrderAmount',
-  'maxDiscountAmount',
-  'usageLimit',
-  'userUsageLimit',
-  'startDate',
-  'expiryDate',
-  'isActive',
-  'applicableProducts',
-  'applicableCategories',
-  'firstOrderOnly',
-  'minCompletedOrders',
-  'eligibilityType',
-  'maxCompletedOrders',
+  "description",
+  "discountType",
+  "discountValue",
+  "minOrderAmount",
+  "maxDiscountAmount",
+  "usageLimit",
+  "userUsageLimit",
+  "startDate",
+  "expiryDate",
+  "isActive",
+  "applicableProducts",
+  "applicableCategories",
+  "firstOrderOnly",
+  "minCompletedOrders",
+  "eligibilityType",
+  "maxCompletedOrders",
 ] as const;
 
 export const couponAdminService = {
@@ -39,7 +39,9 @@ export const couponAdminService = {
       }
     }
     if (update.expiryDate) {
-      update.expiryDate = normalizeExpiryDate(new Date(update.expiryDate as string));
+      update.expiryDate = normalizeExpiryDate(
+        new Date(update.expiryDate as string),
+      );
     }
     if (update.startDate) {
       update.startDate = new Date(update.startDate as string);
@@ -53,7 +55,7 @@ export const couponAdminService = {
     const expiryDate = normalizeExpiryDate(new Date(data.expiryDate as string));
 
     assertCouponBusinessRules({
-      discountType: data.discountType as 'percentage' | 'flat',
+      discountType: data.discountType as "percentage" | "flat",
       discountValue: Number(data.discountValue),
       startDate,
       expiryDate,
@@ -71,7 +73,7 @@ export const couponAdminService = {
     });
 
     await invalidateCouponCaches(code);
-    recordCouponMetric('coupon.admin.create', { couponId: String(coupon._id) });
+    recordCouponMetric("coupon.admin.create", { couponId: String(coupon._id) });
     return coupon;
   },
 
@@ -83,10 +85,12 @@ export const couponAdminService = {
     if (!page && !limit) {
       const coupons = await Coupon.find(filter)
         .select(COUPON_ADMIN_PROJECTION)
-        .sort('-createdAt')
+        .sort("-createdAt")
         .maxTimeMS(COUPON_QUERY_MAX_MS)
         .lean();
-      return { coupons: toCouponAdminListDto(coupons as Record<string, unknown>[]) };
+      return {
+        coupons: toCouponAdminListDto(coupons as Record<string, unknown>[]),
+      };
     }
 
     const safeLimit = Math.min(Math.max(limit ?? 20, 1), 100);
@@ -96,7 +100,7 @@ export const couponAdminService = {
     const [coupons, total] = await Promise.all([
       Coupon.find(filter)
         .select(COUPON_ADMIN_PROJECTION)
-        .sort('-createdAt')
+        .sort("-createdAt")
         .skip(skip)
         .limit(safeLimit)
         .maxTimeMS(COUPON_QUERY_MAX_MS)
@@ -117,74 +121,92 @@ export const couponAdminService = {
 
   async getCouponById(id: string) {
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      throw new AppError('Invalid coupon id.', 400);
+      throw new AppError("Invalid coupon id.", 400);
     }
-    const coupon = await Coupon.findOne({ _id: id, deletedAt: null, archivedAt: null })
+    const coupon = await Coupon.findOne({
+      _id: id,
+      deletedAt: null,
+      archivedAt: null,
+    })
       .select(COUPON_ADMIN_PROJECTION)
       .maxTimeMS(COUPON_QUERY_MAX_MS)
       .lean();
-    if (!coupon) throw new AppError('Coupon not found.', 404);
+    if (!coupon) throw new AppError("Coupon not found.", 404);
     return coupon;
   },
 
   async updateCoupon(id: string, body: Record<string, unknown>) {
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      throw new AppError('Invalid coupon id.', 400);
+      throw new AppError("Invalid coupon id.", 400);
     }
     const update = this.buildUpdatePayload(body);
     if (update.discountType && update.discountValue !== undefined) {
       assertCouponBusinessRules({
-        discountType: update.discountType as 'percentage' | 'flat',
+        discountType: update.discountType as "percentage" | "flat",
         discountValue: Number(update.discountValue),
-        startDate: update.startDate ? new Date(update.startDate as string) : new Date(),
-        expiryDate: update.expiryDate ? new Date(update.expiryDate as string) : new Date(Date.now() + 86400000),
+        startDate:
+          update.startDate ? new Date(update.startDate as string) : new Date(),
+        expiryDate:
+          update.expiryDate ?
+            new Date(update.expiryDate as string)
+          : new Date(Date.now() + 86400000),
       });
     }
 
-    const coupon = await Coupon.findOneAndUpdate({ _id: id, deletedAt: null, archivedAt: null }, update, {
-      new: true,
-      runValidators: true,
-    })
+    const coupon = await Coupon.findOneAndUpdate(
+      { _id: id, deletedAt: null, archivedAt: null },
+      update,
+      {
+        new: true,
+        runValidators: true,
+      },
+    )
       .select(COUPON_ADMIN_PROJECTION)
       .maxTimeMS(COUPON_QUERY_MAX_MS);
 
-    if (!coupon) throw new AppError('Coupon not found.', 404);
+    if (!coupon) throw new AppError("Coupon not found.", 404);
 
     if (update.isActive === false) {
-      recordCouponMetric('coupon.admin.deactivate', { couponId: id });
+      recordCouponMetric("coupon.admin.deactivate", { couponId: id });
     }
-    recordCouponMetric('coupon.admin.update', { couponId: id });
+    recordCouponMetric("coupon.admin.update", { couponId: id });
     await invalidateCouponCaches(coupon.code);
     return coupon;
   },
 
   async softDeleteCoupon(id: string) {
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      throw new AppError('Invalid coupon id.', 400);
+      throw new AppError("Invalid coupon id.", 400);
     }
     const coupon = await Coupon.findOneAndUpdate(
       { _id: id, deletedAt: null },
       { $set: { isActive: false, deletedAt: new Date() } },
-      { new: true }
-    ).select('code');
-    if (!coupon) throw new AppError('Coupon not found.', 404);
+      { new: true },
+    ).select("code");
+    if (!coupon) throw new AppError("Coupon not found.", 404);
     await invalidateCouponCaches(coupon.code);
-    recordCouponMetric('coupon.admin.deactivate', { couponId: id, softDelete: true });
+    recordCouponMetric("coupon.admin.deactivate", {
+      couponId: id,
+      softDelete: true,
+    });
     return coupon;
   },
 
   async archiveCoupon(id: string) {
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      throw new AppError('Invalid coupon id.', 400);
+      throw new AppError("Invalid coupon id.", 400);
     }
     const coupon = await Coupon.findOneAndUpdate(
       { _id: id, deletedAt: null },
       { $set: { archivedAt: new Date(), isActive: false } },
-      { new: true }
+      { new: true },
     ).select(COUPON_ADMIN_PROJECTION);
-    if (!coupon) throw new AppError('Coupon not found.', 404);
+    if (!coupon) throw new AppError("Coupon not found.", 404);
     await invalidateCouponCaches(coupon.code);
-    recordCouponMetric('coupon.admin.deactivate', { couponId: id, archived: true });
+    recordCouponMetric("coupon.admin.deactivate", {
+      couponId: id,
+      archived: true,
+    });
     return coupon;
   },
 };

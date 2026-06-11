@@ -1,28 +1,28 @@
-import { Types } from 'mongoose';
-import { Notification } from '../../models/Notification';
-import AppError from '../../utils/AppError';
+import { Types } from "mongoose";
+import { Notification } from "../../models/Notification";
+import AppError from "../../types/utils/AppError";
 import {
   NOTIFICATION_LIST_PROJECTION,
   effectiveIsRead,
   serializeNotification,
   unreadFromState,
-} from './notificationDto';
+} from "./notificationDto";
 import {
   getCachedNotificationPage,
   getCachedUnreadCount,
   scheduleInvalidateNotificationCache,
   setCachedNotificationPage,
   setCachedUnreadCount,
-} from './notificationCacheService';
+} from "./notificationCacheService";
 import {
   decrementUnreadIfNeeded,
   getOrCreateNotificationState,
   markAllReadState,
   resetUnreadCount,
-} from './notificationStateService';
-import { recordNotificationMetric } from './notificationMetricsService';
-import { getRequestContext } from '../../utils/requestContext';
-import logger from '../../utils/logger';
+} from "./notificationStateService";
+import { recordNotificationMetric } from "./notificationMetricsService";
+import { getRequestContext } from "../../types/utils/requestContext";
+import logger from "../../types/utils/logger";
 
 export const NOTIFICATION_QUERY_MAX_MS = 5000;
 
@@ -39,7 +39,9 @@ type ListResult = {
   total: number;
 };
 
-export async function listUserNotifications(params: ListParams): Promise<ListResult> {
+export async function listUserNotifications(
+  params: ListParams,
+): Promise<ListResult> {
   const started = Date.now();
   const ctx = getRequestContext();
   const userOid = new Types.ObjectId(params.userId);
@@ -51,10 +53,14 @@ export async function listUserNotifications(params: ListParams): Promise<ListRes
     isRead: params.isRead,
   });
   if (cached) {
-    recordNotificationMetric('notification.unread.cache_hit', { userId: params.userId });
+    recordNotificationMetric("notification.unread.cache_hit", {
+      userId: params.userId,
+    });
     return cached;
   }
-  recordNotificationMetric('notification.unread.cache_miss', { userId: params.userId });
+  recordNotificationMetric("notification.unread.cache_miss", {
+    userId: params.userId,
+  });
 
   const state = await getOrCreateNotificationState(params.userId);
   const lastReadAt = state.notificationsLastReadAt;
@@ -78,7 +84,10 @@ export async function listUserNotifications(params: ListParams): Promise<ListRes
   ]);
 
   let serialized = docs.map((d) =>
-    serializeNotification(d as Parameters<typeof serializeNotification>[0], lastReadAt)
+    serializeNotification(
+      d as Parameters<typeof serializeNotification>[0],
+      lastReadAt,
+    ),
   );
 
   if (params.isRead !== undefined) {
@@ -92,10 +101,11 @@ export async function listUserNotifications(params: ListParams): Promise<ListRes
   } else {
     const reconciled = await reconcileUnreadCount(params.userId, lastReadAt);
     if (reconciled !== unreadCount) {
-      const { UserNotificationState } = await import('../../models/UserNotificationState');
+      const { UserNotificationState } =
+        await import("../../models/UserNotificationState");
       await UserNotificationState.updateOne(
         { user: userOid },
-        { $set: { unreadCount: reconciled } }
+        { $set: { unreadCount: reconciled } },
       );
       unreadCount = reconciled;
     }
@@ -110,15 +120,15 @@ export async function listUserNotifications(params: ListParams): Promise<ListRes
       limit: params.limit,
       isRead: params.isRead,
     },
-    result
+    result,
   );
 
-  recordNotificationMetric('notification.fetch.list', {
+  recordNotificationMetric("notification.fetch.list", {
     userId: params.userId,
     durationMs: Date.now() - started,
   });
   logger.debug({
-    msg: 'notification_list_fetched',
+    msg: "notification_list_fetched",
     userId: params.userId,
     requestId: ctx?.requestId,
     count: serialized.length,
@@ -130,7 +140,7 @@ export async function listUserNotifications(params: ListParams): Promise<ListRes
 
 async function reconcileUnreadCount(
   userId: string,
-  lastReadAt: Date | null
+  lastReadAt: Date | null,
 ): Promise<number> {
   const userOid = new Types.ObjectId(userId);
   const docs = await Notification.find({
@@ -138,7 +148,7 @@ async function reconcileUnreadCount(
     archivedAt: null,
     isRead: false,
   })
-    .select('createdAt isRead')
+    .select("createdAt isRead")
     .lean()
     .maxTimeMS(NOTIFICATION_QUERY_MAX_MS);
 
@@ -147,7 +157,7 @@ async function reconcileUnreadCount(
 
 export async function markNotificationRead(
   userId: string,
-  notificationId: string
+  notificationId: string,
 ): Promise<Record<string, unknown>> {
   const state = await getOrCreateNotificationState(userId);
   const existing = await Notification.findOne({
@@ -160,7 +170,7 @@ export async function markNotificationRead(
     .maxTimeMS(NOTIFICATION_QUERY_MAX_MS);
 
   if (!existing) {
-    throw new AppError('Notification not found', 404);
+    throw new AppError("Notification not found", 404);
   }
 
   const wasUnread = !effectiveIsRead(existing, state.notificationsLastReadAt);
@@ -168,18 +178,21 @@ export async function markNotificationRead(
   const notification = await Notification.findOneAndUpdate(
     { _id: notificationId, user: userId, archivedAt: null },
     { isRead: true },
-    { new: true, runValidators: true }
+    { new: true, runValidators: true },
   )
     .select(NOTIFICATION_LIST_PROJECTION)
     .maxTimeMS(NOTIFICATION_QUERY_MAX_MS);
 
   if (!notification) {
-    throw new AppError('Notification not found', 404);
+    throw new AppError("Notification not found", 404);
   }
 
   await decrementUnreadIfNeeded(userId, wasUnread);
   scheduleInvalidateNotificationCache(userId);
-  recordNotificationMetric('notification.mark_read', { userId, notificationId });
+  recordNotificationMetric("notification.mark_read", {
+    userId,
+    notificationId,
+  });
 
   return serializeNotification(notification, state.notificationsLastReadAt);
 }
@@ -187,22 +200,22 @@ export async function markNotificationRead(
 export async function markAllNotificationsRead(userId: string): Promise<void> {
   await markAllReadState(userId);
   scheduleInvalidateNotificationCache(userId);
-  recordNotificationMetric('notification.mark_all_read', { userId });
+  recordNotificationMetric("notification.mark_all_read", { userId });
 }
 
 export async function clearAllNotifications(userId: string): Promise<void> {
   const now = new Date();
   await Notification.updateMany(
     { user: userId, archivedAt: null },
-    { $set: { archivedAt: now } }
+    { $set: { archivedAt: now } },
   ).maxTimeMS(NOTIFICATION_QUERY_MAX_MS);
   await resetUnreadCount(userId);
   scheduleInvalidateNotificationCache(userId);
-  recordNotificationMetric('notification.clear_all', { userId });
+  recordNotificationMetric("notification.clear_all", { userId });
 }
 
 export async function onNotificationCreated(userId: string): Promise<void> {
-  const { incrementUnreadCount } = await import('./notificationStateService');
+  const { incrementUnreadCount } = await import("./notificationStateService");
   await incrementUnreadCount(userId, 1);
   scheduleInvalidateNotificationCache(userId);
 }

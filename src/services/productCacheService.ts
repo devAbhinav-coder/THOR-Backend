@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import Product from "../models/Product";
 import { deleteCache, getCache, setCache } from "./cacheService";
 import { redisConnection } from "../config/redis";
-import logger from "../utils/logger";
+import logger from "../types/utils/logger";
 
 const VERSION_KEY = "cache:products:namespace:version";
 const VERSION_TTL_SEC = 7 * 24 * 3600;
@@ -39,7 +39,10 @@ export async function buildVersionedKey(parts: string[]): Promise<string> {
   return `cache:v${v}:${parts.join(":")}`;
 }
 
-export function countCacheKey(version: number, filter: Record<string, unknown>): string {
+export function countCacheKey(
+  version: number,
+  filter: Record<string, unknown>,
+): string {
   const str = JSON.stringify(filter);
   const hash = crypto.createHash("md5").update(str).digest("hex");
   return `cache:v${version}:products:count:${hash}`;
@@ -53,8 +56,15 @@ export function featuredCacheKey(version: number): string {
   return `cache:v${version}:products:featured`;
 }
 
-export function filtersCacheKey(version: number): string {
-  return `cache:v${version}:products:filters`;
+export function filtersCacheKey(version: number, category?: string): string {
+  const scoped = String(category || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return scoped ?
+      `cache:v${version}:products:filters:cat:${scoped}`
+    : `cache:v${version}:products:filters`;
 }
 
 export function randomPoolCountKey(
@@ -71,7 +81,9 @@ export async function invalidatePdpBySlug(slug: string): Promise<void> {
     const v = await getProductCacheVersion();
     await deleteCache(pdpCacheKey(v, slug.trim()));
   } catch (err) {
-    logger.warn(`PDP cache invalidate failed (${slug}): ${(err as Error).message}`);
+    logger.warn(
+      `PDP cache invalidate failed (${slug}): ${(err as Error).message}`,
+    );
   }
 }
 
@@ -80,7 +92,9 @@ export async function invalidatePdpForProductId(
   productId: mongoose.Types.ObjectId | string,
 ): Promise<void> {
   try {
-    const doc = await Product.findById(productId).select("slug").lean<{ slug?: string }>();
+    const doc = await Product.findById(productId)
+      .select("slug")
+      .lean<{ slug?: string }>();
     if (doc?.slug) {
       await invalidatePdpBySlug(doc.slug);
     }

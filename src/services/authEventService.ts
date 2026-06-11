@@ -1,5 +1,5 @@
 import { EventEmitter } from "events";
-import logger from "../utils/logger";
+import logger from "../types/utils/logger";
 import { enqueueEmail } from "../queues/emailQueue";
 import { writeAdminAudit } from "./adminAuditService";
 import { authRequestMeta } from "../auth/authNormalize";
@@ -38,10 +38,16 @@ function handleAuthEvent(payload: AuthEventPayload): void {
   });
 
   if (req && userId) {
-    void writeAdminAudit(req, `auth.event.${type.toLowerCase()}`, {
-      ...meta,
-      email,
-    }, userId, userId).catch(() => undefined);
+    void writeAdminAudit(
+      req,
+      `auth.event.${type.toLowerCase()}`,
+      {
+        ...meta,
+        email,
+      },
+      userId,
+      userId,
+    ).catch(() => undefined);
   }
 
   /* Queue hooks — extend with CRM/analytics workers without blocking HTTP */

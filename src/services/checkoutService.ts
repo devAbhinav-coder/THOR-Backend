@@ -1,30 +1,43 @@
-import mongoose from 'mongoose';
-import Product from '../models/Product';
-import Order from '../models/Order';
-import { couponValidationService } from './coupon/couponValidationService';
-import { couponRedemptionService } from './coupon/couponRedemptionService';
-import CheckoutPaymentIntent from '../models/CheckoutPaymentIntent';
-import AppError from '../utils/AppError';
-import { orderRepository } from '../repositories/orderRepository';
-import { getGiftMinQty, computeOrderTotals, buildOrderItemsFromProducts } from './orderService';
-import { cartService } from './cartService';
-import { cartRevalidationService } from './cart/cartRevalidationService';
-import { createRazorpayOrder } from './razorpay';
-import { decrementVariantStock } from './inventoryService';
-import type { CheckoutIntentSnapshotItem } from '../models/CheckoutPaymentIntent';
-import { sessionOpts, withOptionalTransaction } from '../utils/mongoTransaction';
+import mongoose from "mongoose";
+import Product from "../models/Product";
+import Order from "../models/Order";
+import { couponValidationService } from "./coupon/couponValidationService";
+import { couponRedemptionService } from "./coupon/couponRedemptionService";
+import CheckoutPaymentIntent from "../models/CheckoutPaymentIntent";
+import AppError from "../types/utils/AppError";
+import { orderRepository } from "../repositories/orderRepository";
+import {
+  getGiftMinQty,
+  computeOrderTotals,
+  buildOrderItemsFromProducts,
+} from "./orderService";
+import { cartService } from "./cartService";
+import { emitCartEvent } from "./cart/cartEventService";
+import { cartRevalidationService } from "./cart/cartRevalidationService";
+import { createRazorpayOrder } from "./razorpay";
+import { decrementVariantStock } from "./inventoryService";
+import type { CheckoutIntentSnapshotItem } from "../models/CheckoutPaymentIntent";
+import {
+  sessionOpts,
+  withOptionalTransaction,
+} from "../types/utils/mongoTransaction";
 
 export const checkoutService = {
   async processBuyNowItem(buyNowItem: any) {
     const product = await Product.findById(buyNowItem.productId);
     if (!product || !product.isActive) {
-      throw new AppError('Product is no longer available.', 400);
+      throw new AppError("Product is no longer available.", 400);
     }
     const minQty = getGiftMinQty(product);
     if (buyNowItem.quantity < minQty) {
-      throw new AppError(`Minimum quantity for "${product.name}" is ${minQty}.`, 400);
+      throw new AppError(
+        `Minimum quantity for "${product.name}" is ${minQty}.`,
+        400,
+      );
     }
-    const variant = product.variants.find((v) => v.sku === buyNowItem.variant.sku);
+    const variant = product.variants.find(
+      (v) => v.sku === buyNowItem.variant.sku,
+    );
     if (!variant || variant.stock < buyNowItem.quantity) {
       throw new AppError(`Insufficient stock for "${product.name}".`, 400);
     }
@@ -41,8 +54,15 @@ export const checkoutService = {
     ];
     const checkoutSubtotal = linePrice * buyNowItem.quantity;
     const productMap = new Map([[String(product._id), product]]);
-    
-    return { checkoutItems, checkoutSubtotal, productMap, cartIdToDelete: null, cartCouponId: undefined, cartCouponDiscount: 0 };
+
+    return {
+      checkoutItems,
+      checkoutSubtotal,
+      productMap,
+      cartIdToDelete: null,
+      cartCouponId: undefined,
+      cartCouponDiscount: 0,
+    };
   },
 
   async processCartItems(userId: string) {
@@ -51,13 +71,13 @@ export const checkoutService = {
 
     const cart = await orderRepository.findCartForCheckout(userId);
     if (!cart || cart.items.length === 0) {
-      throw new AppError('Your cart is empty.', 400);
+      throw new AppError("Your cart is empty.", 400);
     }
 
     const checkoutItems = cart.items;
     const checkoutSubtotal = cart.subtotal;
     const cartIdToDelete = cart._id as mongoose.Types.ObjectId;
-    
+
     let cartCouponDiscount = 0;
     let cartCouponId: mongoose.Types.ObjectId | undefined;
     if (cart.coupon) {
@@ -69,20 +89,36 @@ export const checkoutService = {
     const products = await orderRepository.findProductsByIds(productIds);
     const productMap = new Map(products.map((p) => [String(p._id), p]));
 
-    return { checkoutItems, checkoutSubtotal, productMap, cartIdToDelete, cartCouponId, cartCouponDiscount };
+    return {
+      checkoutItems,
+      checkoutSubtotal,
+      productMap,
+      cartIdToDelete,
+      cartCouponId,
+      cartCouponDiscount,
+    };
   },
 
-  async evaluateCoupon(userId: string, checkoutSubtotal: number, couponCode?: string, cartCouponId?: mongoose.Types.ObjectId, cartCouponDiscount?: number) {
+  async evaluateCoupon(
+    userId: string,
+    checkoutSubtotal: number,
+    couponCode?: string,
+    cartCouponId?: mongoose.Types.ObjectId,
+    cartCouponDiscount?: number,
+  ) {
     return couponValidationService.evaluateCouponForOrder(
       userId,
       checkoutSubtotal,
       couponCode,
       cartCouponId,
-      cartCouponDiscount
+      cartCouponDiscount,
     );
   },
 
-  async validateAndBuildItems(checkoutItems: any[], productMap: Map<string, any>) {
+  async validateAndBuildItems(
+    checkoutItems: any[],
+    productMap: Map<string, any>,
+  ) {
     for (const item of checkoutItems) {
       const product = productMap.get(String(item.product));
       if (!product || !product.isActive) {
@@ -90,9 +126,14 @@ export const checkoutService = {
       }
       const minQty = getGiftMinQty(product);
       if (item.quantity < minQty) {
-        throw new AppError(`Minimum quantity for "${product.name}" is ${minQty}.`, 400);
+        throw new AppError(
+          `Minimum quantity for "${product.name}" is ${minQty}.`,
+          400,
+        );
       }
-      const variant = product.variants.find((v: any) => v.sku === item.variant.sku);
+      const variant = product.variants.find(
+        (v: any) => v.sku === item.variant.sku,
+      );
       if (!variant || variant.stock < item.quantity) {
         throw new AppError(`Insufficient stock for "${product.name}".`, 400);
       }
@@ -102,8 +143,21 @@ export const checkoutService = {
   },
 
   async createRazorpayIntent(userId: string, intentData: any) {
-    const { total, checkoutItems, orderItems, shippingAddress, checkoutSubtotal, discount, shippingCharge, codFee, tax, couponId, notes, cartIdToDelete } = intentData;
-    
+    const {
+      total,
+      checkoutItems,
+      orderItems,
+      shippingAddress,
+      checkoutSubtotal,
+      discount,
+      shippingCharge,
+      codFee,
+      tax,
+      couponId,
+      notes,
+      cartIdToDelete,
+    } = intentData;
+
     const intentId = new mongoose.Types.ObjectId();
     const razorpayOrder = await createRazorpayOrder({
       amount: total,
@@ -141,7 +195,12 @@ export const checkoutService = {
     return { intentId: String(intentId), razorpayOrder };
   },
 
-  async createCodOrder(orderPayload: any, checkoutItems: any[], cartIdToDelete: mongoose.Types.ObjectId | null, couponId: mongoose.Types.ObjectId | undefined) {
+  async createCodOrder(
+    orderPayload: any,
+    checkoutItems: any[],
+    cartIdToDelete: mongoose.Types.ObjectId | null,
+    couponId: mongoose.Types.ObjectId | undefined,
+  ) {
     let codOrder: InstanceType<typeof Order> | undefined;
 
     await withOptionalTransaction(async (session) => {
@@ -156,7 +215,10 @@ export const checkoutService = {
           sessionOpts(session),
         );
         if (!ok) {
-          throw new AppError(`Insufficient stock for a cart item. Please refresh and try again.`, 409);
+          throw new AppError(
+            `Insufficient stock for a cart item. Please refresh and try again.`,
+            409,
+          );
         }
       }
 
@@ -166,19 +228,31 @@ export const checkoutService = {
           orderPayload.user as mongoose.Types.ObjectId,
           couponId,
           orderPayload.subtotal,
-          { sourceType: 'order', sourceId: codOrder._id as mongoose.Types.ObjectId },
+          {
+            sourceType: "order",
+            sourceId: codOrder._id as mongoose.Types.ObjectId,
+          },
         );
       }
 
       if (cartIdToDelete) {
         if (session) {
-          await orderRepository.deleteCartByIdInSession(cartIdToDelete, session);
+          await orderRepository.deleteCartByIdInSession(
+            cartIdToDelete,
+            session,
+          );
         } else {
           await orderRepository.deleteCartById(cartIdToDelete);
         }
       }
-    }, 'createCodOrder');
+    }, "createCodOrder");
+
+    if (cartIdToDelete && codOrder) {
+      const uid = String(orderPayload.user);
+      await cartService.clearCartCache(uid);
+      emitCartEvent({ type: "cart.cleared", userId: uid });
+    }
 
     return codOrder;
-  }
+  },
 };

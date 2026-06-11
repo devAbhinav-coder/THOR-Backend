@@ -1,5 +1,5 @@
-import logger from '../utils/logger';
-import { processPendingCartOutboxBatch } from '../services/cart/cartOutboxService';
+import logger from "../types/utils/logger";
+import { processPendingCartOutboxBatch } from "../services/cart/cartOutboxService";
 
 const DEFAULT_INTERVAL_MS = Number(process.env.CART_OUTBOX_POLL_MS || 15_000);
 
@@ -7,8 +7,8 @@ let timer: ReturnType<typeof setInterval> | null = null;
 
 export function startCartOutboxPoller(): void {
   if (timer) return;
-  if (process.env.CART_OUTBOX_POLL_ENABLED === 'false') {
-    logger.info('Cart outbox poller disabled (CART_OUTBOX_POLL_ENABLED=false)');
+  if (process.env.CART_OUTBOX_POLL_ENABLED === "false") {
+    logger.info("Cart outbox poller disabled (CART_OUTBOX_POLL_ENABLED=false)");
     return;
   }
 
@@ -16,11 +16,12 @@ export function startCartOutboxPoller(): void {
     try {
       const n = await processPendingCartOutboxBatch();
       if (n > 0) {
-        logger.info({ msg: 'cart_outbox_poller_dispatched', count: n });
+        logger.info({ msg: "cart_outbox_poller_dispatched", count: n });
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'cart outbox poll failed';
-      logger.error({ msg: 'cart_outbox_poller_error', error: message });
+      const message =
+        err instanceof Error ? err.message : "cart outbox poll failed";
+      logger.error({ msg: "cart_outbox_poller_error", error: message });
     }
   };
 

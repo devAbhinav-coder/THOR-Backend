@@ -1,17 +1,17 @@
-import { redisConnection, redisEnabled } from '../../config/redis';
-import logger from '../../utils/logger';
-import { getRequestContext } from '../../utils/requestContext';
-import { CART_EVENT_CHANNEL_PREFIX } from './cartConstants';
-import { enqueueCartOutboxEvent } from './cartOutboxService';
+import { redisConnection, redisEnabled } from "../../config/redis";
+import logger from "../../types/utils/logger";
+import { getRequestContext } from "../../types/utils/requestContext";
+import { CART_EVENT_CHANNEL_PREFIX } from "./cartConstants";
+import { enqueueCartOutboxEvent } from "./cartOutboxService";
 
 export type CartEventType =
-  | 'cart.item.added'
-  | 'cart.item.removed'
-  | 'cart.item.updated'
-  | 'cart.coupon.applied'
-  | 'cart.coupon.removed'
-  | 'cart.cleared'
-  | 'cart.abandoned';
+  | "cart.item.added"
+  | "cart.item.removed"
+  | "cart.item.updated"
+  | "cart.coupon.applied"
+  | "cart.coupon.removed"
+  | "cart.cleared"
+  | "cart.abandoned";
 
 export type CartEventPayload = {
   type: CartEventType;
@@ -27,7 +27,7 @@ export type CartEventPayload = {
 };
 
 export function emitCartEvent(
-  payload: Omit<CartEventPayload, 'occurredAt'>
+  payload: Omit<CartEventPayload, "occurredAt">,
 ): void {
   const ctx = getRequestContext();
   const event: CartEventPayload = {
@@ -38,7 +38,7 @@ export function emitCartEvent(
   };
 
   logger.info({
-    msg: 'cart_event',
+    msg: "cart_event",
     cartEventType: event.type,
     userId: event.userId,
     productId: event.productId,
@@ -48,18 +48,22 @@ export function emitCartEvent(
     traceId: event.traceId,
   });
 
-  const dedupeKey = `${event.type}:${event.userId}:${event.cartItemId ?? ''}:${event.productId ?? ''}:${event.couponCode ?? ''}:${event.occurredAt.slice(0, 16)}`;
-  enqueueCartOutboxEvent(event.type, event as unknown as Record<string, unknown>, dedupeKey).catch(
-    () => {}
-  );
+  const dedupeKey = `${event.type}:${event.userId}:${event.cartItemId ?? ""}:${event.productId ?? ""}:${event.couponCode ?? ""}:${event.occurredAt.slice(0, 16)}`;
+  enqueueCartOutboxEvent(
+    event.type,
+    event as unknown as Record<string, unknown>,
+    dedupeKey,
+  ).catch(() => {});
 
   if (!redisEnabled) return;
   const channel = `${CART_EVENT_CHANNEL_PREFIX}${event.userId}`;
-  redisConnection.call('PUBLISH', channel, JSON.stringify(event)).catch((err: Error) => {
-    logger.warn({
-      msg: 'cart_event_publish_failed',
-      userId: event.userId,
-      error: err.message,
+  redisConnection
+    .call("PUBLISH", channel, JSON.stringify(event))
+    .catch((err: Error) => {
+      logger.warn({
+        msg: "cart_event_publish_failed",
+        userId: event.userId,
+        error: err.message,
+      });
     });
-  });
 }

@@ -1,11 +1,11 @@
 import InventoryEventOutbox, {
   InventoryOutboxEventType,
-} from '../../models/InventoryEventOutbox';
-import { scheduleInventorySummaryInvalidation } from './inventoryCacheService';
-import { invalidatePdpForProductId } from '../productCacheService';
-import logger from '../../utils/logger';
-import { getRequestContext } from '../../utils/requestContext';
-import { recordInventoryMetric } from './inventoryMetricsService';
+} from "../../models/InventoryEventOutbox";
+import { scheduleInventorySummaryInvalidation } from "./inventoryCacheService";
+import { invalidatePdpForProductId } from "../productCacheService";
+import logger from "../../types/utils/logger";
+import { getRequestContext } from "../../types/utils/requestContext";
+import { recordInventoryMetric } from "./inventoryMetricsService";
 
 const MAX_ATTEMPTS = 6;
 const BASE_BACKOFF_MS = 1500;
@@ -17,7 +17,7 @@ function nextBackoffMs(attempts: number): number {
 export async function enqueueInventorySideEffect(
   eventType: InventoryOutboxEventType,
   payload: Record<string, unknown>,
-  dedupeKey: string
+  dedupeKey: string,
 ): Promise<void> {
   try {
     const doc = await InventoryEventOutbox.findOneAndUpdate(
@@ -27,98 +27,120 @@ export async function enqueueInventorySideEffect(
           dedupeKey,
           eventType,
           payload,
-          status: 'pending',
+          status: "pending",
           attempts: 0,
           nextAttemptAt: new Date(),
         },
       },
-      { upsert: true, new: true }
+      { upsert: true, new: true },
     ).lean();
 
-    if (doc?.status === 'completed') return;
-    scheduleDispatchInventoryOutbox(String(doc?._id ?? ''));
+    if (doc?.status === "completed") return;
+    scheduleDispatchInventoryOutbox(String(doc?._id ?? ""));
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'outbox write failed';
+    const message = err instanceof Error ? err.message : "outbox write failed";
     const ctx = getRequestContext();
     logger.error({
-      msg: 'inventory_outbox_persist_failed',
+      msg: "inventory_outbox_persist_failed",
       dedupeKey,
       requestId: ctx?.requestId,
       error: message,
     });
-    recordInventoryMetric('inventory.outbox.dispatch_failure', { phase: 'persist' });
+    recordInventoryMetric("inventory.outbox.dispatch_failure", {
+      phase: "persist",
+    });
   }
 }
 
 function scheduleDispatchInventoryOutbox(outboxId: string): void {
   if (!outboxId) return;
   dispatchInventoryOutboxById(outboxId).catch((err: Error) => {
-    logger.warn({ msg: 'inventory_outbox_immediate_dispatch_failed', outboxId, error: err.message });
+    logger.warn({
+      msg: "inventory_outbox_immediate_dispatch_failed",
+      outboxId,
+      error: err.message,
+    });
   });
 }
 
 async function executeOutboxEvent(
   eventType: InventoryOutboxEventType,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
 ): Promise<void> {
-  if (eventType === 'invalidate_summary') {
+  if (eventType === "invalidate_summary") {
     scheduleInventorySummaryInvalidation();
     return;
   }
-  if (eventType === 'invalidate_pdp') {
-    const productId = String(payload.productId ?? '');
+  if (eventType === "invalidate_pdp") {
+    const productId = String(payload.productId ?? "");
     if (productId) await invalidatePdpForProductId(productId);
   }
 }
 
-export async function dispatchInventoryOutboxById(outboxId: string): Promise<boolean> {
+export async function dispatchInventoryOutboxById(
+  outboxId: string,
+): Promise<boolean> {
   const claimed = await InventoryEventOutbox.findOneAndUpdate(
     {
       _id: outboxId,
-      status: { $in: ['pending', 'failed'] },
+      status: { $in: ["pending", "failed"] },
       nextAttemptAt: { $lte: new Date() },
     },
-    { $set: { status: 'processing' }, $inc: { attempts: 1 } },
-    { new: true }
+    { $set: { status: "processing" }, $inc: { attempts: 1 } },
+    { new: true },
   );
 
   if (!claimed) return false;
 
   try {
-    await executeOutboxEvent(claimed.eventType, claimed.payload as Record<string, unknown>);
+    await executeOutboxEvent(
+      claimed.eventType,
+      claimed.payload as Record<string, unknown>,
+    );
     await InventoryEventOutbox.updateOne(
       { _id: claimed._id },
-      { $set: { status: 'completed', processedAt: new Date(), lastError: undefined } }
+      {
+        $set: {
+          status: "completed",
+          processedAt: new Date(),
+          lastError: undefined,
+        },
+      },
     );
     return true;
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'dispatch failed';
+    const message = err instanceof Error ? err.message : "dispatch failed";
     const attempts = claimed.attempts;
     const terminal = attempts >= MAX_ATTEMPTS;
     await InventoryEventOutbox.updateOne(
       { _id: claimed._id },
       {
         $set: {
-          status: terminal ? 'failed' : 'pending',
+          status: terminal ? "failed" : "pending",
           lastError: message.slice(0, 500),
           nextAttemptAt: new Date(Date.now() + nextBackoffMs(attempts)),
         },
-      }
+      },
     );
-    recordInventoryMetric('inventory.outbox.dispatch_failure', { terminal, attempts });
+    recordInventoryMetric("inventory.outbox.dispatch_failure", {
+      terminal,
+      attempts,
+    });
     return false;
   }
 }
 
-export async function processPendingInventoryOutboxBatch(limit = 25): Promise<number> {
+export async function processPendingInventoryOutboxBatch(
+  limit = 25,
+): Promise<number> {
   const pending = await InventoryEventOutbox.find({
-    status: { $in: ['pending', 'failed'] },
+    status: { $in: ["pending", "failed"] },
     nextAttemptAt: { $lte: new Date() },
     attempts: { $lt: MAX_ATTEMPTS },
   })
     .sort({ nextAttemptAt: 1 })
     .limit(limit)
-    .select('_id')
+    .select("_id")
     .lean()
     .maxTimeMS(5000);
 

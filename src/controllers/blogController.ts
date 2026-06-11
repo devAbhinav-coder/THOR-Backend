@@ -2,19 +2,106 @@ import { Request, Response, NextFunction } from "express";
 import Blog from "../models/Blog";
 import BlogComment from "../models/BlogComment";
 import { deleteMultipleImages } from "../services/cloudinary";
-import AppError from "../utils/AppError";
-import catchAsync from "../utils/catchAsync";
-import APIFeatures from "../utils/apiFeatures";
+import AppError from "../types/utils/AppError";
+import catchAsync from "../types/utils/catchAsync";
+import APIFeatures from "../types/utils/apiFeatures";
 import { emailTemplates } from "../services/emailService";
 import { IBlog, AuthRequest } from "../types";
-import logger from "../utils/logger";
-import { sendPaginated, sendSuccess } from "../utils/response";
+import logger from "../types/utils/logger";
+import { sendPaginated, sendSuccess } from "../types/utils/response";
 import { blogRepository } from "../repositories/blogRepository";
-import { safeJsonParse } from "../utils/safeJson";
+import { safeJsonParse } from "../types/utils/safeJson";
 import { enqueueBroadcastByUserFilter } from "../services/broadcastService";
+import {
+  computeReadingTimeMin,
+  plainBlogExcerpt,
+  enrichBlogContentHtml,
+  slugFromTitle,
+} from "../types/utils/blogContent";
+import { findRelatedBlogs } from "../services/ai/blogRagContextBuilder";
+import { syncBlogEmbedding } from "../services/ai/vectorIndexService";
+import { Types } from "mongoose";
 
 type BlogBroadcastPayload = { _id: unknown; title: string; slug: string };
-const broadcastNewBlog = async (blog: BlogBroadcastPayload) => {
+
+function parseStringArray(val: unknown, fallback: string[] = []): string[] {
+  if (Array.isArray(val)) {
+    return val.map((x) => String(x).trim().toLowerCase()).filter(Boolean);
+  }
+  if (typeof val === "string" && val.trim()) {
+    return safeJsonParse<string[]>(
+      val,
+      val
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+      "array",
+    );
+  }
+  return fallback;
+}
+
+function parseObjectIdArray(val: unknown): Types.ObjectId[] {
+  const ids = parseStringArray(val);
+  return ids
+    .filter((id) => Types.ObjectId.isValid(id))
+    .map((id) => new Types.ObjectId(id));
+}
+
+function enrichBlogFields(body: Record<string, unknown>, existing?: IBlog) {
+  const title = String(body.title || existing?.title || "").trim();
+  const rawContent = String(body.content ?? existing?.content ?? "");
+  const content = enrichBlogContentHtml(rawContent);
+  const excerptRaw = String(body.excerpt ?? existing?.excerpt ?? "").trim();
+  const excerpt = excerptRaw || plainBlogExcerpt(content, 180);
+
+  return {
+    title,
+    slug: String(body.slug || existing?.slug || slugFromTitle(title)).trim(),
+    content,
+    excerpt,
+    seoTitle: String(body.seoTitle ?? existing?.seoTitle ?? title)
+      .trim()
+      .slice(0, 70),
+    seoDescription: String(
+      body.seoDescription ?? existing?.seoDescription ?? excerpt,
+    )
+      .trim()
+      .slice(0, 170),
+    keywords:
+      body.keywords !== undefined ?
+        parseStringArray(body.keywords)
+      : (existing?.keywords ?? []),
+    tags:
+      body.tags !== undefined ?
+        parseStringArray(body.tags)
+      : (existing?.tags ?? []),
+    category: String(
+      body.category ?? existing?.category ?? "saree-styling",
+    ).trim(),
+    relatedProductIds:
+      body.relatedProductIds !== undefined ?
+        parseObjectIdArray(body.relatedProductIds)
+      : (existing?.relatedProductIds ?? []),
+    readingTimeMin: computeReadingTimeMin(content),
+    aiGenerated:
+      body.aiGenerated === "true" || body.aiGenerated === true ? true
+      : body.aiGenerated === "false" || body.aiGenerated === false ? false
+      : (existing?.aiGenerated ?? false),
+    aiPromptSnapshot:
+      body.aiPromptSnapshot !== undefined ?
+        String(body.aiPromptSnapshot || "").slice(0, 500)
+      : existing?.aiPromptSnapshot,
+    scheduledPublishAt:
+      body.scheduledPublishAt !== undefined ?
+        body.scheduledPublishAt && String(body.scheduledPublishAt).trim() ?
+          new Date(String(body.scheduledPublishAt))
+        : null
+      : existing?.scheduledPublishAt,
+  };
+}
+
+export const broadcastNewBlog = async (blog: BlogBroadcastPayload) => {
   try {
     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
     const recipients = await enqueueBroadcastByUserFilter(
@@ -49,14 +136,19 @@ export const getAllBlogs = catchAsync(async (req: Request, res: Response) => {
     req.query as Record<string, string>,
   )
     .filter()
-    .search(["title", "content"])
+    .searchRegex(["title", "excerpt", "tags", "keywords", "category"])
     .sort()
     .limitFields()
     .paginate();
 
+  const mongoFilter = {
+    isPublished: true,
+    ...features.getMongoFilter(),
+  };
+
   const [blogs, totalCount] = await Promise.all([
     features.query,
-    Blog.countDocuments(features.query.getFilter()),
+    Blog.countDocuments(mongoFilter),
   ]);
 
   sendPaginated(
@@ -88,13 +180,35 @@ export const getAdminBlogs = catchAsync(async (req: Request, res: Response) => {
   );
 });
 
+export const getRelatedBlogs = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const blog = await Blog.findOne({
+      slug: req.params.slug,
+      isPublished: true,
+    }).select("_id tags category");
+
+    if (!blog) return next(new AppError("No blog found with that slug.", 404));
+
+    const related = await findRelatedBlogs(
+      blog._id,
+      blog.tags || [],
+      blog.category,
+      4,
+    );
+
+    sendSuccess(res, { blogs: related });
+  },
+);
+
 export const getBlogBySlug = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const blog = await Blog.findOneAndUpdate(
       { slug: req.params.slug, isPublished: true },
       { $inc: { viewCount: 1 } },
       { new: true },
-    ).populate("author", "name avatar");
+    )
+      .populate("author", "name avatar")
+      .populate("relatedProductIds", "name slug images price shortDescription");
 
     if (!blog) return next(new AppError("No blog found with that slug.", 404));
 
@@ -108,11 +222,36 @@ export const getBlogBySlug = catchAsync(
 
 export const createBlog = catchAsync(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
+    const multerFiles =
+      (req.files as Express.Multer.File[] | undefined) || [];
     const uploadedImages = (
       req as AuthRequest & {
         uploadedImages?: { url: string; publicId: string }[];
       }
     ).uploadedImages;
+
+    const expectedCount = Number.parseInt(
+      String(req.body.expectedImageCount || "0"),
+      10,
+    );
+    if (expectedCount > 0) {
+      if (!uploadedImages?.length || uploadedImages.length < expectedCount) {
+        return next(
+          new AppError(
+            `Image upload failed (${uploadedImages?.length || 0} of ${expectedCount} saved). Please try again.`,
+            500,
+          ),
+        );
+      }
+    } else if (
+      multerFiles.length > 0 &&
+      (!uploadedImages?.length ||
+        uploadedImages.length !== multerFiles.length)
+    ) {
+      return next(
+        new AppError("Image upload failed. Please try again.", 500),
+      );
+    }
 
     let captions: string[] = [];
     if (req.body.captions) {
@@ -123,22 +262,50 @@ export const createBlog = catchAsync(
       );
     }
 
+    let layouts: string[] = [];
+    if (req.body.layouts) {
+      layouts = safeJsonParse<string[]>(
+        req.body.layouts,
+        Array.isArray(req.body.layouts) ? req.body.layouts : [],
+        "layouts",
+      );
+    }
+
+    let placements: string[] = [];
+    if (req.body.placements) {
+      placements = safeJsonParse<string[]>(
+        req.body.placements,
+        Array.isArray(req.body.placements) ? req.body.placements : [],
+        "placements",
+      );
+    }
+
     const images =
       uploadedImages?.map((img, index) => ({
         url: img.url,
         publicId: img.publicId,
         caption: captions[index] || "",
+        layout: layouts[index] || (index === 0 ? "hero" : "inline"),
+        placement: placements[index] || (index === 0 ? "cover" : "article"),
       })) || [];
 
+    const enriched = enrichBlogFields(req.body as Record<string, unknown>);
+    let isPublished =
+      req.body.isPublished === "true" || req.body.isPublished === true;
+    const scheduled = enriched.scheduledPublishAt as Date | null | undefined;
+    if (scheduled && scheduled.getTime() > Date.now()) {
+      isPublished = false;
+    }
+
     const blogData = {
-      ...req.body,
+      ...enriched,
       author: req.user?._id,
       images,
-      isPublished:
-        req.body.isPublished === "true" || req.body.isPublished === true,
+      isPublished,
     };
 
     const blog = await Blog.create(blogData);
+    syncBlogEmbedding(String(blog._id)).catch(() => {});
 
     if (blog.isPublished) {
       broadcastNewBlog(blog).catch((err: unknown) =>
@@ -155,11 +322,39 @@ export const updateBlog = catchAsync(
     const blog = await Blog.findById(req.params.id);
     if (!blog) return next(new AppError("No blog found with that ID.", 404));
 
-    const updateData: Record<string, unknown> = { ...req.body };
+    const updateData: Record<string, unknown> = {
+      ...enrichBlogFields(req.body as Record<string, unknown>, blog),
+    };
 
+    const multerFiles =
+      (req.files as Express.Multer.File[] | undefined) || [];
     const uploadedImages = (
       req as Request & { uploadedImages?: { url: string; publicId: string }[] }
     ).uploadedImages;
+
+    const expectedNew = Number.parseInt(
+      String(req.body.expectedImageCount || "0"),
+      10,
+    );
+    if (expectedNew > 0) {
+      if (!uploadedImages?.length || uploadedImages.length < expectedNew) {
+        return next(
+          new AppError(
+            `Image upload failed (${uploadedImages?.length || 0} of ${expectedNew} saved). Please try again.`,
+            500,
+          ),
+        );
+      }
+    } else if (
+      multerFiles.length > 0 &&
+      (!uploadedImages?.length ||
+        uploadedImages.length !== multerFiles.length)
+    ) {
+      return next(
+        new AppError("Image upload failed. Please try again.", 500),
+      );
+    }
+
     if (uploadedImages && uploadedImages.length > 0) {
       let captions: string[] = [];
       if (req.body.newCaptions) {
@@ -169,10 +364,28 @@ export const updateBlog = catchAsync(
           "newCaptions",
         );
       }
+      let layouts: string[] = [];
+      if (req.body.newLayouts) {
+        layouts = safeJsonParse<string[]>(
+          req.body.newLayouts,
+          Array.isArray(req.body.newLayouts) ? req.body.newLayouts : [],
+          "newLayouts",
+        );
+      }
+      let placements: string[] = [];
+      if (req.body.newPlacements) {
+        placements = safeJsonParse<string[]>(
+          req.body.newPlacements,
+          Array.isArray(req.body.newPlacements) ? req.body.newPlacements : [],
+          "newPlacements",
+        );
+      }
       const newImages = uploadedImages.map((img, index) => ({
         url: img.url,
         publicId: img.publicId,
         caption: captions[index] || "",
+        layout: layouts[index] || "inline",
+        placement: placements[index] || "article",
       }));
       updateData.images = [...blog.images, ...newImages];
     }
@@ -200,6 +413,14 @@ export const updateBlog = catchAsync(
         req.body.isPublished === "true" || req.body.isPublished === true;
     }
 
+    const scheduled = updateData.scheduledPublishAt as Date | null | undefined;
+    if (scheduled && scheduled.getTime() > Date.now()) {
+      updateData.isPublished = false;
+    }
+    if (updateData.isPublished === true) {
+      updateData.scheduledPublishAt = null;
+    }
+
     const updatedBlog = await Blog.findByIdAndUpdate(
       req.params.id,
       updateData,
@@ -208,6 +429,10 @@ export const updateBlog = catchAsync(
         runValidators: true,
       },
     );
+
+    if (updatedBlog) {
+      syncBlogEmbedding(String(updatedBlog._id)).catch(() => {});
+    }
 
     if (updateData.isPublished && !blog.isPublished && updatedBlog) {
       broadcastNewBlog(updatedBlog).catch((err: unknown) =>
@@ -238,12 +463,20 @@ export const deleteBlog = catchAsync(
 
 export const deleteBlogImage = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
-    const { id, publicId } = req.params;
+    const { id } = req.params;
+    const rawParam = req.params.publicId;
+    const decodedId = decodeURIComponent(rawParam);
     const blog = await Blog.findById(id);
     if (!blog) return next(new AppError("No blog found with that ID.", 404));
 
-    await deleteMultipleImages([publicId]);
-    blog.images = blog.images.filter((img) => img.publicId !== publicId);
+    const match = blog.images.find(
+      (img) => img.publicId === decodedId || img.publicId === rawParam,
+    );
+    if (!match)
+      return next(new AppError("Image not found on this blog.", 404));
+
+    await deleteMultipleImages([match.publicId]);
+    blog.images = blog.images.filter((img) => img.publicId !== match.publicId);
     await blog.save();
 
     sendSuccess(res, { blog });
@@ -313,3 +546,71 @@ export const deleteComment = catchAsync(
     res.status(204).end();
   },
 );
+
+export const trackBlogShopClick = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const blog = await Blog.findOneAndUpdate(
+      { slug: req.params.slug, isPublished: true },
+      { $inc: { shopClickCount: 1 } },
+      { new: true },
+    ).select("_id shopClickCount slug");
+
+    if (!blog) return next(new AppError("No blog found with that slug.", 404));
+
+    sendSuccess(res, {
+      shopClickCount: blog.shopClickCount,
+      productSlug: req.body?.productSlug || null,
+    });
+  },
+);
+
+export const getBlogAnalytics = catchAsync(async (_req: Request, res: Response) => {
+  const [totals, topByViews, topByShopClicks, recentPublished] = await Promise.all([
+    Blog.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalPosts: { $sum: 1 },
+          published: { $sum: { $cond: ["$isPublished", 1, 0] } },
+          totalViews: { $sum: "$viewCount" },
+          totalShopClicks: { $sum: "$shopClickCount" },
+        },
+      },
+    ]),
+    Blog.find({ isPublished: true })
+      .sort("-viewCount")
+      .limit(8)
+      .select("title slug viewCount shopClickCount category createdAt")
+      .lean(),
+    Blog.find({ isPublished: true, shopClickCount: { $gt: 0 } })
+      .sort("-shopClickCount")
+      .limit(8)
+      .select("title slug viewCount shopClickCount category")
+      .lean(),
+    Blog.find({ isPublished: true })
+      .sort("-createdAt")
+      .limit(5)
+      .select("title slug createdAt viewCount shopClickCount")
+      .lean(),
+  ]);
+
+  const summary = totals[0] || {
+    totalPosts: 0,
+    published: 0,
+    totalViews: 0,
+    totalShopClicks: 0,
+  };
+
+  sendSuccess(res, {
+    summary: {
+      ...summary,
+      clickThroughRate:
+        summary.totalViews > 0 ?
+          Math.round((summary.totalShopClicks / summary.totalViews) * 10000) / 100
+        : 0,
+    },
+    topByViews,
+    topByShopClicks,
+    recentPublished,
+  });
+});

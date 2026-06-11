@@ -1,9 +1,9 @@
-import { redisConnection, redisEnabled } from '../../config/redis';
-import logger from '../../utils/logger';
-import { getRequestContext } from '../../utils/requestContext';
-import { WISHLIST_EVENT_CHANNEL_PREFIX } from './wishlistConstants';
+import { redisConnection, redisEnabled } from "../../config/redis";
+import logger from "../../types/utils/logger";
+import { getRequestContext } from "../../types/utils/requestContext";
+import { WISHLIST_EVENT_CHANNEL_PREFIX } from "./wishlistConstants";
 
-export type WishlistEventAction = 'added' | 'removed';
+export type WishlistEventAction = "added" | "removed";
 
 export type WishlistEventPayload = {
   userId: string;
@@ -19,7 +19,9 @@ export type WishlistEventPayload = {
  * Emit wishlist change events for analytics, recommendations, and realtime sync.
  * Publishes to Redis when available; workers/WebSocket gateways can subscribe later.
  */
-export function emitWishlistEvent(payload: Omit<WishlistEventPayload, 'occurredAt'>): void {
+export function emitWishlistEvent(
+  payload: Omit<WishlistEventPayload, "occurredAt">,
+): void {
   const ctx = getRequestContext();
   const event: WishlistEventPayload = {
     ...payload,
@@ -29,7 +31,7 @@ export function emitWishlistEvent(payload: Omit<WishlistEventPayload, 'occurredA
   };
 
   logger.info({
-    msg: 'wishlist_event',
+    msg: "wishlist_event",
     wishlistAction: event.action,
     userId: event.userId,
     productId: event.productId,
@@ -41,11 +43,13 @@ export function emitWishlistEvent(payload: Omit<WishlistEventPayload, 'occurredA
   if (!redisEnabled) return;
 
   const channel = `${WISHLIST_EVENT_CHANNEL_PREFIX}${event.userId}`;
-  redisConnection.call('PUBLISH', channel, JSON.stringify(event)).catch((err: Error) => {
-    logger.warn({
-      msg: 'wishlist_event_publish_failed',
-      userId: event.userId,
-      error: err.message,
+  redisConnection
+    .call("PUBLISH", channel, JSON.stringify(event))
+    .catch((err: Error) => {
+      logger.warn({
+        msg: "wishlist_event_publish_failed",
+        userId: event.userId,
+        error: err.message,
+      });
     });
-  });
 }

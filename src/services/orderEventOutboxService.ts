@@ -1,9 +1,9 @@
-import OrderEventOutbox from '../models/OrderEventOutbox';
-import { OrderEventPayload } from '../events/orderEvents';
-import { enqueueOrderEvent } from '../queues/orderQueue';
-import logger from '../utils/logger';
-import { getRequestContext } from '../utils/requestContext';
-import { recordOrderMetric } from './orderMetricsService';
+import OrderEventOutbox from "../models/OrderEventOutbox";
+import { OrderEventPayload } from "../events/orderEvents";
+import { enqueueOrderEvent } from "../queues/orderQueue";
+import logger from "../types/utils/logger";
+import { getRequestContext } from "../types/utils/requestContext";
+import { recordOrderMetric } from "./orderMetricsService";
 
 const MAX_ATTEMPTS = 8;
 const BASE_BACKOFF_MS = 2000;
@@ -19,7 +19,9 @@ function nextBackoffMs(attempts: number): number {
 /**
  * Persist event durably, then attempt immediate dispatch (non-blocking for API).
  */
-export async function recordOrderEvent(payload: OrderEventPayload): Promise<string | null> {
+export async function recordOrderEvent(
+  payload: OrderEventPayload,
+): Promise<string | null> {
   const dedupeKey = buildDedupeKey(payload);
   const ctx = getRequestContext();
 
@@ -31,31 +33,31 @@ export async function recordOrderEvent(payload: OrderEventPayload): Promise<stri
           dedupeKey,
           eventType: payload.eventType,
           payload: payload as unknown as Record<string, unknown>,
-          status: 'pending',
+          status: "pending",
           attempts: 0,
           nextAttemptAt: new Date(),
         },
       },
-      { upsert: true, new: true }
+      { upsert: true, new: true },
     ).lean();
 
     if (!doc) return null;
 
-    if (doc.status === 'completed') {
+    if (doc.status === "completed") {
       return String(doc._id);
     }
 
     scheduleDispatchOutboxEntry(String(doc._id));
     return String(doc._id);
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'outbox write failed';
+    const message = err instanceof Error ? err.message : "outbox write failed";
     logger.error({
-      msg: 'order_outbox_persist_failed',
+      msg: "order_outbox_persist_failed",
       dedupeKey,
       requestId: ctx?.requestId,
       error: message,
     });
-    recordOrderMetric('order.outbox.dispatch_failure', { phase: 'persist' });
+    recordOrderMetric("order.outbox.dispatch_failure", { phase: "persist" });
     return null;
   }
 }
@@ -63,7 +65,7 @@ export async function recordOrderEvent(payload: OrderEventPayload): Promise<stri
 export function scheduleDispatchOutboxEntry(outboxId: string): void {
   dispatchOutboxById(outboxId).catch((err: Error) => {
     logger.warn({
-      msg: 'order_outbox_immediate_dispatch_failed',
+      msg: "order_outbox_immediate_dispatch_failed",
       outboxId,
       error: err.message,
     });
@@ -74,11 +76,11 @@ export async function dispatchOutboxById(outboxId: string): Promise<boolean> {
   const claimed = await OrderEventOutbox.findOneAndUpdate(
     {
       _id: outboxId,
-      status: { $in: ['pending', 'failed'] },
+      status: { $in: ["pending", "failed"] },
       nextAttemptAt: { $lte: new Date() },
     },
-    { $set: { status: 'processing' }, $inc: { attempts: 1 } },
-    { new: true }
+    { $set: { status: "processing" }, $inc: { attempts: 1 } },
+    { new: true },
   );
 
   if (!claimed) return false;
@@ -87,26 +89,32 @@ export async function dispatchOutboxById(outboxId: string): Promise<boolean> {
     await enqueueOrderEvent(claimed.payload as unknown as OrderEventPayload);
     await OrderEventOutbox.updateOne(
       { _id: claimed._id },
-      { $set: { status: 'completed', processedAt: new Date(), lastError: undefined } }
+      {
+        $set: {
+          status: "completed",
+          processedAt: new Date(),
+          lastError: undefined,
+        },
+      },
     );
     return true;
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'dispatch failed';
+    const message = err instanceof Error ? err.message : "dispatch failed";
     const attempts = claimed.attempts;
     const terminal = attempts >= MAX_ATTEMPTS;
     await OrderEventOutbox.updateOne(
       { _id: claimed._id },
       {
         $set: {
-          status: terminal ? 'failed' : 'pending',
+          status: terminal ? "failed" : "pending",
           lastError: message.slice(0, 500),
           nextAttemptAt: new Date(Date.now() + nextBackoffMs(attempts)),
         },
-      }
+      },
     );
-    recordOrderMetric('order.outbox.dispatch_failure', { terminal, attempts });
+    recordOrderMetric("order.outbox.dispatch_failure", { terminal, attempts });
     logger.error({
-      msg: 'order_outbox_dispatch_failed',
+      msg: "order_outbox_dispatch_failed",
       outboxId: String(claimed._id),
       dedupeKey: claimed.dedupeKey,
       attempts,
@@ -120,13 +128,13 @@ export async function dispatchOutboxById(outboxId: string): Promise<boolean> {
 export async function processPendingOutboxBatch(limit = 25): Promise<number> {
   const now = new Date();
   const pending = await OrderEventOutbox.find({
-    status: { $in: ['pending', 'failed'] },
+    status: { $in: ["pending", "failed"] },
     nextAttemptAt: { $lte: now },
     attempts: { $lt: MAX_ATTEMPTS },
   })
     .sort({ nextAttemptAt: 1 })
     .limit(limit)
-    .select('_id')
+    .select("_id")
     .lean()
     .maxTimeMS(5000);
 

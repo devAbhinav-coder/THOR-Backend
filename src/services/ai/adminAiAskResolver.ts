@@ -191,17 +191,17 @@ export function tryResolveAdminQuestion(
     const m = tp.thisMonth;
     const lt = ch.lifetime;
     const bullets = [
-      `Aaj (${t?.date}): ${t?.orders ?? 0} orders — Online ${t?.online?.orders ?? 0}, Offline ${t?.offline?.orders ?? 0}`,
+      `Today (${t?.date}): ${t?.orders ?? 0} orders — Online ${t?.online?.orders ?? 0}, Offline ${t?.offline?.orders ?? 0}`,
       ...(t ? formatDayStatsBullets(t).slice(1) : []),
-      `Kal (${y?.date || '—'}): ${y?.orders ?? 0} orders — Online ${y?.online?.orders ?? 0}, Offline ${y?.offline?.orders ?? 0}, ${fmtInr(y?.revenueInr ?? 0)}`,
-      `Is mahine MTD: ${m?.orders ?? 0} orders — Online ${m?.online?.orders ?? 0}, Offline ${m?.offline?.orders ?? 0}, ${fmtInr(m?.revenueInr ?? 0)}`,
+      `Yesterday (${y?.date || '—'}): ${y?.orders ?? 0} orders — Online ${y?.online?.orders ?? 0}, Offline ${y?.offline?.orders ?? 0}, ${fmtInr(y?.revenueInr ?? 0)}`,
+      `This month MTD: ${m?.orders ?? 0} orders — Online ${m?.online?.orders ?? 0}, Offline ${m?.offline?.orders ?? 0}, ${fmtInr(m?.revenueInr ?? 0)}`,
       `MTD gross profit: ${fmtInr(Number(ps.monthGrossProfitInr ?? 0))} | Operating MTD: ${fmtInr(Number(ps.operatingCostsMtdInr ?? 0))} | Est. net: ${fmtInr(Number(ps.estimatedNetProfitMtdInr ?? 0))}`,
       `Lifetime sales: Online ${fmtInr(lt?.onlineRevenueInr ?? 0)} (${lt?.onlineOrders ?? 0} ord) + Offline ${fmtInr(lt?.offlineRevenueInr ?? 0)} (${lt?.offlineOrders ?? 0} ord)`,
     ];
     return payload(
-      'Poora business (online + offline paid orders, IST):',
+      'Full business snapshot (online + offline paid orders, IST):',
       bullets.slice(0, 8),
-      'Business & paisa flow',
+      'Business & cash flow',
     );
   }
 
@@ -210,8 +210,8 @@ export function tryResolveAdminQuestion(
     const mtd = ch.monthToDate;
     const bullets = [
       `Sales MTD (paid, online+offline): ${fmtInr(mtd?.onlineRevenueInr ?? 0)} online + ${fmtInr(mtd?.offlineRevenueInr ?? 0)} offline`,
-      `Is mahine gross profit (after COGS): ${fmtInr(Number(ps.monthGrossProfitInr ?? 0))} — margin ${ps.monthGrossMarginPercent ?? 0}%`,
-      `Is mahine product revenue: ${fmtInr(Number(ps.monthProductRevenueInr ?? 0))} | COGS: ${fmtInr(Number(ps.monthProductCogsInr ?? 0))}`,
+      `This month gross profit (after COGS): ${fmtInr(Number(ps.monthGrossProfitInr ?? 0))} — margin ${ps.monthGrossMarginPercent ?? 0}%`,
+      `This month product revenue: ${fmtInr(Number(ps.monthProductRevenueInr ?? 0))} | COGS: ${fmtInr(Number(ps.monthProductCogsInr ?? 0))}`,
       `Operating costs MTD: ${fmtInr(Number(ps.operatingCostsMtdInr ?? 0))}`,
       `Estimated net MTD (gross − operating): ${fmtInr(Number(ps.estimatedNetProfitMtdInr ?? 0))}`,
       `Lifetime gross profit: ${fmtInr(Number(ps.lifetimeGrossProfitInr ?? 0))} (${ps.lifetimeGrossMarginPercent ?? 0}% margin)`,
@@ -238,9 +238,9 @@ export function tryResolveAdminQuestion(
     }
     bullets.push(`Detail entries: Admin → Operating expenses (${op.adminPath || '/admin/operating-expenses'})`);
     if (Number(ps.estimatedNetProfitMtdInr ?? 0) < 0) {
-      bullets.push('Net MTD negative — top 2 spend categories review karo');
+      bullets.push('Net MTD is negative — review the top 2 spend categories');
     } else {
-      bullets.push('Cost cut: sabse badi category pe 10–15% cap try karo before new ad spend');
+      bullets.push('Cost control: try a 10–15% cap on the largest category before increasing ad spend');
     }
     return payload('Operating costs breakdown:', bullets.slice(0, 8), 'Operating costs');
   }
@@ -249,7 +249,7 @@ export function tryResolveAdminQuestion(
   if (wantsProjection(q) || (wantsMonth(q) && /\b(aage|future|end)\b/.test(q))) {
     const m = tp.thisMonth;
     const bullets = [
-      `Is mahine ab tak: ${fmtInr(m?.revenueInr ?? 0)} (${m?.dayOfMonth ?? 0}/${m?.daysInMonth ?? 30} days)`,
+      `This month so far: ${fmtInr(m?.revenueInr ?? 0)} (${m?.dayOfMonth ?? 0}/${m?.daysInMonth ?? 30} days)`,
       `Avg daily revenue this month: ${fmtInr(proj.avgDailyRevenueThisMonthInr ?? 0)}`,
       `Projected full-month revenue (run-rate): ${fmtInr(proj.projectedMonthRevenueInr ?? 0)}`,
       `Days left in month: ${proj.daysLeftInMonth ?? 0}`,
@@ -261,24 +261,24 @@ export function tryResolveAdminQuestion(
   // ── Yesterday ──────────────────────────────────────────────────────────────
   if (wantsYesterday(q) && (wantsOrders(q) || wantsRevenue(q) || q.includes('kitna'))) {
     const y = tp.yesterday;
-    if (!y) return payload('Kal ka data load nahi hua.', ['Backend restart karke dubara try karo']);
+    if (!y) return payload('Yesterday\'s data could not be loaded.', ['Restart the backend and try again']);
     const bullets = formatDayStatsBullets(y);
     if (y.orders > 0) bullets.push(`AOV: ${fmtInr(y.revenueInr / y.orders)}`);
     return payload(
-      `Kal (${y.date}): ${y.orders} orders (online + offline), ${fmtInr(y.revenueInr)}.`,
+      `Yesterday (${y.date}): ${y.orders} orders (online + offline), ${fmtInr(y.revenueInr)}.`,
       bullets,
-      `Kal ${y.date}`,
+      `Yesterday ${y.date}`,
     );
   }
 
   // ── Today ──────────────────────────────────────────────────────────────────
   if (wantsToday(q) && (wantsOrders(q) || wantsRevenue(q))) {
     const t = tp.today;
-    if (!t) return payload('Aaj ka data load nahi hua.', ['Retry in a moment']);
+    if (!t) return payload('Today\'s data could not be loaded.', ['Retry in a moment']);
     return payload(
-      `Aaj (${t.date}) ab tak: ${t.orders} orders, ${fmtInr(t.revenueInr)} (online + offline).`,
+      `Today (${t.date}) so far: ${t.orders} orders, ${fmtInr(t.revenueInr)} (online + offline).`,
       formatDayStatsBullets(t),
-      `Aaj ${t.date}`,
+      `Today ${t.date}`,
     );
   }
 
@@ -302,27 +302,27 @@ export function tryResolveAdminQuestion(
     bullets.push(`Growth vs last month: ${o.revenueGrowth ?? 0}%`);
     bullets.push(`Projected month-end (run-rate): ${fmtInr(proj.projectedMonthRevenueInr ?? 0)}`);
     return payload(
-      `Is mahine (IST): ${m.orders} orders, ${fmtInr(m.revenueInr)} — online + offline.`,
+      `This month (IST): ${m.orders} orders, ${fmtInr(m.revenueInr)} — online + offline.`,
       bullets,
-      'Is mahine MTD',
+      'This month MTD',
     );
   }
 
   // ── Top sellers ────────────────────────────────────────────────────────────
   if (wantsTopSellers(q)) {
     const list = ctx.topSellersByUnits || [];
-    if (list.length === 0) return payload('Seller data abhi empty.', ['Paid orders check karo']);
+    if (list.length === 0) return payload('Top seller data is empty.', ['Check paid orders in the system']);
     const top = list[0];
     const bullets = list.slice(0, 8).map(
       (p, i) => `${i + 1}. ${p.name} — ${p.unitsSold ?? 0} units, ${fmtInr(p.revenueInr ?? 0)}`,
     );
-    return payload(`Sabse zyada bikne wala: ${top.name} (${top.unitsSold} units).`, bullets, 'Top sellers');
+    return payload(`Best seller: ${top.name} (${top.unitsSold} units).`, bullets, 'Top sellers');
   }
 
   // ── Top views ──────────────────────────────────────────────────────────────
   if (wantsViews(q) || ((q.includes('sabse') || q.includes('zyada')) && q.includes('view'))) {
     const list = ctx.topViewedProductsDetailed || [];
-    if (list.length === 0) return payload('View data nahi mila.', ['Analytics refresh']);
+    if (list.length === 0) return payload('View data not found.', ['Refresh analytics']);
     const top = list[0];
     const bullets = list.slice(0, 8).map(
       (p, i) => `${i + 1}. ${p.name} — ${p.views ?? 0} views, ${p.sold ?? 0} sold (${p.conversionPercent ?? 0}% conv)`,
@@ -335,8 +335,8 @@ export function tryResolveAdminQuestion(
     const lt = ch.lifetime;
     const mtd = ch.monthToDate;
     const bullets = [
-      `Is mahine — Online: ${mtd?.onlineOrders ?? 0} orders, ${fmtInr(mtd?.onlineRevenueInr ?? 0)}`,
-      `Is mahine — Offline/POS: ${mtd?.offlineOrders ?? 0} orders, ${fmtInr(mtd?.offlineRevenueInr ?? 0)}`,
+      `This month — Online: ${mtd?.onlineOrders ?? 0} orders, ${fmtInr(mtd?.onlineRevenueInr ?? 0)}`,
+      `This month — Offline/POS: ${mtd?.offlineOrders ?? 0} orders, ${fmtInr(mtd?.offlineRevenueInr ?? 0)}`,
       `Lifetime — Online: ${lt?.onlineOrders ?? 0} orders, ${fmtInr(lt?.onlineRevenueInr ?? 0)}`,
       `Lifetime — Offline/POS: ${lt?.offlineOrders ?? 0} orders, ${fmtInr(lt?.offlineRevenueInr ?? 0)}`,
       `Avg order value (lifetime): ${fmtInr(ch.avgOrderValueInr ?? 0)}`,
@@ -344,7 +344,7 @@ export function tryResolveAdminQuestion(
     for (const p of ch.paymentMethodMixLifetime || []) {
       bullets.push(`Payment ${p.method}: ${p.orders} orders, ${fmtInr(p.revenueInr)}`);
     }
-    return payload('Online + offline dono channels (paid orders):', bullets.slice(0, 8), 'Channel mix');
+    return payload('Online + offline channels (paid orders):', bullets.slice(0, 8), 'Channel mix');
   }
 
   // ── Returns ────────────────────────────────────────────────────────────────
@@ -392,7 +392,7 @@ export function tryResolveAdminQuestion(
     const net = Number(ps.estimatedNetProfitMtdInr ?? 0);
 
     if (net < 0) {
-      bullets.push(`Net MTD ${fmtInr(net)} — pehle operating costs (${fmtInr(op.monthToDateInr ?? 0)}) control karo`);
+      bullets.push(`Net MTD ${fmtInr(net)} — control operating costs (${fmtInr(op.monthToDateInr ?? 0)}) first`);
     }
     if (top.length > 0) {
       const weak = top.filter((p) => (p.views ?? 0) >= 15 && (p.conversionPercent ?? 100) < 2);
@@ -409,12 +409,12 @@ export function tryResolveAdminQuestion(
     if (pending > 0) bullets.push(`Ship ${pending} queued orders first`);
     bullets.push(
       repeat >= 25
-        ? `Repeat rate ${repeat}% — VIP buyers ko early access`
-        : `Repeat ${repeat}% — follow-up WhatsApp after delivery`,
+        ? `Repeat rate ${repeat}% — offer VIP buyers early access`
+        : `Repeat rate ${repeat}% — send follow-up WhatsApp after delivery`,
     );
     if (growth < 0) bullets.push(`Revenue ${growth}% vs last month — festival bundle on top 3 SKUs`);
     if (bullets.length === 0) return null;
-    return payload('Aapke data par action items:', bullets.slice(0, 7), 'Next steps');
+    return payload('Action items based on your data:', bullets.slice(0, 7), 'Next steps');
   }
 
   return null;

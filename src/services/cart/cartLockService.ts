@@ -1,7 +1,7 @@
-import crypto from 'crypto';
-import { redisConnection, redisEnabled } from '../../config/redis';
-import AppError from '../../utils/AppError';
-import { CART_LOCK_KEY_PREFIX, CART_LOCK_TTL_SEC } from './cartConstants';
+import crypto from "crypto";
+import { redisConnection, redisEnabled } from "../../config/redis";
+import AppError from "../../types/utils/AppError";
+import { CART_LOCK_KEY_PREFIX, CART_LOCK_TTL_SEC } from "./cartConstants";
 
 const LOCK_RETRY_MS = 40;
 const LOCK_MAX_WAIT_MS = 2000;
@@ -13,7 +13,10 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function withInMemoryCartLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+async function withInMemoryCartLock<T>(
+  userId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
   const prev = memoryMutationChains.get(userId) ?? Promise.resolve();
   const run = prev.catch(() => {}).then(() => fn());
   memoryMutationChains.set(userId, run);
@@ -31,7 +34,7 @@ async function withInMemoryCartLock<T>(userId: string, fn: () => Promise<T>): Pr
  */
 export async function withCartMutationLock<T>(
   userId: string,
-  fn: () => Promise<T>
+  fn: () => Promise<T>,
 ): Promise<T> {
   if (!redisEnabled) {
     return withInMemoryCartLock(userId, fn);
@@ -42,8 +45,14 @@ export async function withCartMutationLock<T>(
   const deadline = Date.now() + LOCK_MAX_WAIT_MS;
 
   while (Date.now() < deadline) {
-    const acquired = await redisConnection.set(lockKey, token, 'EX', CART_LOCK_TTL_SEC, 'NX');
-    if (acquired === 'OK' || acquired === true) {
+    const acquired = await redisConnection.set(
+      lockKey,
+      token,
+      "EX",
+      CART_LOCK_TTL_SEC,
+      "NX",
+    );
+    if (acquired === "OK" || acquired === true) {
       try {
         return await fn();
       } finally {
@@ -56,5 +65,5 @@ export async function withCartMutationLock<T>(
     await sleep(LOCK_RETRY_MS);
   }
 
-  throw new AppError('Cart is being updated. Please try again.', 409);
+  throw new AppError("Cart is being updated. Please try again.", 409);
 }

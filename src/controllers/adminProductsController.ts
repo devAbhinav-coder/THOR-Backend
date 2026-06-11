@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from "express";
-import catchAsync from "../utils/catchAsync";
-import AppError from "../utils/AppError";
-import { sendPaginated, sendSuccess } from "../utils/response";
-import { reconcileProductJson } from "../utils/productStock";
+import catchAsync from "../types/utils/catchAsync";
+import AppError from "../types/utils/AppError";
+import { sendPaginated, sendSuccess } from "../types/utils/response";
+import { reconcileProductJson } from "../types/utils/productStock";
 import Product from "../models/Product";
 import {
   parseProductListQuery,
@@ -22,7 +22,9 @@ function leanProduct(p: Record<string, unknown>) {
  */
 export const getAdminProductById = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
-    const product = await Product.findById(req.params.id).lean<Record<string, unknown>>();
+    const product = await Product.findById(req.params.id).lean<
+      Record<string, unknown>
+    >();
     if (!product) {
       return next(new AppError("No product found with that ID.", 404));
     }
@@ -69,20 +71,20 @@ export const searchAdminProducts = catchAsync(
     const q = normalizeSearchQuery(req.query.q);
     const listParsed = parseProductListQuery(req);
 
-    const categories = req.query.category ?
-        [String(req.query.category)]
+    const categories =
+      req.query.category ? [String(req.query.category)]
       : req.query.categories ?
-        (Array.isArray(req.query.categories) ?
+        Array.isArray(req.query.categories) ?
           (req.query.categories as string[])
-        : [String(req.query.categories)])
+        : [String(req.query.categories)]
       : [];
 
-    const fabrics = req.query.fabric ?
-        [String(req.query.fabric)]
+    const fabrics =
+      req.query.fabric ? [String(req.query.fabric)]
       : req.query.fabrics ?
-        (Array.isArray(req.query.fabrics) ?
+        Array.isArray(req.query.fabrics) ?
           (req.query.fabrics as string[])
-        : [String(req.query.fabrics)])
+        : [String(req.query.fabrics)]
       : [];
 
     const { sortBy, sortOrder } = mapSortToAdvanced(

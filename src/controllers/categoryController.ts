@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import Category from "../models/Category";
 import Product from "../models/Product";
-import catchAsync from "../utils/catchAsync";
-import AppError from "../utils/AppError";
-import { sendSuccess } from "../utils/response";
+import catchAsync from "../types/utils/catchAsync";
+import AppError from "../types/utils/AppError";
+import { sendSuccess } from "../types/utils/response";
 import { categoryRepository } from "../repositories/categoryRepository";
 
 // GET /api/categories — public

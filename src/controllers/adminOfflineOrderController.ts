@@ -4,8 +4,8 @@ import Order from "../models/Order";
 import User from "../models/User";
 import Product from "../models/Product";
 import Category from "../models/Category";
-import AppError from "../utils/AppError";
-import catchAsync from "../utils/catchAsync";
+import AppError from "../types/utils/AppError";
+import catchAsync from "../types/utils/catchAsync";
 import type { AuthRequest, IOrderItem } from "../types";
 import { computeOrderTotals } from "../services/orderService";
 import {
@@ -13,7 +13,7 @@ import {
   incrementVariantStock,
   logStockMovement,
 } from "../services/inventoryService";
-import { sendSuccess } from "../utils/response";
+import { sendSuccess } from "../types/utils/response";
 import { writeAdminAudit } from "../services/adminAuditService";
 import { onOrderMarkedDelivered } from "../services/coupon/couponUserStatsService";
 import { emailTemplates } from "../services/emailService";
@@ -64,7 +64,8 @@ function randomStrongPassword(): string {
   pw += upper[Math.floor(Math.random() * upper.length)]!;
   pw += lower[Math.floor(Math.random() * lower.length)]!;
   pw += digits[Math.floor(Math.random() * digits.length)]!;
-  for (let i = 0; i < 21; i++) pw += all[Math.floor(Math.random() * all.length)]!;
+  for (let i = 0; i < 21; i++)
+    pw += all[Math.floor(Math.random() * all.length)]!;
   return pw;
 }
 
@@ -128,11 +129,17 @@ export const createOfflineOrder = catchAsync(
 
     const phone10 = normalizeInPhone(String(phone || ""));
     if (!/^[6-9]\d{9}$/.test(phone10)) {
-      return next(new AppError("Enter a valid 10-digit Indian mobile number.", 400));
+      return next(
+        new AppError("Enter a valid 10-digit Indian mobile number.", 400),
+      );
     }
 
     if (fulfillment === "delhivery") {
-      if (!shipIn?.street?.trim() || !shipIn.city?.trim() || !shipIn.state?.trim()) {
+      if (
+        !shipIn?.street?.trim() ||
+        !shipIn.city?.trim() ||
+        !shipIn.state?.trim()
+      ) {
         return next(
           new AppError(
             "Shipping address (street, city, state, pincode) is required for Delhivery delivery.",
@@ -140,9 +147,16 @@ export const createOfflineOrder = catchAsync(
           ),
         );
       }
-      const pin = String(shipIn.pincode || "").replace(/\D/g, "").slice(0, 6);
+      const pin = String(shipIn.pincode || "")
+        .replace(/\D/g, "")
+        .slice(0, 6);
       if (!/^\d{6}$/.test(pin)) {
-        return next(new AppError("Valid 6-digit pincode is required for Delhivery delivery.", 400));
+        return next(
+          new AppError(
+            "Valid 6-digit pincode is required for Delhivery delivery.",
+            400,
+          ),
+        );
       }
     }
 
@@ -160,7 +174,10 @@ export const createOfflineOrder = catchAsync(
 
     for (const line of lineItems) {
       if (line.type === "manual") {
-        const qty = Math.max(1, Math.min(50, Math.floor(Number(line.quantity))));
+        const qty = Math.max(
+          1,
+          Math.min(50, Math.floor(Number(line.quantity))),
+        );
         const unit = Math.max(0, Number(line.unitPrice));
         if (!Number.isFinite(unit)) {
           return next(new AppError("Invalid unit price on manual line.", 400));
@@ -169,10 +186,13 @@ export const createOfflineOrder = catchAsync(
         let lineName: string;
         let lineImage = offlineManualProduct.images[0]!.url;
 
-        const catIdRaw = typeof line.categoryId === "string" ? line.categoryId.trim() : "";
+        const catIdRaw =
+          typeof line.categoryId === "string" ? line.categoryId.trim() : "";
         if (catIdRaw) {
           if (!mongoose.Types.ObjectId.isValid(catIdRaw)) {
-            return next(new AppError("Invalid category id on manual line.", 400));
+            return next(
+              new AppError("Invalid category id on manual line.", 400),
+            );
           }
           const cat = await Category.findById(catIdRaw).lean();
           if (!cat || !cat.isActive) {
@@ -186,17 +206,27 @@ export const createOfflineOrder = catchAsync(
               ),
             );
           }
-          lineName = String(cat.name || "").trim().slice(0, 200);
+          lineName = String(cat.name || "")
+            .trim()
+            .slice(0, 200);
           if (!lineName) {
             return next(new AppError("Category has no usable name.", 400));
           }
-          const cimg = typeof cat.image === "string" && cat.image.trim() ? cat.image.trim() : "";
+          const cimg =
+            typeof cat.image === "string" && cat.image.trim() ?
+              cat.image.trim()
+            : "";
           if (cimg) lineImage = cimg;
         } else {
-          lineName = String(line.title || "").trim().slice(0, 200);
+          lineName = String(line.title || "")
+            .trim()
+            .slice(0, 200);
           if (!lineName) {
             return next(
-              new AppError("Manual line needs a shop category or a custom description.", 400),
+              new AppError(
+                "Manual line needs a shop category or a custom description.",
+                400,
+              ),
             );
           }
         }
@@ -205,7 +235,7 @@ export const createOfflineOrder = catchAsync(
         orderItems.push({
           product: offlinePid,
           name: lineName,
-          slug: 'offline-manual-item',
+          slug: "offline-manual-item",
           image: lineImage,
           variant: { sku: OFFLINE_MANUAL_VARIANT_SKU },
           quantity: qty,
@@ -220,25 +250,35 @@ export const createOfflineOrder = catchAsync(
       const pid = new mongoose.Types.ObjectId(line.productId);
       if (isOfflineManualProductId(pid, offlinePid)) {
         return next(
-          new AppError("Use a manual line item instead of the system placeholder product.", 400),
+          new AppError(
+            "Use a manual line item instead of the system placeholder product.",
+            400,
+          ),
         );
       }
 
       const product = await Product.findById(pid);
       if (!product || !product.isActive) {
-        return next(new AppError("One of the selected products is not available.", 400));
+        return next(
+          new AppError("One of the selected products is not available.", 400),
+        );
       }
 
       const sku = String(line.variantSku || "").trim();
       const variant = product.variants.find((v) => v.sku === sku);
       if (!variant) {
-        return next(new AppError(`Variant not found for ${product.name}.`, 400));
+        return next(
+          new AppError(`Variant not found for ${product.name}.`, 400),
+        );
       }
 
       const qty = Math.max(1, Math.min(50, Math.floor(Number(line.quantity))));
       if (variant.stock < qty) {
         return next(
-          new AppError(`Insufficient stock for "${product.name}" (${variant.sku}).`, 400),
+          new AppError(
+            `Insufficient stock for "${product.name}" (${variant.sku}).`,
+            400,
+          ),
         );
       }
 
@@ -257,13 +297,15 @@ export const createOfflineOrder = catchAsync(
       subtotal += unit * qty;
       const img = product.images[0]?.url;
       if (!img) {
-        return next(new AppError(`Product "${product.name}" has no image.`, 400));
+        return next(
+          new AppError(`Product "${product.name}" has no image.`, 400),
+        );
       }
 
       orderItems.push({
         product: pid,
         name: product.name,
-        slug: product.slug || 'unknown',
+        slug: product.slug || "unknown",
         image: img,
         variant: {
           sku: variant.sku,
@@ -293,7 +335,9 @@ export const createOfflineOrder = catchAsync(
 
     const isHandover = fulfillment === "offline_handover";
     const paymentLabel =
-      paymentMethod === "offline_upi" ? "UPI (paid at sale)" : "Cash (paid at sale)";
+      paymentMethod === "offline_upi" ? "UPI (paid at sale)" : (
+        "Cash (paid at sale)"
+      );
     const emailLineItems = orderItems.map((i) => ({
       name: i.name,
       qty: i.quantity,
@@ -322,7 +366,9 @@ export const createOfflineOrder = catchAsync(
       }
     }
     if (!user) {
-      return next(new AppError("Could not create or load customer account.", 500));
+      return next(
+        new AppError("Could not create or load customer account.", 500),
+      );
     }
 
     user.name = customerName.trim().slice(0, 50);
@@ -363,27 +409,40 @@ export const createOfflineOrder = catchAsync(
         };
 
     if (fulfillment === "delhivery") {
-      const shipPhone = String(shipAddr.phone || "").replace(/\D/g, "").slice(-10);
+      const shipPhone = String(shipAddr.phone || "")
+        .replace(/\D/g, "")
+        .slice(-10);
       if (!/^[6-9]\d{9}$/.test(shipPhone)) {
-        return next(new AppError("Shipping phone must be a valid 10-digit Indian number.", 400));
+        return next(
+          new AppError(
+            "Shipping phone must be a valid 10-digit Indian number.",
+            400,
+          ),
+        );
       }
       shipAddr.phone = shipPhone;
     }
 
-    const decremented: { productId: mongoose.Types.ObjectId; sku: string; qty: number }[] =
-      [];
+    const decremented: {
+      productId: mongoose.Types.ObjectId;
+      sku: string;
+      qty: number;
+    }[] = [];
     try {
       for (const op of catalogStockOps) {
         const ok = await decrementVariantStock(op.productId, op.sku, op.qty);
         if (!ok) {
-          throw new AppError("Could not reserve stock (concurrent sale?). Retry.", 409);
+          throw new AppError(
+            "Could not reserve stock (concurrent sale?). Retry.",
+            409,
+          );
         }
         decremented.push({
           productId: op.productId,
           sku: op.sku,
           qty: op.qty,
         });
-        
+
         // Audit: Log the stock movement
         await logStockMovement(op.productId, op.sku, -op.qty, {
           reason: "sale",
@@ -469,8 +528,9 @@ export const createOfflineOrder = catchAsync(
         "order",
       );
 
-      const offlineCopy = isHandover
-        ? getOfflineHandoverCopy(order.orderNumber)
+      const offlineCopy =
+        isHandover ?
+          getOfflineHandoverCopy(order.orderNumber)
         : getOfflineShipLaterCopy(order.orderNumber);
       notifyUser(
         String(user._id),
@@ -488,12 +548,7 @@ export const createOfflineOrder = catchAsync(
         });
       }
 
-      sendSuccess(
-        res,
-        { order: order.toJSON() },
-        "Offline order created",
-        201,
-      );
+      sendSuccess(res, { order: order.toJSON() }, "Offline order created", 201);
     } catch (err) {
       for (const d of decremented.reverse()) {
         await incrementVariantStock(d.productId, d.sku, d.qty).catch(() => {});

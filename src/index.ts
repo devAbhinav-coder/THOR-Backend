@@ -18,10 +18,14 @@ import mongoose from "mongoose";
 import swaggerUi from "swagger-ui-express";
 
 import connectDB from "./config/db";
-import logger from "./utils/logger";
+import logger from "./types/utils/logger";
 import errorHandler from "./middleware/errorHandler";
-import AppError from "./utils/AppError";
-import { closeAllRedisConnections, redisConnection, redisEnabled } from "./config/redis";
+import AppError from "./types/utils/AppError";
+import {
+  closeAllRedisConnections,
+  redisConnection,
+  redisEnabled,
+} from "./config/redis";
 
 import authRoutes from "./routes/authRoutes";
 import productRoutes from "./routes/productRoutes";
@@ -34,6 +38,7 @@ import adminRoutes from "./routes/adminRoutes";
 import categoryRoutes from "./routes/categoryRoutes";
 import storefrontRoutes from "./routes/storefrontRoutes";
 import blogRoutes from "./routes/blogRoutes";
+import newsletterRoutes from "./routes/newsletterRoutes";
 import notificationRoutes from "./routes/notificationRoutes";
 import giftingRoutes from "./routes/giftingRoutes";
 import webhookRoutes from "./routes/webhookRoutes";
@@ -91,7 +96,17 @@ import {
   startNotificationMaintenanceJob,
   stopNotificationMaintenanceJob,
 } from "./jobs/notificationMaintenanceJob";
-import { requestContext } from "./utils/requestContext";
+import {
+  startBlogPublishJob,
+  stopBlogPublishJob,
+  setBlogPublishHook,
+} from "./jobs/blogPublishJob";
+import { broadcastNewBlog } from "./controllers/blogController";
+import {
+  backfillBlogEmbeddings,
+  backfillProductEmbeddings,
+} from "./services/ai/vectorIndexService";
+import { requestContext } from "./types/utils/requestContext";
 import { botHeuristics } from "./middleware/botHeuristics";
 import { xssSanitize } from "./middleware/xssSanitize";
 import { responseAdapter } from "./middleware/responseAdapter";
@@ -124,6 +139,18 @@ startPushOutboxPoller();
 startCartOutboxPoller();
 startCartSyncSubscriber();
 startNotificationMaintenanceJob();
+setBlogPublishHook(broadcastNewBlog);
+startBlogPublishJob();
+
+// Background embedding sync (vector RAG) — never blocks API requests
+setTimeout(() => {
+  void Promise.all([
+    backfillProductEmbeddings(500),
+    backfillBlogEmbeddings(200),
+  ]).catch((err) =>
+    logger.warn(`Embedding backfill skipped: ${(err as Error).message}`),
+  );
+}, 8000);
 
 if (process.env.NODE_ENV === "production" && redisEnabled) {
   redisConnection.ping().catch((err: Error) => {
@@ -356,6 +383,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/storefront", storefrontRoutes);
 app.use("/api/blogs", blogRoutes);
+app.use("/api/newsletter", newsletterRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/gifting", giftingRoutes);
 
@@ -422,6 +450,7 @@ const shutdown = async (signal: string) => {
       stopCartOutboxPoller();
       await stopCartSyncSubscriber();
       stopNotificationMaintenanceJob();
+      stopBlogPublishJob();
       await closeOrderWorker();
       if (emailQueue) {
         await emailQueue.close();

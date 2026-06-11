@@ -1,7 +1,7 @@
 import Order from "../models/Order";
 import { trackPackages } from "./delhiveryService";
 import { delhiveryIsConfigured } from "../config/delhivery";
-import logger from "../utils/logger";
+import logger from "../types/utils/logger";
 import { enqueueEmail } from "../queues/emailQueue";
 import { emailTemplates } from "./emailService";
 import { notifyUser } from "./notificationService";
@@ -20,15 +20,16 @@ export type DelhiveryScanLine = {
 };
 
 /** Top-level hints when Delhivery returns an envelope without ShipmentData yet */
-function parseTrackApiEnvelope(json: unknown): { apiError?: string; emptyShipmentData?: boolean } {
+function parseTrackApiEnvelope(json: unknown): {
+  apiError?: string;
+  emptyShipmentData?: boolean;
+} {
   if (!json || typeof json !== "object") return {};
   const o = json as Record<string, unknown>;
   if (o.success === false) {
     const msg =
-      typeof o.error === "string" ?
-        o.error
-      : typeof o.rmk === "string" ?
-        o.rmk
+      typeof o.error === "string" ? o.error
+      : typeof o.rmk === "string" ? o.rmk
       : "Delhivery returned success=false";
     return { apiError: msg };
   }
@@ -126,7 +127,8 @@ export function parseDelhiveryTrackSummary(json: unknown): {
       const arr = o[key];
       if (Array.isArray(arr)) {
         for (const sc of arr) {
-          if (sc && typeof sc === "object") pushScan(sc as Record<string, unknown>);
+          if (sc && typeof sc === "object")
+            pushScan(sc as Record<string, unknown>);
         }
       }
     }
@@ -181,7 +183,11 @@ export function formatDelhiverySyncSummary(
       .join(" · ");
     if (bit) parts.push(`Latest event: ${bit}`);
   }
-  if (parsed.emptyShipmentData && !parsed.statusText && parsed.scans.length === 0) {
+  if (
+    parsed.emptyShipmentData &&
+    !parsed.statusText &&
+    parsed.scans.length === 0
+  ) {
     parts.push(
       "No scan data yet — shipment may still be manifesting; try again in a few minutes.",
     );
@@ -262,7 +268,8 @@ export async function syncDelhiveryOrderById(orderId: string): Promise<{
     if (parsed.delivered && order.status !== "delivered") {
       order.status = "delivered";
       order.deliveredAt = new Date();
-      order.paymentStatus = order.paymentMethod === "cod" ? "paid" : order.paymentStatus;
+      order.paymentStatus =
+        order.paymentMethod === "cod" ? "paid" : order.paymentStatus;
       if (!order.invoice?.isGenerated) {
         order.invoice = { isGenerated: true, generatedAt: new Date() };
       }
@@ -278,8 +285,13 @@ export async function syncDelhiveryOrderById(orderId: string): Promise<{
 
     if (statusChanged) {
       void onOrderMarkedDelivered(String(order.user)).catch(() => {});
-      const populated = await Order.findById(order._id).populate("user", "name email");
-      const user = populated?.user as unknown as { name?: string; email?: string; _id?: string } | undefined;
+      const populated = await Order.findById(order._id).populate(
+        "user",
+        "name email",
+      );
+      const user = populated?.user as unknown as
+        | { name?: string; email?: string; _id?: string }
+        | undefined;
       if (populated && user?.email) {
         const tpl = emailTemplates.orderStatusUpdate(
           user.name || "Customer",
@@ -287,7 +299,11 @@ export async function syncDelhiveryOrderById(orderId: string): Promise<{
           "delivered",
           undefined,
         );
-        await enqueueEmail({ to: user.email, subject: tpl.subject, html: tpl.html });
+        await enqueueEmail({
+          to: user.email,
+          subject: tpl.subject,
+          html: tpl.html,
+        });
         const deliveredCopy = getOrderDeliveredCopy(populated.orderNumber!);
         await notifyUser(
           populated.user._id,
@@ -312,7 +328,9 @@ export async function syncDelhiveryOrderById(orderId: string): Promise<{
       },
     };
   } catch (e) {
-    logger.warn(`Delhivery track failed for ${order.orderNumber}: ${(e as Error).message}`);
+    logger.warn(
+      `Delhivery track failed for ${order.orderNumber}: ${(e as Error).message}`,
+    );
     return { updated: false, summary: (e as Error).message };
   }
 }

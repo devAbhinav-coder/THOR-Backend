@@ -1,23 +1,25 @@
-import { createHash } from 'crypto';
-import AppError from '../../utils/AppError';
-import { getCache, setCache } from '../cacheService';
-import { aiConfig } from '../../config/ai';
+import { createHash } from "crypto";
+import AppError from "../../types/utils/AppError";
+import logger from "../../types/utils/logger";
+import { getCache, setCache } from "../cacheService";
+import { aiConfig, blogAiConfig } from "../../config/ai";
 import {
   buildFormattedAiFields,
   groqChatCompletion,
   groqChatWithHistory,
   parseJsonFromModel,
   type GroqMessage,
-} from './groqClient';
-import { normalizeProductDraft } from './productDraftNormalize';
-import { enrichProductDraft } from './productDraftEnrich';
-import { normalizeMarketingEmailDraft } from './marketingDraftNormalize';
-import type { ProductVariantInput } from './adminAiContextBuilder';
+} from "./groqClient";
+import { blogChatCompletion } from "./blogLlmClient";
+import { normalizeProductDraft } from "./productDraftNormalize";
+import { enrichProductDraft } from "./productDraftEnrich";
+import { normalizeMarketingEmailDraft } from "./marketingDraftNormalize";
+import type { ProductVariantInput } from "./adminAiContextBuilder";
 import {
   isTimeSensitiveQuestion,
   tryResolveAdminQuestion,
   type AskStoreContext,
-} from './adminAiAskResolver';
+} from "./adminAiAskResolver";
 import {
   buildAskStoreContext,
   buildDashboardContext,
@@ -30,7 +32,11 @@ import {
   computeRuleBasedActions,
   buildSmartActionSummary,
   loadProductById,
-} from './adminAiContextBuilder';
+} from "./adminAiContextBuilder";
+import { buildBlogRagContext, compactBlogRagContext } from "./blogRagContextBuilder";
+import { normalizeBlogDraft } from "./blogDraftNormalize";
+import { draftBlogWithGemini } from "./blogGeminiDraft";
+import { AI_ENGLISH_ONLY_RULE, ASK_STORE_SYSTEM_GUARDRAILS } from "./aiPromptConstants";
 
 export type AiResultPayload = {
   text: string;
@@ -41,7 +47,7 @@ export type AiResultPayload = {
   model: string;
 };
 
-export type AiChatTurn = { role: 'user' | 'assistant'; content: string };
+export type AiChatTurn = { role: "user" | "assistant"; content: string };
 
 function toAiPayload(
   rawText: string,
@@ -76,12 +82,30 @@ export type MarketingDraftPayload = AiResultPayload & {
   messageHtml?: string;
 };
 
+export type BlogDraftPayload = AiResultPayload & {
+  title?: string;
+  slug?: string;
+  excerpt?: string;
+  content?: string;
+  seoTitle?: string;
+  seoDescription?: string;
+  keywords?: string[];
+  tags?: string[];
+  category?: string;
+  readingTimeMin?: number;
+  suggestedImageCaptions?: string[];
+  internalLinks?: Array<{ productSlug: string; anchorText: string }>;
+  duplicateWarnings?: string[];
+  titleOptions?: string[];
+  keywordSuggestions?: string[];
+};
+
 function todayKey(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
 function cacheHash(input: string): string {
-  return createHash('sha256').update(input).digest('hex').slice(0, 16);
+  return createHash("sha256").update(input).digest("hex").slice(0, 16);
 }
 
 async function cachedGroqExplain(
@@ -103,17 +127,22 @@ export function getAiStatus() {
   return {
     enabled: aiConfig.enabled,
     model: aiConfig.model,
-    provider: 'groq',
+    provider: "groq",
+    blogEnabled: blogAiConfig.enabled,
+    blogProvider: blogAiConfig.provider,
+    blogModel: blogAiConfig.model,
     features: [
-      'daily-brief',
-      'action-suggestions',
-      'explain-order',
-      'explain-user',
-      'explain-returns',
-      'draft-product',
-      'draft-review-reply',
-      'draft-marketing-email',
-      'ask-store',
+      "daily-brief",
+      "action-suggestions",
+      "explain-order",
+      "explain-user",
+      "explain-returns",
+      "draft-product",
+      "draft-review-reply",
+      "draft-marketing-email",
+      "draft-blog",
+      "blog-calendar-plan",
+      "ask-store",
     ],
   };
 }
@@ -127,19 +156,22 @@ export async function getDailyBrief(force = false): Promise<AiResultPayload> {
   }
 
   const ctx = await buildDashboardContext();
-  const prompt = `Using ONLY this store JSON, write today's admin briefing for the owner.
+  const prompt = `Using ONLY the store JSON below, write today's executive briefing for the store owner.
 
-REQUIRED FORMAT (exactly):
-Line 1: One short summary sentence (no bullet).
-Line 2: blank
-Lines 3+: Each bullet on its OWN line starting with "• " and include real numbers.
+OUTPUT FORMAT (strict):
+Line 1: One concise summary sentence (no bullet).
+Line 2: blank line
+Line 3+: Each bullet on its own line, starting with "• ", with real numbers from the JSON.
 
-Cover: today's revenue/orders, month trend, gross profit & margin, operating costs MTD, stock alerts, fulfilment queue, one merchandising tip. Use finance object for profit/costs.
-JSON:\n${JSON.stringify(ctx)}`;
+Cover: today's revenue and orders, month-to-date trend, gross profit and margin, operating costs MTD, stock alerts, fulfilment queue, and one merchandising recommendation grounded in the data. Use the finance object for profit and costs.
+${AI_ENGLISH_ONLY_RULE}
+
+JSON:
+${JSON.stringify(ctx)}`;
 
   const { text, model } = await groqChatCompletion(prompt, {
     systemExtra:
-      'You MUST use newline-separated bullets. Never put all bullets in one paragraph.',
+      "Use newline-separated bullets. Never combine bullets into one paragraph. English only.",
   });
 
   const payload = toAiPayload(text, model, false);
@@ -161,7 +193,7 @@ export async function getActionSuggestions(): Promise<{
     intro: local.intro,
     cached: false,
     generatedAt: new Date().toISOString(),
-    model: 'rules+finance',
+    model: "rules+finance",
   };
   return { rules, summary };
 }
@@ -171,16 +203,18 @@ export async function explainOrder(orderId: string): Promise<AiResultPayload> {
   try {
     ctx = await buildOrderContext(orderId);
   } catch {
-    throw new AppError('Order not found.', 404);
+    throw new AppError("Order not found.", 404);
   }
 
   const cacheKey = `ai:admin:explain:order:${orderId}:${cacheHash(JSON.stringify(ctx))}`;
   return cachedGroqExplain(
     cacheKey,
     aiConfig.explainCacheTtlSec,
-    `Explain this order for admin: risks, next steps, return/refund notes if any.
-FORMAT: 1 intro line, then 4-6 bullets each on new line starting with "• ".
-JSON:\n${JSON.stringify(ctx)}`,
+    `Explain this order for the admin: risks, next steps, return/refund notes if any.
+FORMAT: 1 intro line, then 4-6 bullets each on a new line starting with "• ".
+${AI_ENGLISH_ONLY_RULE}
+JSON:
+${JSON.stringify(ctx)}`,
   );
 }
 
@@ -189,16 +223,18 @@ export async function explainUser(userId: string): Promise<AiResultPayload> {
   try {
     ctx = await buildUserContext(userId);
   } catch {
-    throw new AppError('User not found.', 404);
+    throw new AppError("User not found.", 404);
   }
 
   const cacheKey = `ai:admin:explain:user:${userId}:${cacheHash(JSON.stringify(ctx.metrics))}`;
   return cachedGroqExplain(
     cacheKey,
     aiConfig.explainCacheTtlSec,
-    `Advise admin how to treat this customer (loyalty, risk, support tone). No invented spend.
-FORMAT: 1 intro line, then 4-6 bullets each on new line starting with "• ".
-JSON:\n${JSON.stringify(ctx)}`,
+    `Advise the admin how to treat this customer (loyalty, risk, support tone). No invented spend.
+FORMAT: 1 intro line, then 4-6 bullets each on a new line starting with "• ".
+${AI_ENGLISH_ONLY_RULE}
+JSON:
+${JSON.stringify(ctx)}`,
   );
 }
 
@@ -208,9 +244,11 @@ export async function explainReturns(): Promise<AiResultPayload> {
   return cachedGroqExplain(
     cacheKey,
     aiConfig.explainCacheTtlSec,
-    `Summarize return trends and what admin should investigate.
-FORMAT: 1 intro line, then 4-6 bullets each on new line starting with "• ".
-JSON:\n${JSON.stringify(ctx)}`,
+    `Summarize return trends and what the admin should investigate.
+FORMAT: 1 intro line, then 4-6 bullets each on a new line starting with "• ".
+${AI_ENGLISH_ONLY_RULE}
+JSON:
+${JSON.stringify(ctx)}`,
   );
 }
 
@@ -228,13 +266,16 @@ export async function draftProductCopy(body: {
   variants?: ProductVariantInput[];
   productId?: string;
 }): Promise<ProductDraftPayload> {
-  if (!body.name?.trim()) throw new AppError('Product name is required.', 400);
+  if (!body.name?.trim()) throw new AppError("Product name is required.", 400);
 
   const variants = body.variants || [];
-  const designNotes = String(body.designNotes || '').trim();
-  if (designNotes.length < 5 && variants.filter((v) => v.color || v.size).length === 0) {
+  const designNotes = String(body.designNotes || "").trim();
+  if (
+    designNotes.length < 5 &&
+    variants.filter((v) => v.color || v.size).length === 0
+  ) {
     throw new AppError(
-      'Design notes likho (floral, banarasi, partner piece…) ya variant mein size/color bharo — AI ko context chahiye.',
+      "Add design notes (e.g. floral, Banarasi, partner piece) or fill in variant size/color — the AI needs product context.",
       400,
     );
   }
@@ -257,19 +298,19 @@ export async function draftProductCopy(body: {
     if (existing) Object.assign(base, { existingProduct: existing });
   }
 
-  const fabricFromForm = String(body.fabric || '').trim();
+  const fabricFromForm = String(body.fabric || "").trim();
   const cacheKey = `ai:admin:draft:product:v5:${cacheHash(JSON.stringify(base))}`;
   const cached = await getCache<ProductDraftPayload>(cacheKey);
   if (cached?.description && cached?.shortDescription) {
     const norm = enrichProductDraft(
       {
-        shortDescription: cached.shortDescription || '',
-        description: cached.description || '',
-        seoTitle: cached.seoTitle || '',
-        seoDescription: cached.seoDescription || '',
+        shortDescription: cached.shortDescription || "",
+        description: cached.description || "",
+        seoTitle: cached.seoTitle || "",
+        seoDescription: cached.seoDescription || "",
         tags: cached.tags || [],
-        productDetailKeys: cached.productDetailKeys || '',
-        productDetailValues: cached.productDetailValues || '',
+        productDetailKeys: cached.productDetailKeys || "",
+        productDetailValues: cached.productDetailValues || "",
       },
       {
         name: body.name.trim(),
@@ -315,13 +356,14 @@ Rules:
 - Work: from design notes (zari, kalamkari, floral, peacock pallu, etc.)
 - Do not invent MRP/discount % unless given
 - Plain text only in description (no HTML)
+- ${AI_ENGLISH_ONLY_RULE}
 
 INPUT JSON:
 ${JSON.stringify(base)}`;
 
   const { text, model } = await groqChatCompletion(prompt, {
     systemExtra:
-      'JSON only. shortDescription must be 2 sentences. productDetail table must include Fabric with correct value.',
+      "JSON only. shortDescription must be 2 sentences. productDetail table must include Fabric with correct value. English only.",
     maxTokens: 1800,
     jsonObject: true,
   });
@@ -337,7 +379,10 @@ ${JSON.stringify(base)}`;
   });
 
   if (!norm.description && !norm.shortDescription) {
-    throw new AppError('AI could not generate product copy. Try richer design notes and retry.', 502);
+    throw new AppError(
+      "AI could not generate product copy. Try richer design notes and retry.",
+      502,
+    );
   }
 
   const payload: ProductDraftPayload = {
@@ -360,12 +405,14 @@ ${JSON.stringify(base)}`;
 }
 
 /** Tier 2 — Review reply draft */
-export async function draftReviewReply(reviewId: string): Promise<ReviewDraftPayload> {
+export async function draftReviewReply(
+  reviewId: string,
+): Promise<ReviewDraftPayload> {
   let ctx: Record<string, unknown>;
   try {
     ctx = await buildReviewDraftContext(reviewId);
   } catch {
-    throw new AppError('Review not found.', 404);
+    throw new AppError("Review not found.", 404);
   }
 
   const cacheKey = `ai:admin:draft:review:${reviewId}`;
@@ -374,9 +421,14 @@ export async function draftReviewReply(reviewId: string): Promise<ReviewDraftPay
 
   const prompt = `Draft a warm, professional admin reply to this product review for The House of Rani.
 Return JSON: { "replyText": "..." } max 400 chars, plain text, no placeholders.
-Context:\n${JSON.stringify(ctx)}`;
+${AI_ENGLISH_ONLY_RULE}
+Context:
+${JSON.stringify(ctx)}`;
 
-  const { text, model } = await groqChatCompletion(prompt, { maxTokens: 500 });
+  const { text, model } = await groqChatCompletion(prompt, {
+    maxTokens: 500,
+    systemExtra: "JSON only with replyText field. English only.",
+  });
   const parsed = parseJsonFromModel<{ replyText?: string }>(text);
 
   const payload: ReviewDraftPayload = {
@@ -402,10 +454,10 @@ export async function draftMarketingEmail(body: {
   ctaLink?: string;
   tone?: string;
 }): Promise<MarketingDraftPayload> {
-  const brief = String(body.adminBrief || '').trim();
+  const brief = String(body.adminBrief || "").trim();
   if (brief.length < 10) {
     throw new AppError(
-      'Pehle Message box mein likho kya email bhejna hai (offer, festival, product, tone — kam se kam 1-2 lines).',
+      "Write what the email should say in the Message box first (offer, festival, products, tone — at least 1–2 lines).",
       400,
     );
   }
@@ -413,7 +465,8 @@ export async function draftMarketingEmail(body: {
   const ctx = await buildMarketingDraftContext(body);
   const cacheKey = `ai:admin:draft:email:v3:${cacheHash(JSON.stringify(ctx))}`;
   const cached = await getCache<MarketingDraftPayload>(cacheKey);
-  if (cached?.subject && cached?.messageHtml) return { ...cached, cached: true };
+  if (cached?.subject && cached?.messageHtml)
+    return { ...cached, cached: true };
 
   const req = ctx.adminRequirements as Record<string, string | number>;
   const prompt = `Write a complete marketing email for The House of Rani.
@@ -423,7 +476,7 @@ ADMIN REQUIREMENTS (you MUST follow — do not invent unrelated offers):
 ${brief}
 """
 
-Subject hint from admin: "${req.subjectHint || ''}"
+Subject hint from admin: "${req.subjectHint || ""}"
 Audience: ${req.audience}
 Recipients estimate: ${req.estimatedRecipients}
 CTA button text: "${req.ctaText}" linking to ${req.ctaLink}
@@ -435,8 +488,8 @@ Return ONLY valid JSON:
 Rules for messageHtml:
 - 2-4 short paragraphs in <p> tags only (optional <strong> for emphasis)
 - Reflect EXACTLY what admin asked in the brief (sale, collection, festival, etc.)
-- Warm Indian ethnic wear brand; simple Hinglish OK
-- End with clear CTA line mentioning the button
+- Warm Indian ethnic wear brand voice; ${AI_ENGLISH_ONLY_RULE}
+- End with a clear CTA line mentioning the button
 - No fake coupon codes unless admin wrote them
 - Do not use markdown ** — HTML only inside messageHtml`;
 
@@ -453,7 +506,7 @@ Rules for messageHtml:
 
   if (!norm.messageHtml || norm.messageHtml.length < 20) {
     throw new AppError(
-      'AI could not generate email body. Message box mein thoda detail likho (offer, dates, products) aur dubara try karo.',
+      "AI could not generate the email body. Add more detail in the Message box (offer, dates, products) and try again.",
       502,
     );
   }
@@ -472,17 +525,205 @@ Rules for messageHtml:
   return payload;
 }
 
+/** Tier 2 — SEO blog draft with RAG context */
+export async function draftBlogPost(body: {
+  topic: string;
+  keywords?: string[];
+  category?: string;
+  tone?: string;
+  targetLength?: "short" | "medium" | "long";
+  linkProductIds?: string[];
+  includeProductLinks?: boolean;
+  regenerate?: boolean;
+}): Promise<BlogDraftPayload> {
+  const topic = String(body.topic || "").trim();
+  if (topic.length < 8) {
+    throw new AppError(
+      "Topic must be at least 8 characters — e.g. Banarasi saree wedding styling tips",
+      400,
+    );
+  }
+
+  const ctx = await buildBlogRagContext({
+    topic,
+    keywords: body.keywords,
+    category: body.category,
+    tone: body.tone,
+    targetLength: body.targetLength,
+    linkProductIds: body.linkProductIds,
+  });
+
+  const cacheKey = `ai:admin:draft:blog:v3:${cacheHash(JSON.stringify({ topic, keywords: body.keywords, category: body.category, tone: body.tone, linkProductIds: body.linkProductIds, provider: blogAiConfig.provider }))}`;
+  if (!body.regenerate) {
+    const cached = await getCache<BlogDraftPayload>(cacheKey);
+    if (cached?.content && cached.title) {
+      return { ...cached, cached: true };
+    }
+  }
+
+  const wordTarget =
+    body.targetLength === "short" ? "450-600"
+    : body.targetLength === "long" ? "900-1100"
+    : "650-850";
+
+  const compactCtx = compactBlogRagContext(ctx);
+
+  if (blogAiConfig.provider === "gemini") {
+    const { norm, model } = await draftBlogWithGemini({
+      topic,
+      tone: body.tone,
+      category: body.category,
+      targetLength: body.targetLength,
+      compactCtx,
+    });
+
+    if (!norm.content || norm.content.length < 120) {
+      throw new AppError(
+        "Blog draft failed — Gemini returned an empty response. Wait a minute and click Regenerate.",
+        502,
+      );
+    }
+
+    const duplicateWarnings = (ctx.duplicateWarnings as string[]) || [];
+    const payload: BlogDraftPayload = {
+      text: norm.excerpt,
+      bullets: norm.suggestedImageCaptions.map((c) => `• ${c}`),
+      title: norm.title,
+      slug: norm.slug,
+      excerpt: norm.excerpt,
+      content: norm.content,
+      seoTitle: norm.seoTitle,
+      seoDescription: norm.seoDescription,
+      keywords: norm.keywords,
+      tags: norm.tags,
+      category: norm.category,
+      readingTimeMin: norm.readingTimeMin,
+      suggestedImageCaptions: norm.suggestedImageCaptions,
+      internalLinks: norm.internalLinks,
+      duplicateWarnings,
+      titleOptions: norm.titleOptions,
+      keywordSuggestions: (ctx.keywordSuggestions as string[]) || [],
+      cached: false,
+      generatedAt: new Date().toISOString(),
+      model,
+    };
+
+    setCache(cacheKey, payload, aiConfig.draftCacheTtlSec).catch(() => {});
+    return payload;
+  }
+
+  const prompt = `Write a journal article for The House of Rani (Indian ethnic wear).
+
+Return ONLY valid JSON:
+{
+  "titleOptions": ["headline 1", "headline 2", "headline 3"],
+  "title": "best pick from titleOptions",
+  "slug": "url-friendly-slug",
+  "excerpt": "150-200 chars teaser",
+  "content": "HTML: <p> intro </p> then 3 <h2> sections with <p> and optional <ul>. Include 2 <a href='/shop/SLUG'> links from relatedProducts. Target ${wordTarget} words total.",
+  "seoTitle": "50-60 chars",
+  "seoDescription": "140-160 chars",
+  "keywords": ["6-8 keywords"],
+  "tags": ["4-5 tags"],
+  "category": "from allowedCategories",
+  "suggestedImageCaptions": ["caption 1", "caption 2"],
+  "internalLinks": [{ "productSlug": "from relatedProducts", "anchorText": "text" }]
+}
+
+Tone: ${body.tone || "warm expert"}. ${AI_ENGLISH_ONLY_RULE}
+No invented product slugs or prices. Unique vs similarPublishedBlogs. Keywords natural, not stuffed.
+
+CONTEXT:
+${JSON.stringify(compactCtx)}`;
+
+  let text = "";
+  let model = blogAiConfig.model;
+
+  const blogLlmOpts = {
+    systemExtra:
+      "Return valid JSON only. content field must contain safe HTML with p, h2, h3, ul, li, strong, a tags.",
+    maxTokens: blogAiConfig.provider === "gemini" ? 4096 : 3200,
+    maxPromptChars: blogAiConfig.provider === "gemini" ? 24000 : 12000,
+    jsonObject: true as const,
+  };
+
+  try {
+    const result = await blogChatCompletion(prompt, blogLlmOpts);
+    text = result.text;
+    model = result.model;
+  } catch (e) {
+    if (e instanceof AppError && e.statusCode === 429) throw e;
+    logger.warn(`Blog draft primary attempt failed: ${(e as Error).message}`);
+  }
+
+  let norm = normalizeBlogDraft(text, topic);
+
+  if (!norm.content || norm.content.length < 200) {
+    const retryPrompt = `Write a shorter blog JSON for topic "${topic}". category: ${body.category || "saree-styling"}.
+Return JSON with titleOptions (3), title, slug, excerpt, content (HTML, 500-650 words, 3 h2 sections), seoTitle, seoDescription, keywords, tags, category, suggestedImageCaptions, internalLinks.
+Products to link: ${JSON.stringify((compactCtx.relatedProducts as unknown[]) || [])}`;
+
+    const retry = await blogChatCompletion(retryPrompt, {
+      systemExtra: "JSON only. Shorter article.",
+      maxTokens: blogAiConfig.provider === "gemini" ? 3000 : 2200,
+      maxPromptChars: blogAiConfig.provider === "gemini" ? 16000 : 8000,
+      jsonObject: true,
+    });
+    text = retry.text;
+    model = retry.model;
+    norm = normalizeBlogDraft(text, topic);
+  }
+
+  if (!norm.content || norm.content.length < 120) {
+    const providerLabel = blogAiConfig.provider === "gemini" ? "Gemini" : "Groq";
+    throw new AppError(
+      `Blog draft failed — ${providerLabel} returned an empty or truncated response. Wait a moment and click Regenerate.`,
+      502,
+    );
+  }
+
+  const duplicateWarnings = (ctx.duplicateWarnings as string[]) || [];
+
+  const payload: BlogDraftPayload = {
+    text: norm.excerpt,
+    bullets: norm.suggestedImageCaptions.map((c) => `• ${c}`),
+    title: norm.title,
+    slug: norm.slug,
+    excerpt: norm.excerpt,
+    content: norm.content,
+    seoTitle: norm.seoTitle,
+    seoDescription: norm.seoDescription,
+    keywords: norm.keywords,
+    tags: norm.tags,
+    category: norm.category,
+    readingTimeMin: norm.readingTimeMin,
+    suggestedImageCaptions: norm.suggestedImageCaptions,
+    internalLinks: norm.internalLinks,
+    duplicateWarnings,
+    titleOptions: norm.titleOptions,
+    keywordSuggestions: (ctx.keywordSuggestions as string[]) || [],
+    cached: false,
+    generatedAt: new Date().toISOString(),
+    model,
+  };
+
+  setCache(cacheKey, payload, aiConfig.draftCacheTtlSec).catch(() => {});
+  return payload;
+}
+
 /** Tier 3 — Natural language ask (supports multi-turn follow-ups) */
 export async function askStore(
   question: string,
   history: AiChatTurn[] = [],
 ): Promise<AiResultPayload> {
   const q = question.trim().slice(0, 500);
-  if (q.length < 3) throw new AppError('Question is too short.', 400);
+  if (q.length < 3) throw new AppError("Question is too short.", 400);
 
   const ctx = (await buildAskStoreContext()) as AskStoreContext;
   const trimmedHistory = history
-    .filter((h) => h.content?.trim() && (h.role === 'user' || h.role === 'assistant'))
+    .filter(
+      (h) => h.content?.trim() && (h.role === "user" || h.role === "assistant"),
+    )
     .slice(-10)
     .map((h) => ({
       role: h.role,
@@ -495,46 +736,30 @@ export async function askStore(
       ...resolved,
       cached: false,
       generatedAt: new Date().toISOString(),
-      model: 'store-data',
+      model: "store-data",
     };
   }
 
-  const askSystem = `${SYSTEM_GUARDRAILS_FOR_ASK}\n\nStore context JSON:\n${JSON.stringify(ctx)}`;
+  const askSystem = `${ASK_STORE_SYSTEM_GUARDRAILS}\n\nStore context JSON:\n${JSON.stringify(ctx)}`;
 
   if (trimmedHistory.length === 0 && !isTimeSensitiveQuestion(q)) {
     const cacheKey = `ai:admin:ask:v2:${todayKey()}:${cacheHash(q)}`;
     return cachedGroqExplain(
       cacheKey,
       Math.min(600, aiConfig.explainCacheTtlSec),
-      `Admin question (Hinglish/English): ${q}\n\nAnswer using ONLY the JSON. Direct answer first. Bullets with • on new lines.`,
+      `Admin question: ${q}\n\nAnswer using ONLY the JSON. Direct answer first. Bullets with • on new lines. ${AI_ENGLISH_ONLY_RULE}`,
       askSystem,
     );
   }
 
   const messages: GroqMessage[] = [
-    { role: 'system', content: askSystem },
+    { role: "system", content: askSystem },
     ...trimmedHistory.map((h) => ({ role: h.role, content: h.content })),
-    { role: 'user', content: q },
+    { role: "user", content: q },
   ];
 
-  const { text, model } = await groqChatWithHistory(messages, { maxTokens: 1100 });
+  const { text, model } = await groqChatWithHistory(messages, {
+    maxTokens: 1100,
+  });
   return toAiPayload(text, model, false);
 }
-
-const SYSTEM_GUARDRAILS_FOR_ASK = `You are Rani Admin AI — senior advisor for The House of Rani admin.
-Use ONLY the JSON snapshot (capabilities list shows what exists).
-
-MAPPING:
-- Orders/sales ALWAYS include online checkout + offline/POS (offlineMeta) when paid/refunded.
-- kal → timePeriods.yesterday (total, online, offline, paymentBreakdown) | aaj → today | mahine → thisMonth
-- profit/munafa → profitSummary | kharcha → operatingExpenses | views → topViewedProductsDetailed
-- online/offline → channelMix.monthToDate + lifetime | payments → paymentBreakdown / paymentMethodMixLifetime
-- NEVER subtract lifetime - month for dates. NEVER invent numbers.
-
-STYLE:
-- Admin types casual Hinglish — understand intent.
-- First line = direct answer with ₹ and counts.
-- Then 3-7 bullets (• each on new line), each citing real fields/products.
-- No generic "improve marketing" lists without naming store metrics.
-- Missing data → "Yeh data system mein nahi hai" + suggest Admin page path if in JSON.
-Follow-ups: answer the latest question using history context only.`;

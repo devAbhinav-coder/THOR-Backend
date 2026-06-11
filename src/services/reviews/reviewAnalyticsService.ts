@@ -1,8 +1,8 @@
-import { redisEnabled, redisConnection } from '../../config/redis';
-import { getRequestContext } from '../../utils/requestContext';
-import logger from '../../utils/logger';
+import { redisEnabled, redisConnection } from "../../config/redis";
+import { getRequestContext } from "../../types/utils/requestContext";
+import logger from "../../types/utils/logger";
 
-const ANALYTICS_PREFIX = 'analytics:review:';
+const ANALYTICS_PREFIX = "analytics:review:";
 
 /**
  * Product-level review analytics (seller dashboards / quality insights).
@@ -10,12 +10,12 @@ const ANALYTICS_PREFIX = 'analytics:review:';
  */
 export function recordProductReviewAnalytics(
   productId: string,
-  event: 'created' | 'deleted' | 'reported',
-  rating?: number
+  event: "created" | "deleted" | "reported",
+  rating?: number,
 ): void {
   const ctx = getRequestContext();
   logger.info({
-    msg: 'review_product_analytics',
+    msg: "review_product_analytics",
     productId,
     event,
     rating,
@@ -27,8 +27,12 @@ export function recordProductReviewAnalytics(
   const base = `${ANALYTICS_PREFIX}${productId}:${day}`;
   redisConnection.incr(`${base}:${event}`).catch(() => {});
   redisConnection.expire(`${base}:${event}`, 60 * 60 * 24 * 90).catch(() => {});
-  if (event === 'created' && typeof rating === 'number') {
-    redisConnection.call('HINCRBY', `${base}:ratings`, String(rating), '1').catch(() => {});
-    redisConnection.expire(`${base}:ratings`, 60 * 60 * 24 * 90).catch(() => {});
+  if (event === "created" && typeof rating === "number") {
+    redisConnection
+      .call("HINCRBY", `${base}:ratings`, String(rating), "1")
+      .catch(() => {});
+    redisConnection
+      .expire(`${base}:ratings`, 60 * 60 * 24 * 90)
+      .catch(() => {});
   }
 }

@@ -67,3 +67,25 @@ export const adminAiBriefQuerySchema = z.object({
     force: z.enum(['true', 'false']).optional(),
   }),
 });
+
+export const adminAiBlogDraftSchema = z.object({
+  body: z.object({
+    topic: z.string().min(8).max(300),
+    keywords: z.array(z.string().max(60)).max(12).optional(),
+    category: z.string().max(40).optional(),
+    tone: z.string().max(120).optional(),
+    targetLength: z.enum(['short', 'medium', 'long']).optional(),
+    linkProductIds: z.array(objectId).max(6).optional(),
+    includeProductLinks: z.boolean().optional(),
+    regenerate: z.boolean().optional(),
+  }),
+});
+
+export const adminAiBlogCalendarSchema = z.object({
+  body: z.object({
+    weeks: z.coerce.number().int().min(2).max(8).optional(),
+    postsPerWeek: z.coerce.number().int().min(1).max(2).optional(),
+    focus: z.string().max(200).optional(),
+    regenerate: z.boolean().optional(),
+  }),
+});

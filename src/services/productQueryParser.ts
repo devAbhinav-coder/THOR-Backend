@@ -18,10 +18,11 @@ export type ParsedProductListQuery = {
   limit: number;
   sort: string;
   search: string;
-  category?: string;
-  fabric?: string;
+  categories: string[];
+  fabrics: string[];
   minPrice?: number;
   maxPrice?: number;
+  minRatings: number[];
   minRating?: number;
   isFeatured?: boolean;
   /** Admin catalog only — filter by active/inactive when set. */
@@ -31,6 +32,40 @@ export type ParsedProductListQuery = {
   /** Admin catalog — includes inactive / gifting / offline-tagged when true. */
   adminScope: boolean;
 };
+
+function parseQueryStringList(
+  q: Record<string, unknown>,
+  ...keys: string[]
+): string[] {
+  const values: string[] = [];
+  for (const key of keys) {
+    const raw = q[key];
+    if (raw === undefined || raw === null) continue;
+    const parts = Array.isArray(raw) ? raw : [raw];
+    for (const part of parts) {
+      if (typeof part !== "string") continue;
+      for (const segment of part.split(",")) {
+        const trimmed = segment.trim();
+        if (trimmed) values.push(trimmed);
+      }
+    }
+  }
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const value of values) {
+    const dedupeKey = value.toLowerCase();
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    unique.push(value);
+  }
+  return unique;
+}
+
+function parseRatingList(q: Record<string, unknown>): number[] {
+  return parseQueryStringList(q, "ratings", "rating", "minRating")
+    .map((raw) => Number.parseInt(raw, 10))
+    .filter((n) => Number.isFinite(n) && n >= 1 && n <= 5);
+}
 
 function parsePositiveInt(raw: unknown, fallback: number, max: number): number {
   const n = Number.parseInt(String(raw ?? ""), 10);
@@ -55,15 +90,11 @@ export function parseProductListQuery(req: Request): ParsedProductListQuery {
       q.sort.trim()
     : "-createdAt";
 
-  const category =
-    typeof q.category === "string" && q.category.trim() ?
-      q.category.trim()
-    : undefined;
-
-  const fabric =
-    typeof q.fabric === "string" && q.fabric.trim() ?
-      q.fabric.trim()
-    : undefined;
+  const categories = parseQueryStringList(q, "categories", "category");
+  const fabrics = parseQueryStringList(q, "fabrics", "fabric");
+  const minRatings = parseRatingList(q);
+  const minRating =
+    minRatings.length > 0 ? Math.min(...minRatings) : undefined;
 
   const minPriceRaw = q.minPrice ?? (q as Record<string, string>)["price[gte]"];
   const maxPriceRaw = q.maxPrice ?? (q as Record<string, string>)["price[lte]"];
@@ -81,13 +112,20 @@ export function parseProductListQuery(req: Request): ParsedProductListQuery {
     minRatingRaw !== undefined && minRatingRaw !== "" ?
       Number.parseInt(String(minRatingRaw), 10)
     : undefined;
-  const minRating =
+  const legacyMinRating =
     minRatingParsed !== undefined &&
     Number.isFinite(minRatingParsed) &&
     minRatingParsed >= 1 &&
     minRatingParsed <= 5 ?
       minRatingParsed
     : undefined;
+  const resolvedMinRating = minRating ?? legacyMinRating;
+  const resolvedMinRatings =
+    minRatings.length > 0 ?
+      minRatings
+    : resolvedMinRating !== undefined ?
+      [resolvedMinRating]
+    : [];
 
   const isFeaturedRaw = q.isFeatured;
   const isFeatured =
@@ -115,11 +153,12 @@ export function parseProductListQuery(req: Request): ParsedProductListQuery {
     limit,
     sort,
     search,
-    category,
-    fabric,
+    categories,
+    fabrics,
     minPrice: Number.isFinite(minPrice) ? minPrice : undefined,
     maxPrice: Number.isFinite(maxPrice) ? maxPrice : undefined,
-    minRating,
+    minRatings: resolvedMinRatings,
+    minRating: resolvedMinRating,
     isFeatured,
     isActive,
     isRandom,

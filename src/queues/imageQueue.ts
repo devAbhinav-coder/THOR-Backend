@@ -1,12 +1,12 @@
-import { Queue, Worker, JobsOptions, ConnectionOptions } from 'bullmq';
-import { deleteMultipleImages } from '../services/cloudinary';
+import { Queue, Worker, JobsOptions, ConnectionOptions } from "bullmq";
+import { deleteMultipleImages } from "../services/cloudinary";
 import {
   bullmqSkipRedisVersionChecks,
   getBullMqQueueConnection,
   getBullMqWorkerConnection,
   redisEnabled,
-} from '../config/redis';
-import logger from '../utils/logger';
+} from "../config/redis";
+import logger from "../types/utils/logger";
 
 // ─── Job Types ────────────────────────────────────────────────────────────────
 
@@ -16,12 +16,13 @@ export type ImageDeleteJobData = {
 
 // ─── Queue Setup ──────────────────────────────────────────────────────────────
 
-const IMAGE_QUEUE_NAME = 'image-delete-jobs';
+const IMAGE_QUEUE_NAME = "image-delete-jobs";
 const skipBullMqRedisChecks = bullmqSkipRedisVersionChecks();
 const imageQueueRedis = redisEnabled ? getBullMqQueueConnection() : null;
 
-export const imageQueue = imageQueueRedis
-  ? new Queue<ImageDeleteJobData>(IMAGE_QUEUE_NAME, {
+export const imageQueue =
+  imageQueueRedis ?
+    new Queue<ImageDeleteJobData>(IMAGE_QUEUE_NAME, {
       connection: imageQueueRedis as unknown as ConnectionOptions,
       skipVersionCheck: skipBullMqRedisChecks,
     })
@@ -29,7 +30,7 @@ export const imageQueue = imageQueueRedis
 
 const defaultOpts: JobsOptions = {
   attempts: 3,
-  backoff: { type: 'exponential', delay: 5000 },
+  backoff: { type: "exponential", delay: 5000 },
   removeOnComplete: 100,
   removeOnFail: 200,
 };
@@ -46,16 +47,22 @@ export async function enqueueImageDelete(publicIds: string[]): Promise<void> {
     if (!imageQueue) {
       // Redis unavailable — delete in background without blocking the request
       deleteMultipleImages(publicIds).catch((err) =>
-        logger.error(`Inline Cloudinary delete failed: ${(err as Error).message}`)
+        logger.error(
+          `Inline Cloudinary delete failed: ${(err as Error).message}`,
+        ),
       );
       return;
     }
-    await imageQueue.add('image-delete', { publicIds }, defaultOpts);
+    await imageQueue.add("image-delete", { publicIds }, defaultOpts);
   } catch (err) {
     // Queue unavailable — fall back to background deletion
-    logger.warn(`Image queue unavailable, falling back to inline delete: ${(err as Error).message}`);
+    logger.warn(
+      `Image queue unavailable, falling back to inline delete: ${(err as Error).message}`,
+    );
     deleteMultipleImages(publicIds).catch((e) =>
-      logger.error(`Fallback Cloudinary delete failed: ${(e as Error).message}`)
+      logger.error(
+        `Fallback Cloudinary delete failed: ${(e as Error).message}`,
+      ),
     );
   }
 }
@@ -80,14 +87,16 @@ export const startImageWorker = (): void => {
       connection: workerRedis as unknown as ConnectionOptions,
       skipVersionCheck: skipBullMqRedisChecks,
       concurrency: 2,
-    }
+    },
   );
 
-  imageWorker.on('completed', (job) =>
-    logger.info(`Image delete job completed: ${job.id} (${job.data.publicIds.length} images)`)
+  imageWorker.on("completed", (job) =>
+    logger.info(
+      `Image delete job completed: ${job.id} (${job.data.publicIds.length} images)`,
+    ),
   );
-  imageWorker.on('failed', (job, err) =>
-    logger.error(`Image delete job failed (${job?.id}): ${err.message}`)
+  imageWorker.on("failed", (job, err) =>
+    logger.error(`Image delete job failed (${job?.id}): ${err.message}`),
   );
 };
 

@@ -1,16 +1,28 @@
-import mongoose, { ClientSession } from 'mongoose';
-import Order from '../models/Order';
-import CheckoutPaymentIntent from '../models/CheckoutPaymentIntent';
-import { couponRedemptionService } from './coupon/couponRedemptionService';
-import AppError from '../utils/AppError';
-import logger from '../utils/logger';
-import { verifyPaymentAndThrow, assertRazorpayPaymentMatchesOrder } from './razorpay';
-import { decrementVariantStock } from './inventoryService';
-import { orderRepository } from '../repositories/orderRepository';
-import { ORDER_PAYMENT_RESPONSE_SELECT, PAYMENT_QUERY_MAX_MS } from '../constants/paymentQuery';
-import { toOrderPaymentDto } from '../utils/orderPaymentDto';
-import { orderReadService } from './orderReadService';
-import { sessionOpts, withOptionalTransaction, withQuerySession } from '../utils/mongoTransaction';
+import mongoose, { ClientSession } from "mongoose";
+import Order from "../models/Order";
+import CheckoutPaymentIntent from "../models/CheckoutPaymentIntent";
+import { couponRedemptionService } from "./coupon/couponRedemptionService";
+import AppError from "../types/utils/AppError";
+import logger from "../types/utils/logger";
+import {
+  verifyPaymentAndThrow,
+  assertRazorpayPaymentMatchesOrder,
+} from "./razorpay";
+import { decrementVariantStock } from "./inventoryService";
+import { orderRepository } from "../repositories/orderRepository";
+import {
+  ORDER_PAYMENT_RESPONSE_SELECT,
+  PAYMENT_QUERY_MAX_MS,
+} from "../constants/paymentQuery";
+import { toOrderPaymentDto } from "../types/utils/orderPaymentDto";
+import { orderReadService } from "./orderReadService";
+import { cartService } from "./cartService";
+import { emitCartEvent } from "./cart/cartEventService";
+import {
+  sessionOpts,
+  withOptionalTransaction,
+  withQuerySession,
+} from "../types/utils/mongoTransaction";
 
 export type PaymentVerifiedOrderDto = Record<string, unknown>;
 
@@ -34,8 +46,16 @@ export const paymentVerificationService = {
     razorpaySignature: string,
     expectedOrderTotalRupees: number,
   ): Promise<void> {
-    verifyPaymentAndThrow(razorpayOrderId, razorpayPaymentId, razorpaySignature);
-    await assertRazorpayPaymentMatchesOrder(razorpayOrderId, razorpayPaymentId, expectedOrderTotalRupees);
+    verifyPaymentAndThrow(
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
+    );
+    await assertRazorpayPaymentMatchesOrder(
+      razorpayOrderId,
+      razorpayPaymentId,
+      expectedOrderTotalRupees,
+    );
   },
 
   /** Webhook / recovery: API truth only (no client HMAC). */
@@ -44,7 +64,11 @@ export const paymentVerificationService = {
     razorpayPaymentId: string,
     expectedOrderTotalRupees: number,
   ): Promise<void> {
-    await assertRazorpayPaymentMatchesOrder(razorpayOrderId, razorpayPaymentId, expectedOrderTotalRupees);
+    await assertRazorpayPaymentMatchesOrder(
+      razorpayOrderId,
+      razorpayPaymentId,
+      expectedOrderTotalRupees,
+    );
   },
 
   async applyCouponUsageIncrementIfValid(
@@ -53,7 +77,10 @@ export const paymentVerificationService = {
     couponRef: mongoose.Types.ObjectId | undefined | null,
     subtotal: number,
     logCtx: string,
-    source: { sourceType: 'order' | 'checkout_intent'; sourceId: mongoose.Types.ObjectId }
+    source: {
+      sourceType: "order" | "checkout_intent";
+      sourceId: mongoose.Types.ObjectId;
+    },
   ): Promise<void> {
     if (!couponRef) return;
     const ok = await couponRedemptionService.redeemInTransaction(
@@ -62,7 +89,7 @@ export const paymentVerificationService = {
       couponRef,
       subtotal,
       source,
-      logCtx
+      logCtx,
     );
     if (!ok) {
       logger.warn(`verifyPayment: coupon redeem skipped ${logCtx}`);
@@ -77,6 +104,7 @@ export const paymentVerificationService = {
     razorpaySignature: string,
   ): Promise<PaymentVerifiedOrderDto | null> {
     let resolvedOrderId: mongoose.Types.ObjectId | undefined;
+    let cartWasDeleted = false;
 
     await withOptionalTransaction(async (session) => {
       const existingForRz = await withQuerySession(
@@ -84,13 +112,21 @@ export const paymentVerificationService = {
         session,
       );
       if (existingForRz) {
-        if (String(existingForRz.user) !== userId || existingForRz.paymentStatus !== 'paid') {
-          throw new AppError('Payment could not be linked to your account.', 400);
+        if (
+          String(existingForRz.user) !== userId ||
+          existingForRz.paymentStatus !== "paid"
+        ) {
+          throw new AppError(
+            "Payment could not be linked to your account.",
+            400,
+          );
         }
         resolvedOrderId = existingForRz._id as mongoose.Types.ObjectId;
         await CheckoutPaymentIntent.updateOne(
           { _id: intent._id },
-          { $set: { consumedAt: new Date(), createdOrderId: existingForRz._id } },
+          {
+            $set: { consumedAt: new Date(), createdOrderId: existingForRz._id },
+          },
           sessionOpts(session),
         );
         return;
@@ -103,19 +139,31 @@ export const paymentVerificationService = {
       );
 
       if (!claimedIntent) {
-        const peer = await withQuerySession(CheckoutPaymentIntent.findById(intent._id), session);
-        if (!peer) throw new AppError('Checkout session not found.', 404);
+        const peer = await withQuerySession(
+          CheckoutPaymentIntent.findById(intent._id),
+          session,
+        );
+        if (!peer) throw new AppError("Checkout session not found.", 404);
         if (peer.createdOrderId) {
           resolvedOrderId = peer.createdOrderId;
           return;
         }
         if (peer.consumedAt && !peer.createdOrderId) {
-          throw new AppError('Checkout is in an inconsistent state. Please contact support with your payment ID.', 409);
+          throw new AppError(
+            "Checkout is in an inconsistent state. Please contact support with your payment ID.",
+            409,
+          );
         }
-        throw new AppError('Could not finalize checkout. Please retry or contact support.', 409);
+        throw new AppError(
+          "Could not finalize checkout. Please retry or contact support.",
+          409,
+        );
       }
       if (claimedIntent.expiresAt < new Date()) {
-        throw new AppError('Checkout session expired. Please return to your cart and try again.', 400);
+        throw new AppError(
+          "Checkout session expired. Please return to your cart and try again.",
+          400,
+        );
       }
 
       const snap = claimedIntent.snapshot;
@@ -123,7 +171,7 @@ export const paymentVerificationService = {
         user: new mongoose.Types.ObjectId(userId),
         items: snap.items,
         shippingAddress: snap.shippingAddress,
-        paymentMethod: 'razorpay' as const,
+        paymentMethod: "razorpay" as const,
         subtotal: snap.subtotal,
         discount: snap.discount,
         shippingCharge: snap.shippingCharge,
@@ -132,8 +180,8 @@ export const paymentVerificationService = {
         total: snap.total,
         coupon: snap.coupon,
         notes: snap.notes,
-        paymentStatus: 'paid' as const,
-        status: 'confirmed' as const,
+        paymentStatus: "paid" as const,
+        status: "confirmed" as const,
         razorpayOrderId,
         razorpayPaymentId,
         razorpaySignature,
@@ -141,15 +189,28 @@ export const paymentVerificationService = {
         inventoryReserved: true,
       };
 
-      const createdArr = await Order.create([orderPayload], sessionOpts(session));
+      const createdArr = await Order.create(
+        [orderPayload],
+        sessionOpts(session),
+      );
       const newOrder = createdArr[0] as InstanceType<typeof Order>;
       resolvedOrderId = newOrder._id as mongoose.Types.ObjectId;
 
       for (const line of snap.stockLines) {
-        const ok = await decrementVariantStock(line.productId as string, line.sku, line.quantity, sessionOpts(session));
+        const ok = await decrementVariantStock(
+          line.productId as string,
+          line.sku,
+          line.quantity,
+          sessionOpts(session),
+        );
         if (!ok) {
-          logger.error(`verifyPayment intent: insufficient stock rz=${razorpayOrderId} sku=${line.sku}`);
-          throw new AppError('Inventory changed before we could confirm your payment. Please contact support with your payment ID.', 409);
+          logger.error(
+            `verifyPayment intent: insufficient stock rz=${razorpayOrderId} sku=${line.sku}`,
+          );
+          throw new AppError(
+            "Inventory changed before we could confirm your payment. Please contact support with your payment ID.",
+            409,
+          );
         }
       }
 
@@ -159,14 +220,23 @@ export const paymentVerificationService = {
         snap.coupon as mongoose.Types.ObjectId,
         snap.subtotal,
         `intent=${String(intent._id)}`,
-        { sourceType: 'order', sourceId: newOrder._id as mongoose.Types.ObjectId },
+        {
+          sourceType: "order",
+          sourceId: newOrder._id as mongoose.Types.ObjectId,
+        },
       );
 
       if (snap.cartIdToDelete) {
+        cartWasDeleted = true;
         if (session) {
-          await orderRepository.deleteCartByIdInSession(snap.cartIdToDelete as mongoose.Types.ObjectId, session);
+          await orderRepository.deleteCartByIdInSession(
+            snap.cartIdToDelete as mongoose.Types.ObjectId,
+            session,
+          );
         } else {
-          await orderRepository.deleteCartById(snap.cartIdToDelete as mongoose.Types.ObjectId);
+          await orderRepository.deleteCartById(
+            snap.cartIdToDelete as mongoose.Types.ObjectId,
+          );
         }
       }
 
@@ -177,13 +247,21 @@ export const paymentVerificationService = {
       );
 
       if (linkIntent.modifiedCount !== 1) {
-        throw new AppError('Could not finalize checkout. Please retry or contact support.', 409);
+        throw new AppError(
+          "Could not finalize checkout. Please retry or contact support.",
+          409,
+        );
       }
-    }, 'finalizePaymentIntent');
+    }, "finalizePaymentIntent");
+
+    if (cartWasDeleted) {
+      await cartService.clearCartCache(userId);
+      emitCartEvent({ type: "cart.cleared", userId });
+    }
 
     if (!resolvedOrderId) {
       const intentReload = await CheckoutPaymentIntent.findById(intent._id)
-        .select('createdOrderId')
+        .select("createdOrderId")
         .lean()
         .maxTimeMS(PAYMENT_QUERY_MAX_MS);
       resolvedOrderId = intentReload?.createdOrderId;
@@ -203,9 +281,9 @@ export const paymentVerificationService = {
     await withOptionalTransaction(async (session) => {
       const fresh = await withQuerySession(Order.findById(orderId), session);
       if (!fresh || String(fresh.user) !== userId) {
-        throw new AppError('Order not found.', 404);
+        throw new AppError("Order not found.", 404);
       }
-      if (fresh.paymentStatus === 'paid') return;
+      if (fresh.paymentStatus === "paid") return;
 
       for (const item of fresh.items) {
         const ok = await decrementVariantStock(
@@ -215,8 +293,13 @@ export const paymentVerificationService = {
           sessionOpts(session),
         );
         if (!ok) {
-          logger.error(`verifyPayment: insufficient stock after Razorpay success order=${orderId} sku=${item.variant.sku}`);
-          throw new AppError('Inventory changed before we could confirm your payment. Please contact support with your payment ID.', 409);
+          logger.error(
+            `verifyPayment: insufficient stock after Razorpay success order=${orderId} sku=${item.variant.sku}`,
+          );
+          throw new AppError(
+            "Inventory changed before we could confirm your payment. Please contact support with your payment ID.",
+            409,
+          );
         }
       }
 
@@ -226,22 +309,22 @@ export const paymentVerificationService = {
         fresh.coupon as mongoose.Types.ObjectId,
         fresh.subtotal,
         `order=${orderId}`,
-        { sourceType: 'order', sourceId: fresh._id as mongoose.Types.ObjectId },
+        { sourceType: "order", sourceId: fresh._id as mongoose.Types.ObjectId },
       );
 
-      fresh.paymentStatus = 'paid';
-      fresh.status = 'confirmed';
+      fresh.paymentStatus = "paid";
+      fresh.status = "confirmed";
       fresh.razorpayPaymentId = razorpayPaymentId;
       fresh.razorpaySignature = razorpaySignature;
       fresh.inventoryReserved = true;
       fresh.invoice = { isGenerated: true, generatedAt: new Date() };
       fresh.statusHistory.push({
-        status: 'confirmed',
+        status: "confirmed",
         timestamp: new Date(),
-        note: 'Payment received (Invoice auto-generated)',
+        note: "Payment received (Invoice auto-generated)",
       });
       await fresh.save(sessionOpts(session));
-    }, 'finalizeDirectOrderVerification');
+    }, "finalizeDirectOrderVerification");
 
     return loadVerifiedOrderDto(orderId, userId);
   },

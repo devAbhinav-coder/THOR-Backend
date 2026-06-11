@@ -1,12 +1,12 @@
-import mongoose, { Types } from 'mongoose';
-import Review from '../../models/Review';
-import { IReview } from '../../types';
-import Order from '../../models/Order';
-import Product from '../../models/Product';
-import User from '../../models/User';
-import AppError from '../../utils/AppError';
-import { runInTransaction } from '../../utils/mongoTransaction';
-import { getCache, setCache } from '../cacheService';
+import mongoose, { Types } from "mongoose";
+import Review from "../../models/Review";
+import { IReview } from "../../types";
+import Order from "../../models/Order";
+import Product from "../../models/Product";
+import User from "../../models/User";
+import AppError from "../../types/utils/AppError";
+import { runInTransaction } from "../../types/utils/mongoTransaction";
+import { getCache, setCache } from "../cacheService";
 import {
   PUBLIC_REVIEW_FILTER,
   REVIEW_EDIT_WINDOW_DAYS,
@@ -15,62 +15,72 @@ import {
   REVIEW_SORT_OPTIONS,
   ReviewSortKey,
   reviewIdempotencyCacheKey,
-} from './reviewConstants';
-import { reviewCacheService } from './reviewCacheService';
-import { serializeReviewForOwner, serializeReviewsForPublic } from './reviewDto';
-import { emitReviewEvent } from './reviewEventService';
-import { recordReviewMetric } from './reviewMetricsService';
-import { applyModerationToReview, enqueueModerationReview } from './reviewModerationService';
-import { recordProductReviewAnalytics } from './reviewAnalyticsService';
-import type { ReportReason } from './reviewConstants';
+} from "./reviewConstants";
+import { reviewCacheService } from "./reviewCacheService";
+import {
+  serializeReviewForOwner,
+  serializeReviewsForPublic,
+} from "./reviewDto";
+import { emitReviewEvent } from "./reviewEventService";
+import { recordReviewMetric } from "./reviewMetricsService";
+import {
+  applyModerationToReview,
+  enqueueModerationReview,
+} from "./reviewModerationService";
+import { recordProductReviewAnalytics } from "./reviewAnalyticsService";
+import type { ReportReason } from "./reviewConstants";
 
 function isDuplicateKeyError(err: unknown): boolean {
   return (
     err !== null &&
-    typeof err === 'object' &&
-    'code' in err &&
+    typeof err === "object" &&
+    "code" in err &&
     (err as { code: number }).code === 11000
   );
 }
 
 function normalizeWhitespace(value: string): string {
-  return value.replace(/\s+/g, ' ').trim();
+  return value.replace(/\s+/g, " ").trim();
 }
 
-function buildListFilter(productId: string, sort: ReviewSortKey): Record<string, unknown> {
+function buildListFilter(
+  productId: string,
+  sort: ReviewSortKey,
+): Record<string, unknown> {
   const filter: Record<string, unknown> = {
     product: productId,
     ...PUBLIC_REVIEW_FILTER,
   };
-  if (sort === 'images') {
-    filter['images.0'] = { $exists: true };
+  if (sort === "images") {
+    filter["images.0"] = { $exists: true };
   }
   return filter;
 }
 
 function parseSort(sortRaw?: string): ReviewSortKey {
-  const allowed: ReviewSortKey[] = ['newest', 'highest', 'helpful', 'images'];
+  const allowed: ReviewSortKey[] = ["newest", "highest", "helpful", "images"];
   if (sortRaw && allowed.includes(sortRaw as ReviewSortKey)) {
     return sortRaw as ReviewSortKey;
   }
-  return 'newest';
+  return "newest";
 }
 
 async function resolveProductReviewTotal(productId: string): Promise<number> {
   const product = await Product.findById(productId)
-    .select('ratings.count')
+    .select("ratings.count")
     .lean()
     .maxTimeMS(REVIEW_QUERY_MAX_MS);
   if (product?.ratings?.count !== undefined && product.ratings.count >= 0) {
     return product.ratings.count;
   }
-  return Review.countDocuments({ product: productId, ...PUBLIC_REVIEW_FILTER }).maxTimeMS(
-    REVIEW_QUERY_MAX_MS
-  );
+  return Review.countDocuments({
+    product: productId,
+    ...PUBLIC_REVIEW_FILTER,
+  }).maxTimeMS(REVIEW_QUERY_MAX_MS);
 }
 
 async function fetchRatingDistribution(
-  productId: string
+  productId: string,
 ): Promise<{ _id: number; count: number }[]> {
   const cached = await reviewCacheService.getRatingSummary(productId);
   if (cached) return cached.ratingDistribution;
@@ -82,34 +92,44 @@ async function fetchRatingDistribution(
         ...PUBLIC_REVIEW_FILTER,
       },
     },
-    { $group: { _id: '$rating', count: { $sum: 1 } } },
+    { $group: { _id: "$rating", count: { $sum: 1 } } },
     { $sort: { _id: -1 } },
   ]).option({ maxTimeMS: REVIEW_QUERY_MAX_MS });
 
   const total = distribution.reduce((sum, row) => sum + row.count, 0);
-  reviewCacheService.setRatingSummary(productId, { ratingDistribution: distribution, total }).catch(() => {});
+  reviewCacheService
+    .setRatingSummary(productId, { ratingDistribution: distribution, total })
+    .catch(() => {});
 
   return distribution;
 }
 
-async function loadUserSnapshot(userId: string): Promise<{ name?: string; avatar?: string }> {
-  const user = await User.findById(userId).select('name avatar').lean().maxTimeMS(REVIEW_QUERY_MAX_MS);
-  if (!user) return { name: 'Verified Buyer' };
+async function loadUserSnapshot(
+  userId: string,
+): Promise<{ name?: string; avatar?: string }> {
+  const user = await User.findById(userId)
+    .select("name avatar")
+    .lean()
+    .maxTimeMS(REVIEW_QUERY_MAX_MS);
+  if (!user) return { name: "Verified Buyer" };
   const name =
-    typeof user.name === 'string' && user.name.trim().length > 0 ?
+    typeof user.name === "string" && user.name.trim().length > 0 ?
       user.name.trim()
-    : 'Verified Buyer';
+    : "Verified Buyer";
   return { name, ...(user.avatar ? { avatar: user.avatar } : {}) };
 }
 
 export const reviewService = {
-  async getFeaturedReviews(): Promise<{ reviews: Record<string, unknown>[]; results: number }> {
+  async getFeaturedReviews(): Promise<{
+    reviews: Record<string, unknown>[];
+    results: number;
+  }> {
     const cached = await reviewCacheService.getFeatured();
     if (cached) {
-      recordReviewMetric('review.featured.cache_hit');
+      recordReviewMetric("review.featured.cache_hit");
       return cached;
     }
-    recordReviewMetric('review.featured.cache_miss');
+    recordReviewMetric("review.featured.cache_miss");
 
     const reviews = await Review.find({
       rating: { $gte: 3 },
@@ -117,19 +137,23 @@ export const reviewService = {
     })
       .sort({ createdAt: -1 })
       .limit(60)
-      .select('rating title comment images isVerifiedPurchase helpfulCount helpfulVotes createdAt user userSnapshot product')
-      .populate('user', 'name avatar')
-      .populate('product', 'name slug')
+      .select(
+        "rating title comment images isVerifiedPurchase helpfulCount helpfulVotes createdAt user userSnapshot product",
+      )
+      .populate("user", "name avatar")
+      .populate("product", "name slug")
       .maxTimeMS(REVIEW_QUERY_MAX_MS)
       .lean();
 
     const payload = {
-      reviews: serializeReviewsForPublic(reviews as Parameters<typeof serializeReviewsForPublic>[0]),
+      reviews: serializeReviewsForPublic(
+        reviews as Parameters<typeof serializeReviewsForPublic>[0],
+      ),
       results: reviews.length,
     };
 
     reviewCacheService.setFeatured(payload).catch(() => {});
-    recordReviewMetric('review.featured.fetch');
+    recordReviewMetric("review.featured.fetch");
     return payload;
   },
 
@@ -137,7 +161,7 @@ export const reviewService = {
     productId: string,
     page: number,
     limit: number,
-    sortRaw?: string
+    sortRaw?: string,
   ): Promise<{
     reviews: Record<string, unknown>[];
     ratingDistribution: { _id: number; count: number }[];
@@ -148,12 +172,17 @@ export const reviewService = {
     const sort = parseSort(sortRaw);
     const skip = (page - 1) * limit;
 
-    const cached = await reviewCacheService.getProductPage(productId, page, limit, sort);
+    const cached = await reviewCacheService.getProductPage(
+      productId,
+      page,
+      limit,
+      sort,
+    );
     if (cached) {
-      recordReviewMetric('review.product.cache_hit', { productId, sort });
+      recordReviewMetric("review.product.cache_hit", { productId, sort });
       return { ...cached, page, limit };
     }
-    recordReviewMetric('review.product.cache_miss', { productId, sort });
+    recordReviewMetric("review.product.cache_miss", { productId, sort });
 
     const filter = buildListFilter(productId, sort);
     const sortSpec = REVIEW_SORT_OPTIONS[sort];
@@ -164,9 +193,9 @@ export const reviewService = {
         .skip(skip)
         .limit(limit)
         .select(
-          'rating title comment images isVerifiedPurchase helpfulCount helpfulVotes createdAt user userSnapshot adminReply reports reportCount'
+          "rating title comment images isVerifiedPurchase helpfulCount helpfulVotes createdAt user userSnapshot adminReply reports reportCount",
         )
-        .populate('user', 'name avatar')
+        .populate("user", "name avatar")
         .maxTimeMS(REVIEW_QUERY_MAX_MS)
         .lean(),
       resolveProductReviewTotal(productId),
@@ -174,7 +203,7 @@ export const reviewService = {
     ]);
 
     const serialized = serializeReviewsForPublic(
-      reviews as Parameters<typeof serializeReviewsForPublic>[0]
+      reviews as Parameters<typeof serializeReviewsForPublic>[0],
     );
 
     const payload = {
@@ -193,13 +222,13 @@ export const reviewService = {
       })
       .catch(() => {});
 
-    recordReviewMetric('review.product.list', { productId, sort, page });
+    recordReviewMetric("review.product.list", { productId, sort, page });
     return payload;
   },
 
   async canReviewProduct(
     userId: string,
-    productId: string
+    productId: string,
   ): Promise<{
     canReview: boolean;
     hasPurchased: boolean;
@@ -209,13 +238,16 @@ export const reviewService = {
     const [order, existingReview] = await Promise.all([
       Order.findOne({
         user: userId,
-        status: 'delivered',
-        'items.product': productId,
+        status: "delivered",
+        "items.product": productId,
       })
-        .select('_id')
+        .select("_id")
         .lean()
         .maxTimeMS(REVIEW_QUERY_MAX_MS),
-      Review.findOne({ product: productId, user: userId }).select('_id').lean().maxTimeMS(REVIEW_QUERY_MAX_MS),
+      Review.findOne({ product: productId, user: userId })
+        .select("_id")
+        .lean()
+        .maxTimeMS(REVIEW_QUERY_MAX_MS),
     ]);
 
     const hasReviewed = !!existingReview;
@@ -238,15 +270,18 @@ export const reviewService = {
     images?: { url: string; publicId: string }[];
     idempotencyKey?: string;
   }): Promise<Record<string, unknown>> {
-    const { userId, productId, orderId, rating, images, idempotencyKey } = input;
+    const { userId, productId, orderId, rating, images, idempotencyKey } =
+      input;
     const title = input.title ? normalizeWhitespace(input.title) : undefined;
     const comment = normalizeWhitespace(input.comment);
 
     if (idempotencyKey) {
       const cacheKey = reviewIdempotencyCacheKey(userId, idempotencyKey);
-      const cached = await getCache<{ review: Record<string, unknown> }>(cacheKey);
+      const cached = await getCache<{ review: Record<string, unknown> }>(
+        cacheKey,
+      );
       if (cached?.review) {
-        recordReviewMetric('review.idempotency.replay', { productId });
+        recordReviewMetric("review.idempotency.replay", { productId });
         return cached.review;
       }
     }
@@ -260,16 +295,16 @@ export const reviewService = {
         const order = await Order.findOne({
           _id: orderId,
           user: userId,
-          status: 'delivered',
-          'items.product': productId,
+          status: "delivered",
+          "items.product": productId,
         })
           .session(session)
-          .select('_id');
+          .select("_id");
 
         if (!order) {
           throw new AppError(
-            'You can only review products you have purchased and received.',
-            403
+            "You can only review products you have purchased and received.",
+            403,
           );
         }
 
@@ -282,7 +317,7 @@ export const reviewService = {
           comment,
           isVerifiedPurchase: true,
           userSnapshot,
-          status: 'visible' as const,
+          status: "visible" as const,
           helpfulCount: 0,
           ...(images && images.length > 0 ? { images } : {}),
         };
@@ -293,32 +328,35 @@ export const reviewService = {
 
         const populated = await Review.findById(review._id)
           .session(session)
-          .populate('user', 'name avatar');
-        return serializeReviewForOwner(populated as unknown as Parameters<typeof serializeReviewForOwner>[0]);
-      }, 'review.create');
+          .populate("user", "name avatar");
+        return serializeReviewForOwner(
+          populated as unknown as Parameters<typeof serializeReviewForOwner>[0],
+        );
+      }, "review.create");
     } catch (err) {
       if (isDuplicateKeyError(err)) {
-        recordReviewMetric('review.duplicate_attempt', { productId, userId });
-        throw new AppError('You have already reviewed this product.', 409);
+        recordReviewMetric("review.duplicate_attempt", { productId, userId });
+        throw new AppError("You have already reviewed this product.", 409);
       }
       throw err;
     }
 
     reviewCacheService.scheduleInvalidateProduct(productId);
     reviewCacheService.scheduleInvalidateFeatured();
-    recordReviewMetric('review.created', { productId, userId, rating });
-    recordProductReviewAnalytics(productId, 'created', rating);
+    recordReviewMetric("review.created", { productId, userId, rating });
+    recordProductReviewAnalytics(productId, "created", rating);
 
     const reviewId = String((createdReview as { _id?: unknown })._id);
     emitReviewEvent({
-      type: 'review.created',
+      type: "review.created",
       reviewId,
       productId,
       userId,
       meta: { rating },
     });
 
-    const flags = (createdReview as { moderationFlags?: string[] }).moderationFlags;
+    const flags = (createdReview as { moderationFlags?: string[] })
+      .moderationFlags;
     if (flags?.length) {
       enqueueModerationReview(reviewId, productId, flags);
     }
@@ -327,7 +365,7 @@ export const reviewService = {
       setCache(
         reviewIdempotencyCacheKey(userId, idempotencyKey),
         { review: createdReview },
-        REVIEW_IDEMPOTENCY_TTL_SEC
+        REVIEW_IDEMPOTENCY_TTL_SEC,
       ).catch(() => {});
     }
 
@@ -337,27 +375,29 @@ export const reviewService = {
   async updateReview(
     userId: string,
     reviewId: string,
-    updates: { rating?: number; title?: string; comment?: string }
+    updates: { rating?: number; title?: string; comment?: string },
   ): Promise<Record<string, unknown>> {
     const review = await Review.findOne({
       _id: reviewId,
       user: userId,
       $or: [{ deletedAt: null }, { deletedAt: { $exists: false } }],
     });
-    if (!review) throw new AppError('Review not found.', 404);
+    if (!review) throw new AppError("Review not found.", 404);
 
     const editDeadline = new Date(review.createdAt);
     editDeadline.setDate(editDeadline.getDate() + REVIEW_EDIT_WINDOW_DAYS);
     if (new Date() > editDeadline) {
       throw new AppError(
         `Reviews can only be edited within ${REVIEW_EDIT_WINDOW_DAYS} days of submission.`,
-        403
+        403,
       );
     }
 
     if (updates.rating !== undefined) review.rating = updates.rating;
-    if (updates.title !== undefined) review.title = normalizeWhitespace(updates.title);
-    if (updates.comment !== undefined) review.comment = normalizeWhitespace(updates.comment);
+    if (updates.title !== undefined)
+      review.title = normalizeWhitespace(updates.title);
+    if (updates.comment !== undefined)
+      review.comment = normalizeWhitespace(updates.comment);
 
     applyModerationToReview(review, review.title, review.comment);
     await review.save();
@@ -365,9 +405,11 @@ export const reviewService = {
     const productId = String(review.product);
     reviewCacheService.scheduleInvalidateProduct(productId);
     reviewCacheService.scheduleInvalidateFeatured();
-    recordReviewMetric('review.updated', { productId, userId, reviewId });
+    recordReviewMetric("review.updated", { productId, userId, reviewId });
 
-    return serializeReviewForOwner(review as unknown as Parameters<typeof serializeReviewForOwner>[0]);
+    return serializeReviewForOwner(
+      review as unknown as Parameters<typeof serializeReviewForOwner>[0],
+    );
   },
 
   async deleteReview(userId: string, reviewId: string): Promise<void> {
@@ -379,21 +421,21 @@ export const reviewService = {
       },
       {
         deletedAt: new Date(),
-        status: 'hidden',
+        status: "hidden",
       },
-      { new: true }
+      { new: true },
     );
 
-    if (!review) throw new AppError('Review not found.', 404);
+    if (!review) throw new AppError("Review not found.", 404);
 
     const productId = String(review.product);
     reviewCacheService.scheduleInvalidateProduct(productId);
     reviewCacheService.scheduleInvalidateFeatured();
-    recordReviewMetric('review.deleted', { productId, userId, reviewId });
-    recordProductReviewAnalytics(productId, 'deleted');
+    recordReviewMetric("review.deleted", { productId, userId, reviewId });
+    recordProductReviewAnalytics(productId, "deleted");
 
     emitReviewEvent({
-      type: 'review.deleted',
+      type: "review.deleted",
       reviewId,
       productId,
       userId,
@@ -408,7 +450,7 @@ export const reviewService = {
 
   async voteHelpful(
     userId: string,
-    reviewId: string
+    reviewId: string,
   ): Promise<{ helpfulCount: number; voted: boolean }> {
     const userObjectId = new Types.ObjectId(userId);
 
@@ -417,7 +459,7 @@ export const reviewService = {
       ...PUBLIC_REVIEW_FILTER,
       helpfulVotes: userObjectId,
     })
-      .select('_id helpfulVotes helpfulCount product')
+      .select("_id helpfulVotes helpfulCount product")
       .lean()
       .maxTimeMS(REVIEW_QUERY_MAX_MS);
 
@@ -428,15 +470,18 @@ export const reviewService = {
           $pull: { helpfulVotes: userObjectId },
           $inc: { helpfulCount: -1 },
         },
-        { new: true }
+        { new: true },
       )
-        .select('helpfulCount helpfulVotes product')
+        .select("helpfulCount helpfulVotes product")
         .maxTimeMS(REVIEW_QUERY_MAX_MS)) as IReview | null;
 
-      if (!updated) throw new AppError('Review not found.', 404);
+      if (!updated) throw new AppError("Review not found.", 404);
 
-      const helpfulCount = Math.max(0, updated.helpfulCount ?? updated.helpfulVotes?.length ?? 0);
-      recordReviewMetric('review.helpful.unvote', {
+      const helpfulCount = Math.max(
+        0,
+        updated.helpfulCount ?? updated.helpfulVotes?.length ?? 0,
+      );
+      recordReviewMetric("review.helpful.unvote", {
         reviewId,
         productId: String(updated.product),
         userId,
@@ -455,22 +500,23 @@ export const reviewService = {
         $addToSet: { helpfulVotes: userObjectId },
         $inc: { helpfulCount: 1 },
       },
-      { new: true }
+      { new: true },
     )
-      .select('helpfulCount helpfulVotes product')
+      .select("helpfulCount helpfulVotes product")
       .maxTimeMS(REVIEW_QUERY_MAX_MS)) as IReview | null;
 
-    if (!updated) throw new AppError('Review not found.', 404);
+    if (!updated) throw new AppError("Review not found.", 404);
 
-    const helpfulCount = updated.helpfulCount ?? updated.helpfulVotes?.length ?? 0;
-    recordReviewMetric('review.helpful.vote', {
+    const helpfulCount =
+      updated.helpfulCount ?? updated.helpfulVotes?.length ?? 0;
+    recordReviewMetric("review.helpful.vote", {
       reviewId,
       productId: String(updated.product),
       userId,
     });
 
     emitReviewEvent({
-      type: 'review.helpful_vote',
+      type: "review.helpful_vote",
       reviewId,
       productId: String(updated.product),
       userId,
@@ -484,7 +530,7 @@ export const reviewService = {
     userId: string,
     reviewId: string,
     reason: ReportReason,
-    details?: string
+    details?: string,
   ): Promise<{ reportCount: number }> {
     const userObjectId = new Types.ObjectId(userId);
     const reportEntry = {
@@ -498,40 +544,47 @@ export const reviewService = {
       {
         _id: reviewId,
         ...PUBLIC_REVIEW_FILTER,
-        'reports.user': { $ne: userObjectId },
+        "reports.user": { $ne: userObjectId },
       },
       {
         $push: { reports: reportEntry },
         $inc: { reportCount: 1 },
       },
-      { new: true }
+      { new: true },
     )
-      .select('reportCount product')
+      .select("reportCount product")
       .maxTimeMS(REVIEW_QUERY_MAX_MS)) as IReview | null;
 
     if (!updated) {
-      const exists = await Review.exists({ _id: reviewId, ...PUBLIC_REVIEW_FILTER }).maxTimeMS(
-        REVIEW_QUERY_MAX_MS
-      );
-      if (!exists) throw new AppError('Review not found.', 404);
+      const exists = await Review.exists({
+        _id: reviewId,
+        ...PUBLIC_REVIEW_FILTER,
+      }).maxTimeMS(REVIEW_QUERY_MAX_MS);
+      if (!exists) throw new AppError("Review not found.", 404);
 
       const already = await Review.exists({
         _id: reviewId,
-        'reports.user': userObjectId,
+        "reports.user": userObjectId,
       }).maxTimeMS(REVIEW_QUERY_MAX_MS);
-      if (already) throw new AppError('You have already reported this review.', 409);
-      throw new AppError('Review not found.', 404);
+      if (already)
+        throw new AppError("You have already reported this review.", 409);
+      throw new AppError("Review not found.", 404);
     }
 
     const reportCount = updated.reportCount ?? 0;
     const productId = String(updated.product);
 
     reviewCacheService.scheduleInvalidateProduct(productId);
-    recordReviewMetric('review.reported', { reviewId, productId, userId, reason });
-    recordProductReviewAnalytics(productId, 'reported');
+    recordReviewMetric("review.reported", {
+      reviewId,
+      productId,
+      userId,
+      reason,
+    });
+    recordProductReviewAnalytics(productId, "reported");
 
     emitReviewEvent({
-      type: 'review.reported',
+      type: "review.reported",
       reviewId,
       productId,
       userId,

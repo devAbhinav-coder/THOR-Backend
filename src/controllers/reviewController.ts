@@ -1,29 +1,42 @@
-import { Response, NextFunction } from 'express';
-import catchAsync from '../utils/catchAsync';
-import { AuthRequest } from '../types';
-import { sendPaginated, sendSuccess } from '../utils/response';
-import { reviewService } from '../services/reviews/reviewService';
-import type { ReportReason } from '../services/reviews/reviewConstants';
+import { Response, NextFunction } from "express";
+import catchAsync from "../types/utils/catchAsync";
+import { AuthRequest } from "../types";
+import { sendPaginated, sendSuccess } from "../types/utils/response";
+import { reviewService } from "../services/reviews/reviewService";
+import type { ReportReason } from "../services/reviews/reviewConstants";
 
-export const getFeaturedReviews = catchAsync(async (_req: AuthRequest, res: Response) => {
-  const payload = await reviewService.getFeaturedReviews();
-  sendSuccess(res, payload);
-});
+export const getFeaturedReviews = catchAsync(
+  async (_req: AuthRequest, res: Response) => {
+    const payload = await reviewService.getFeaturedReviews();
+    sendSuccess(res, payload);
+  },
+);
 
-export const getProductReviews = catchAsync(async (req: AuthRequest, res: Response) => {
-  const { productId } = req.params;
-  const page = Number(req.query.page) || 1;
-  const limit = Number(req.query.limit) || 10;
-  const sort = typeof req.query.sort === 'string' ? req.query.sort : undefined;
+export const getProductReviews = catchAsync(
+  async (req: AuthRequest, res: Response) => {
+    const { productId } = req.params;
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const sort =
+      typeof req.query.sort === "string" ? req.query.sort : undefined;
 
-  const result = await reviewService.getProductReviews(productId, page, limit, sort);
+    const result = await reviewService.getProductReviews(
+      productId,
+      page,
+      limit,
+      sort,
+    );
 
-  sendPaginated(
-    res,
-    { reviews: result.reviews, ratingDistribution: result.ratingDistribution },
-    { page: result.page, limit: result.limit, total: result.total }
-  );
-});
+    sendPaginated(
+      res,
+      {
+        reviews: result.reviews,
+        ratingDistribution: result.ratingDistribution,
+      },
+      { page: result.page, limit: result.limit, total: result.total },
+    );
+  },
+);
 
 export const createReview = catchAsync(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -42,7 +55,7 @@ export const createReview = catchAsync(
       }
     ).uploadedImages;
 
-    const headerIdempotency = req.get('Idempotency-Key')?.trim();
+    const headerIdempotency = req.get("Idempotency-Key")?.trim();
     const effectiveIdempotencyKey = idempotencyKey || headerIdempotency;
 
     try {
@@ -63,26 +76,30 @@ export const createReview = catchAsync(
         idempotencyKey: effectiveIdempotencyKey,
       });
 
-      sendSuccess(res, { review }, 'Review created', 201);
+      sendSuccess(res, { review }, "Review created", 201);
     } catch (err) {
       next(err);
     }
-  }
+  },
 );
 
 export const updateReview = catchAsync(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const review = await reviewService.updateReview(String(req.user!._id), req.params.id, {
-        rating: req.body.rating,
-        title: req.body.title,
-        comment: req.body.comment,
-      });
+      const review = await reviewService.updateReview(
+        String(req.user!._id),
+        req.params.id,
+        {
+          rating: req.body.rating,
+          title: req.body.title,
+          comment: req.body.comment,
+        },
+      );
       sendSuccess(res, { review });
     } catch (err) {
       next(err);
     }
-  }
+  },
 );
 
 export const deleteReview = catchAsync(
@@ -93,26 +110,31 @@ export const deleteReview = catchAsync(
     } catch (err) {
       next(err);
     }
-  }
+  },
 );
 
-export const canReviewProduct = catchAsync(async (req: AuthRequest, res: Response) => {
-  const result = await reviewService.canReviewProduct(
-    String(req.user!._id),
-    req.params.productId
-  );
-  sendSuccess(res, result);
-});
+export const canReviewProduct = catchAsync(
+  async (req: AuthRequest, res: Response) => {
+    const result = await reviewService.canReviewProduct(
+      String(req.user!._id),
+      req.params.productId,
+    );
+    sendSuccess(res, result);
+  },
+);
 
 export const voteHelpful = catchAsync(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const result = await reviewService.voteHelpful(String(req.user!._id), req.params.id);
+      const result = await reviewService.voteHelpful(
+        String(req.user!._id),
+        req.params.id,
+      );
       sendSuccess(res, result);
     } catch (err) {
       next(err);
     }
-  }
+  },
 );
 
 export const reportReview = catchAsync(
@@ -122,11 +144,11 @@ export const reportReview = catchAsync(
         String(req.user!._id),
         req.params.id,
         req.body.reason as ReportReason,
-        req.body.details
+        req.body.details,
       );
-      sendSuccess(res, { reportCount }, 'Review reported successfully');
+      sendSuccess(res, { reportCount }, "Review reported successfully");
     } catch (err) {
       next(err);
     }
-  }
+  },
 );

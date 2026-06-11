@@ -1,16 +1,19 @@
 import { Request, Response, NextFunction } from "express";
 import Product from "../models/Product";
-import AppError from "../utils/AppError";
-import catchAsync from "../utils/catchAsync";
-import APIFeatures from "../utils/apiFeatures";
+import AppError from "../types/utils/AppError";
+import catchAsync from "../types/utils/catchAsync";
+import APIFeatures from "../types/utils/apiFeatures";
 import { IProduct } from "../types";
-import { reconcileProductJson, sumVariantStocks } from "../utils/productStock";
+import {
+  reconcileProductJson,
+  sumVariantStocks,
+} from "../types/utils/productStock";
 import { getCache, setCache, deleteCache } from "../services/cacheService";
 import { productRepository } from "../repositories/productRepository";
-import { sendPaginated, sendSuccess } from "../utils/response";
-import { safeJsonParse } from "../utils/safeJson";
+import { sendPaginated, sendSuccess } from "../types/utils/response";
+import { safeJsonParse } from "../types/utils/safeJson";
 import { enqueueImageDelete } from "../queues/imageQueue";
-import { CacheMutex } from "../utils/cacheMutex";
+import { CacheMutex } from "../types/utils/cacheMutex";
 import { advancedSearchService } from "../services/advancedSearchService";
 import {
   normalizeSearchQuery,
@@ -36,7 +39,9 @@ function leanProduct(p: Record<string, unknown>) {
   return reconcileProductJson(p as Parameters<typeof reconcileProductJson>[0]);
 }
 
-function minRatingMongoFilter(query: Request["query"]): Record<string, unknown> {
+function minRatingMongoFilter(
+  query: Request["query"],
+): Record<string, unknown> {
   const raw = query.minRating;
   const s =
     typeof raw === "string" ? raw.trim()
@@ -50,98 +55,85 @@ function minRatingMongoFilter(query: Request["query"]): Record<string, unknown> 
 
 // ─── getAllProducts ────────────────────────────────────────────────────────────
 
-export const getAllProducts = catchAsync(async (req: Request, res: Response) => {
-  const parsed = parseProductListQuery(req);
-  parsed.adminScope = false;
+export const getAllProducts = catchAsync(
+  async (req: Request, res: Response) => {
+    const parsed = parseProductListQuery(req);
+    parsed.adminScope = false;
 
-  const result = await listProducts(
-    parsed,
-    req.query as Record<string, string | undefined>,
-  );
+    const result = await listProducts(
+      parsed,
+      req.query as Record<string, string | undefined>,
+    );
 
-  sendPaginated(
-    res,
-    {
-      products: result.products.map(leanProduct),
-      ...(result.searchMethod ? { searchMethod: result.searchMethod } : {}),
-    },
-    {
-      page: result.page,
-      limit: result.limit,
-      total: result.total,
-      hasNextPage: result.hasNextPage,
-    },
-  );
-});
+    sendPaginated(
+      res,
+      {
+        products: result.products.map(leanProduct),
+        ...(result.searchMethod ? { searchMethod: result.searchMethod } : {}),
+      },
+      {
+        page: result.page,
+        limit: result.limit,
+        total: result.total,
+        hasNextPage: result.hasNextPage,
+      },
+    );
+  },
+);
 
 // ─── searchProducts ────────────────────────────────────────────────────────────
 
-export const searchProducts = catchAsync(async (req: Request, res: Response) => {
-  const q = normalizeSearchQuery(req.query.q);
-  const categories = req.query.category ?
-      [String(req.query.category)]
-    : req.query.categories ?
-      (Array.isArray(req.query.categories) ?
-        (req.query.categories as string[])
-      : [String(req.query.categories)])
-    : [];
-  const fabrics = req.query.fabric ?
-      [String(req.query.fabric)]
-    : req.query.fabrics ?
-      (Array.isArray(req.query.fabrics) ?
-        (req.query.fabrics as string[])
-      : [String(req.query.fabrics)])
-    : [];
+export const searchProducts = catchAsync(
+  async (req: Request, res: Response) => {
+    const q = normalizeSearchQuery(req.query.q);
+    const parsedSearch = parseProductListQuery(req);
+    const categories = parsedSearch.categories;
+    const fabrics = parsedSearch.fabrics;
+    const page = parsedSearch.page;
+    const limit = parsedSearch.limit;
+    const { sortBy, sortOrder } = mapSortToAdvanced(
+      typeof req.query.sortBy === "string" ? req.query.sortBy
+      : typeof req.query.sort === "string" ? req.query.sort
+      : "relevance",
+    );
 
-  const page = parseProductListQuery(req).page;
-  const limit = parseProductListQuery(req).limit;
-  const { sortBy, sortOrder } = mapSortToAdvanced(
-    typeof req.query.sortBy === "string" ? req.query.sortBy
-    : typeof req.query.sort === "string" ? req.query.sort
-    : "relevance",
-  );
+    const searchResult = await advancedSearchService.searchProducts({
+      query: q,
+      sortBy,
+      sortOrder,
+      page,
+      limit,
+      categories,
+      fabrics,
+      minPrice: parsedSearch.minPrice,
+      maxPrice: parsedSearch.maxPrice,
+      minRating: parsedSearch.minRating,
+      isFeatured: parsedSearch.isFeatured,
+      adminScope: false,
+      useCache: true,
+    });
 
-  const searchResult = await advancedSearchService.searchProducts({
-    query: q,
-    sortBy,
-    sortOrder,
-    page,
-    limit,
-    categories,
-    fabrics,
-    minPrice: req.query.minPrice ? Number(req.query.minPrice) : undefined,
-    maxPrice: req.query.maxPrice ? Number(req.query.maxPrice) : undefined,
-    minRating: req.query.minRating ? Number(req.query.minRating) : undefined,
-    isFeatured:
-      req.query.isFeatured === "true" ? true
-      : req.query.isFeatured === "false" ? false
-      : undefined,
-    adminScope: false,
-    useCache: true,
-  });
-
-  sendPaginated(
-    res,
-    {
-      products: searchResult.products.map(leanProduct),
-      searchMethod: searchResult.searchMethod,
-      cached: searchResult.cached,
-    },
-    {
-      page: searchResult.page,
-      limit: searchResult.limit,
-      total: searchResult.total,
-    },
-  );
-});
+    sendPaginated(
+      res,
+      {
+        products: searchResult.products.map(leanProduct),
+        searchMethod: searchResult.searchMethod,
+        cached: searchResult.cached,
+      },
+      {
+        page: searchResult.page,
+        limit: searchResult.limit,
+        total: searchResult.total,
+        hasNextPage: searchResult.page < searchResult.totalPages,
+      },
+    );
+  },
+);
 
 export const autocompleteSearch = catchAsync(
   async (req: Request, res: Response) => {
     const q = normalizeSearchQuery(req.query.q);
-    const limit = Math.min(
-      Math.max(1, Number(req.query.limit) || 5),
-      10,
-    );
+    const limit = Math.min(Math.max(1, Number(req.query.limit) || 5), 10);
 
     if (!q) {
       return sendSuccess(res, { suggestions: [], query: "" });
@@ -286,15 +278,22 @@ export const getProductsByCategory = catchAsync(
     sendPaginated(
       res,
       { products: products.map(leanProduct) },
-      { page: features.getPage(), limit: features.getLimit(), total: totalCount },
+      {
+        page: features.getPage(),
+        limit: features.getLimit(),
+        total: totalCount,
+      },
     );
   },
 );
 
 export const getFilterOptions = catchAsync(
-  async (_req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
+    const categoryParam =
+      typeof req.query.category === "string" ? req.query.category.trim() : "";
+
     const v = await getProductCacheVersion();
-    const cacheKey = filtersCacheKey(v);
+    const cacheKey = filtersCacheKey(v, categoryParam || undefined);
     const cached = await getCache<{
       categories: string[];
       fabrics: string[];
@@ -302,36 +301,71 @@ export const getFilterOptions = catchAsync(
     }>(cacheKey);
     if (cached) return sendSuccess(res, cached);
 
-    const matchFilter = {
+    const shopMatch: Record<string, unknown> = {
       isActive: true,
       category: { $ne: "Gifting" },
       tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
     };
 
-    const [agg] = await Product.aggregate<{
-      categories: string[];
-      fabrics: string[];
-      minPrice: number;
-      maxPrice: number;
+    const scopedMatch: Record<string, unknown> =
+      categoryParam ?
+        { ...shopMatch, category: categoryParam }
+      : shopMatch;
+
+    const [facet] = await Product.aggregate<{
+      allCategories: { categories: string[] }[];
+      allFabrics: { fabrics: string[] }[];
+      scopedPrice: {
+        minPrice: number;
+        maxPrice: number;
+      }[];
     }>([
-      { $match: matchFilter },
       {
-        $group: {
-          _id: null,
-          categories: { $addToSet: "$category" },
-          fabrics: { $addToSet: "$fabric" },
-          minPrice: { $min: "$price" },
-          maxPrice: { $max: "$price" },
+        $facet: {
+          allCategories: [
+            { $match: shopMatch },
+            {
+              $group: {
+                _id: null,
+                categories: { $addToSet: "$category" },
+              },
+            },
+          ],
+          allFabrics: [
+            { $match: shopMatch },
+            {
+              $group: {
+                _id: null,
+                fabrics: { $addToSet: "$fabric" },
+              },
+            },
+          ],
+          scopedPrice: [
+            { $match: scopedMatch },
+            {
+              $group: {
+                _id: null,
+                minPrice: { $min: "$price" },
+                maxPrice: { $max: "$price" },
+              },
+            },
+          ],
         },
       },
     ]).option({ maxTimeMS: 4000 });
 
+    const allFabrics = facet?.allFabrics?.[0];
+    const allCategories = facet?.allCategories?.[0];
+    const scopedPrice = facet?.scopedPrice?.[0];
+
     const result = {
-      categories: (agg?.categories ?? []).filter(Boolean).sort() as string[],
-      fabrics: (agg?.fabrics ?? []).filter(Boolean).sort() as string[],
+      categories: (allCategories?.categories ?? [])
+        .filter(Boolean)
+        .sort() as string[],
+      fabrics: (allFabrics?.fabrics ?? []).filter(Boolean).sort() as string[],
       priceRange: {
-        minPrice: agg?.minPrice ?? 0,
-        maxPrice: agg?.maxPrice ?? 100000,
+        minPrice: scopedPrice?.minPrice ?? 0,
+        maxPrice: scopedPrice?.maxPrice ?? 100000,
       },
     };
 
@@ -347,7 +381,9 @@ export const createProduct = catchAsync(
     ).uploadedImages;
 
     if (!uploadedImages?.length) {
-      return next(new AppError("Please upload at least one product image.", 400));
+      return next(
+        new AppError("Please upload at least one product image.", 400),
+      );
     }
     if (uploadedImages.length > 7) {
       return next(new AppError("A product can have at most 7 images.", 400));
@@ -371,12 +407,13 @@ export const createProduct = catchAsync(
       variants: variantsParsed,
       tags: safeJsonParse(req.body.tags, req.body.tags || [], "tags"),
       price: Number(req.body.price),
-      comparePrice: req.body.comparePrice ?
-        Number(req.body.comparePrice)
-      : undefined,
-      isFeatured: req.body.isFeatured === "true" || req.body.isFeatured === true,
+      comparePrice:
+        req.body.comparePrice ? Number(req.body.comparePrice) : undefined,
+      isFeatured:
+        req.body.isFeatured === "true" || req.body.isFeatured === true,
       isActive: req.body.isActive !== "false" && req.body.isActive !== false,
-      isGiftable: req.body.isGiftable === "true" || req.body.isGiftable === true,
+      isGiftable:
+        req.body.isGiftable === "true" || req.body.isGiftable === true,
       isCustomizable:
         req.body.isCustomizable === "true" || req.body.isCustomizable === true,
       minOrderQty: req.body.minOrderQty ? Number(req.body.minOrderQty) : 1,
@@ -410,9 +447,13 @@ export const createProduct = catchAsync(
       invalidateGiftingProductCache();
     }
 
-    const lean = await Product.findById(product._id).lean<Record<string, unknown>>();
+    const lean = await Product.findById(product._id).lean<
+      Record<string, unknown>
+    >();
     if (!lean) {
-      return next(new AppError("Product created but could not be retrieved.", 500));
+      return next(
+        new AppError("Product created but could not be retrieved.", 500),
+      );
     }
     sendSuccess(res, { product: leanProduct(lean) }, "Product created", 201);
   },
@@ -501,7 +542,9 @@ export const updateProduct = catchAsync(
     }
     if (req.body.hsnCode !== undefined) {
       updateData.hsnCode =
-        typeof req.body.hsnCode === "string" ? req.body.hsnCode.trim() : req.body.hsnCode;
+        typeof req.body.hsnCode === "string" ?
+          req.body.hsnCode.trim()
+        : req.body.hsnCode;
     }
     if (req.body.price !== undefined) {
       updateData.price = Number(req.body.price);
@@ -512,7 +555,10 @@ export const updateProduct = catchAsync(
 
     delete updateData.updatedAt;
     delete updateData.totalStock;
-    if (updateData.category === "Gifting" || currentProduct.category === "Gifting") {
+    if (
+      updateData.category === "Gifting" ||
+      currentProduct.category === "Gifting"
+    ) {
       updateData.isGiftable = true;
     }
     if (updateData.variants) {
@@ -550,14 +596,19 @@ export const updateProduct = catchAsync(
       currentProduct.category === "Gifting";
     if (giftable) invalidateGiftingProductCache();
 
-    sendSuccess(res, { product: leanProduct(updatedProduct) }, "Product updated");
+    sendSuccess(
+      res,
+      { product: leanProduct(updatedProduct) },
+      "Product updated",
+    );
   },
 );
 
 export const deleteProduct = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const product = await Product.findById(req.params.id);
-    if (!product) return next(new AppError("No product found with that ID.", 404));
+    if (!product)
+      return next(new AppError("No product found with that ID.", 404));
 
     const publicIds = product.images.map((img) => img.publicId);
     const slug = product.slug;
@@ -577,7 +628,8 @@ export const deleteProductImage = catchAsync(
     const decodedId = decodeURIComponent(rawParam);
 
     const product = await Product.findById(id);
-    if (!product) return next(new AppError("No product found with that ID.", 404));
+    if (!product)
+      return next(new AppError("No product found with that ID.", 404));
     if (product.images.length <= 1) {
       return next(new AppError("Product must have at least one image.", 400));
     }
@@ -585,7 +637,8 @@ export const deleteProductImage = catchAsync(
     const match = product.images.find(
       (img) => img.publicId === decodedId || img.publicId === rawParam,
     );
-    if (!match) return next(new AppError("Image not found on this product.", 404));
+    if (!match)
+      return next(new AppError("Image not found on this product.", 404));
 
     product.images = product.images.filter(
       (img) => img.publicId !== match.publicId,
@@ -598,7 +651,10 @@ export const deleteProductImage = catchAsync(
     const lean = await Product.findById(id).lean<Record<string, unknown>>();
     if (!lean) {
       return next(
-        new AppError("Product image deleted but product could not be retrieved.", 500),
+        new AppError(
+          "Product image deleted but product could not be retrieved.",
+          500,
+        ),
       );
     }
     sendSuccess(res, { product: leanProduct(lean) });

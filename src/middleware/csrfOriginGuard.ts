@@ -1,7 +1,10 @@
 import { Request, Response, NextFunction } from "express";
-import AppError from "../utils/AppError";
-import logger from "../utils/logger";
-import { getCorsAllowedOriginSet, normalizeOriginUrl } from "../config/allowedOrigins";
+import AppError from "../types/utils/AppError";
+import logger from "../types/utils/logger";
+import {
+  getCorsAllowedOriginSet,
+  normalizeOriginUrl,
+} from "../config/allowedOrigins";
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 

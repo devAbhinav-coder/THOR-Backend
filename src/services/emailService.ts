@@ -2,8 +2,8 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import nodemailer from "nodemailer";
-import logger from "../utils/logger";
-import { htmlToPlainText } from "../utils/emailPlainText";
+import logger from "../types/utils/logger";
+import { htmlToPlainText } from "../types/utils/emailPlainText";
 import { sendViaResend } from "./emailDeliveryService";
 
 type EmailPayload = {
@@ -68,9 +68,18 @@ const smtpPort = Number(process.env.SMTP_PORT || 587);
 const smtpSecure = process.env.SMTP_SECURE === "true";
 const dkimOpts = buildDkim();
 
-const connectionTimeoutMs = parseInt(process.env.SMTP_CONNECTION_TIMEOUT_MS || "20000", 10);
-const socketTimeoutMs = parseInt(process.env.SMTP_SOCKET_TIMEOUT_MS || "25000", 10);
-const greetingTimeoutMs = parseInt(process.env.SMTP_GREETING_TIMEOUT_MS || "15000", 10);
+const connectionTimeoutMs = parseInt(
+  process.env.SMTP_CONNECTION_TIMEOUT_MS || "20000",
+  10,
+);
+const socketTimeoutMs = parseInt(
+  process.env.SMTP_SOCKET_TIMEOUT_MS || "25000",
+  10,
+);
+const greetingTimeoutMs = parseInt(
+  process.env.SMTP_GREETING_TIMEOUT_MS || "15000",
+  10,
+);
 
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
@@ -299,36 +308,53 @@ export const emailTemplates = {
 
     return {
       subject: `Thank you — your order ${orderNumber} is confirmed`,
-      html: shell("Thank you for your purchase", body, "View your order", orderUrl),
+      html: shell(
+        "Thank you for your purchase",
+        body,
+        "View your order",
+        orderUrl,
+      ),
     };
   },
-  orderStatusUpdate: (name: string, orderNumber: string, status: string, opts?: { carrier?: string; awb?: string; trackingUrl?: string }) => ({
+  orderStatusUpdate: (
+    name: string,
+    orderNumber: string,
+    status: string,
+    opts?: { carrier?: string; awb?: string; trackingUrl?: string },
+  ) => ({
     subject: `Order ${orderNumber} — ${status}`,
     html: shell(
-      status === 'shipped' ? '📦 Your order is on the way!' :
-      status === 'delivered' ? '✅ Order Delivered!' :
-      status === 'cancelled' ? '❌ Order Cancelled' : 'Order update',
+      status === "shipped" ? "📦 Your order is on the way!"
+      : status === "delivered" ? "✅ Order Delivered!"
+      : status === "cancelled" ? "❌ Order Cancelled"
+      : "Order update",
       `Hi ${name},<br/><br/>Your order <b>${orderNumber}</b> is now <b>${status}</b>.<br/><br/>
-       ${status === 'shipped' && opts?.carrier ? `<b>Courier:</b> ${opts.carrier}<br/>${opts.awb ? `<b>AWB:</b> ${opts.awb}<br/>` : ''}${opts?.trackingUrl ? `<b><a href="${opts.trackingUrl}" style="color:#b45309;">Track your shipment →</a></b><br/>` : ''}<br/>` : ''}
-       ${status === 'delivered' ? 'We hope you love your purchase! If you have any issues, please reach out within 7 days.' : ''}
-       ${status === 'cancelled' ? 'If you did not request this, please contact our support team immediately.' : ''}`,
-      'View order',
+       ${status === "shipped" && opts?.carrier ? `<b>Courier:</b> ${opts.carrier}<br/>${opts.awb ? `<b>AWB:</b> ${opts.awb}<br/>` : ""}${opts?.trackingUrl ? `<b><a href="${opts.trackingUrl}" style="color:#b45309;">Track your shipment →</a></b><br/>` : ""}<br/>` : ""}
+       ${status === "delivered" ? "We hope you love your purchase! If you have any issues, please reach out within 7 days." : ""}
+       ${status === "cancelled" ? "If you did not request this, please contact our support team immediately." : ""}`,
+      "View order",
       `${frontendUrl}/dashboard/orders`,
     ),
   }),
-  userOrderCancelled: (name: string, orderNumber: string, reason?: string, initiatedBy: 'customer' | 'admin' = 'customer') => ({
+  userOrderCancelled: (
+    name: string,
+    orderNumber: string,
+    reason?: string,
+    initiatedBy: "customer" | "admin" = "customer",
+  ) => ({
     subject: `Order ${orderNumber} has been cancelled`,
     html: shell(
-      '❌ Order Cancelled',
+      "❌ Order Cancelled",
       `Hi ${name},<br/><br/>
-       ${initiatedBy === 'admin'
-         ? `Your order <b>${orderNumber}</b> has been <b>cancelled</b> by our team.`
+       ${
+         initiatedBy === "admin" ?
+           `Your order <b>${orderNumber}</b> has been <b>cancelled</b> by our team.`
          : `Your cancellation request for order <b>${orderNumber}</b> has been confirmed.`
        }<br/><br/>
-       ${reason ? `<b>Reason:</b> ${reason}<br/><br/>` : ''}
+       ${reason ? `<b>Reason:</b> ${reason}<br/><br/>` : ""}
        If you paid online, your refund will be processed to the original payment method within <b>5–7 business days</b>.<br/><br/>
        We're sorry for the inconvenience. Feel free to place a new order anytime.`,
-      'Shop now',
+      "Shop now",
       `${frontendUrl}/shop`,
     ),
   }),
@@ -453,13 +479,18 @@ export const emailTemplates = {
 
   // ─── Return / Refund emails ───────────────────────────────────────────────
 
-  userReturnRequested: (name: string, orderNumber: string, reason: string, refundMethod: string) => ({
+  userReturnRequested: (
+    name: string,
+    orderNumber: string,
+    reason: string,
+    refundMethod: string,
+  ) => ({
     subject: `Return request received — ${orderNumber}`,
     html: shell(
       "Return Request Received",
       `Hi ${name},<br/><br/>We have received your return request for order <b>${orderNumber}</b>.<br/><br/>
        <b>Reason:</b> ${reason}<br/>
-       <b>Refund Method:</b> ${refundMethod.replace(/_/g, ' ')}<br/><br/>
+       <b>Refund Method:</b> ${refundMethod.replace(/_/g, " ")}<br/><br/>
        Our team will review your request within 1-2 business days and update you on the status.
        If your return is approved, you'll receive your refund within 5-7 working days.`,
       "View Order",
@@ -467,15 +498,22 @@ export const emailTemplates = {
     ),
   }),
 
-  userReturnStatusUpdated: (name: string, orderNumber: string, status: 'approved' | 'rejected', adminNote?: string) => ({
+  userReturnStatusUpdated: (
+    name: string,
+    orderNumber: string,
+    status: "approved" | "rejected",
+    adminNote?: string,
+  ) => ({
     subject: `Return ${status} — ${orderNumber}`,
     html: shell(
-      status === 'approved' ? "Return Approved ✅" : "Return Rejected ❌",
+      status === "approved" ? "Return Approved ✅" : "Return Rejected ❌",
       `Hi ${name},<br/><br/>Your return request for order <b>${orderNumber}</b> has been <b>${status}</b>.<br/><br/>
-       ${adminNote ? `<b>Note from our team:</b> ${adminNote}<br/><br/>` : ''}
-       ${status === 'approved'
-         ? 'Your refund will be processed shortly. You will receive a confirmation once the refund is completed (5–7 working days).'
-         : 'Unfortunately your return request was not approved. Please reach out to our support team if you have questions.'}`,
+       ${adminNote ? `<b>Note from our team:</b> ${adminNote}<br/><br/>` : ""}
+       ${
+         status === "approved" ?
+           "Your refund will be processed shortly. You will receive a confirmation once the refund is completed (5–7 working days)."
+         : "Unfortunately your return request was not approved. Please reach out to our support team if you have questions."
+       }`,
       "View Order",
       `${frontendUrl}/dashboard/orders`,
     ),
@@ -495,25 +533,26 @@ export const emailTemplates = {
   ) => ({
     subject: `Refund processed — ${orderNumber}`,
     html: shell(
-      '💸 Refund Processed',
+      "💸 Refund Processed",
       `Hi ${name},<br/><br/>Your refund for order <b>${orderNumber}</b> has been processed.<br/><br/>
        <b>Amount:</b> ₹${amount.toFixed(2)}<br/>
-       <b>Method:</b> ${method.replace(/_/g, ' ')}<br/><br/>
-       ${method === 'razorpay_auto' || method === 'original_payment'
-         ? '✅ The refund has been initiated to your <b>original payment method</b> (card/UPI/net banking).<br/>It will reflect in <b>5–7 business days</b> depending on your bank.'
-         : method === 'upi_manual' || method === 'upi'
-           ? `✅ The refund will be transferred to your UPI ID: <b>${refundDetails?.upiId || 'your registered UPI ID'}</b>.<br/>It typically arrives within <b>1–2 business days</b>.`
-           : method === 'bank_transfer'
-             ? `✅ The refund will be transferred to your bank account:<br/>
-                <b>Account Name:</b> ${refundDetails?.accountName || '—'}<br/>
-                <b>Account Number:</b> ****${(refundDetails?.accountNumber || '').slice(-4) || '—'}<br/>
-                <b>Bank:</b> ${refundDetails?.bankName || '—'}<br/>
+       <b>Method:</b> ${method.replace(/_/g, " ")}<br/><br/>
+       ${
+         method === "razorpay_auto" || method === "original_payment" ?
+           "✅ The refund has been initiated to your <b>original payment method</b> (card/UPI/net banking).<br/>It will reflect in <b>5–7 business days</b> depending on your bank."
+         : method === "upi_manual" || method === "upi" ?
+           `✅ The refund will be transferred to your UPI ID: <b>${refundDetails?.upiId || "your registered UPI ID"}</b>.<br/>It typically arrives within <b>1–2 business days</b>.`
+         : method === "bank_transfer" ?
+           `✅ The refund will be transferred to your bank account:<br/>
+                <b>Account Name:</b> ${refundDetails?.accountName || "—"}<br/>
+                <b>Account Number:</b> ****${(refundDetails?.accountNumber || "").slice(-4) || "—"}<br/>
+                <b>Bank:</b> ${refundDetails?.bankName || "—"}<br/>
                 Transfers typically arrive within <b>2–3 business days</b>.`
-             : method === 'cash'
-               ? '✅ A cash refund will be arranged by our team. We will contact you to coordinate the handover.'
-               : 'Please allow 5–7 business days for the refund to reflect.'
+         : method === "cash" ?
+           "✅ A cash refund will be arranged by our team. We will contact you to coordinate the handover."
+         : "Please allow 5–7 business days for the refund to reflect."
        }`,
-      'View Order',
+      "View Order",
       `${frontendUrl}/dashboard/orders`,
     ),
   }),
@@ -529,15 +568,15 @@ export const emailTemplates = {
   ) => ({
     subject: `🔄 Return Request — ${orderNumber}`,
     html: shell(
-      'New Return Request',
+      "New Return Request",
       `A customer has requested a return for their order.<br/><br/>
        <b>Customer:</b> ${customerName} (${customerEmail})<br/>
        <b>Order:</b> ${orderNumber}<br/>
        <b>Payment Method:</b> ${paymentMethod}<br/>
        <b>Reason:</b> ${reason}<br/>
-       <b>Requested Refund Via:</b> ${refundMethod.replace(/_/g, ' ')}<br/><br/>
+       <b>Requested Refund Via:</b> ${refundMethod.replace(/_/g, " ")}<br/><br/>
        Please review and take action within 48 hours.`,
-      'Review Return',
+      "Review Return",
       `${frontendUrl}/admin/orders/${orderId}`,
     ),
   }),
@@ -545,16 +584,16 @@ export const emailTemplates = {
     customerName: string,
     orderNumber: string,
     orderId: string,
-    action: 'approved' | 'rejected',
+    action: "approved" | "rejected",
     adminNote?: string,
   ) => ({
     subject: `Return ${action} — ${orderNumber}`,
     html: shell(
-      action === 'approved' ? '✅ Return Approved' : '❌ Return Rejected',
+      action === "approved" ? "✅ Return Approved" : "❌ Return Rejected",
       `You have <b>${action}</b> the return request for order <b>${orderNumber}</b> by <b>${customerName}</b>.<br/><br/>
-       ${adminNote ? `<b>Admin Note:</b> ${adminNote}<br/><br/>` : ''}
-       ${action === 'approved' ? 'The customer has been notified and is expecting their refund to be processed.' : 'The customer has been notified of the rejection.'}`,
-      'View Order',
+       ${adminNote ? `<b>Admin Note:</b> ${adminNote}<br/><br/>` : ""}
+       ${action === "approved" ? "The customer has been notified and is expecting their refund to be processed." : "The customer has been notified of the rejection."}`,
+      "View Order",
       `${frontendUrl}/admin/orders/${orderId}`,
     ),
   }),
@@ -564,16 +603,16 @@ export const emailTemplates = {
     orderNumber: string,
     orderId: string,
     reason?: string,
-    initiatedBy: 'customer' | 'admin' = 'customer',
+    initiatedBy: "customer" | "admin" = "customer",
   ) => ({
     subject: `🚨 Order Cancelled — ${orderNumber}`,
     html: shell(
-      'Order Cancelled',
-      `Order <b>${orderNumber}</b> has been cancelled${initiatedBy === 'customer' ? ' by the customer' : ' by an admin'}.<br/><br/>
+      "Order Cancelled",
+      `Order <b>${orderNumber}</b> has been cancelled${initiatedBy === "customer" ? " by the customer" : " by an admin"}.<br/><br/>
        <b>Customer:</b> ${customerName} (${customerEmail})<br/>
-       ${reason ? `<b>Reason:</b> ${reason}<br/>` : ''}<br/>
+       ${reason ? `<b>Reason:</b> ${reason}<br/>` : ""}<br/>
        If this order was paid, please ensure a refund is processed if applicable.`,
-      'View Order',
+      "View Order",
       `${frontendUrl}/admin/orders/${orderId}`,
     ),
   }),
@@ -587,13 +626,13 @@ export const emailTemplates = {
   ) => ({
     subject: `💸 Refund Processed — ${orderNumber}`,
     html: shell(
-      'Refund Processed',
+      "Refund Processed",
       `A refund has been successfully processed for order <b>${orderNumber}</b>.<br/><br/>
        <b>Customer:</b> ${customerName} (${customerEmail})<br/>
        <b>Amount:</b> ₹${amount.toFixed(2)}<br/>
-       <b>Method:</b> ${method.replace(/_/g, ' ')}<br/><br/>
+       <b>Method:</b> ${method.replace(/_/g, " ")}<br/><br/>
        This is for your records. The customer has been notified separately.`,
-      'View Order',
+      "View Order",
       `${frontendUrl}/admin/orders/${orderId}`,
     ),
   }),

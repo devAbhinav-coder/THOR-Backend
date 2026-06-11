@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import AuthOtp from "../models/AuthOtp";
 import User from "../models/User";
 import RefreshToken from "../models/RefreshToken";
-import AppError from "../utils/AppError";
+import AppError from "../types/utils/AppError";
 import { consumePasswordResetToken } from "./passwordResetTokenService";
 import { removeOfflineCustomerByEmail } from "./offlineCustomerService";
 import { emitAuthEvent } from "./authEventService";

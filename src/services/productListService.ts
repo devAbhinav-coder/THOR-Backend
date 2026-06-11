@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import Product from "../models/Product";
-import APIFeatures from "../utils/apiFeatures";
+import APIFeatures from "../types/utils/apiFeatures";
 import { IProduct } from "../types";
 import { OFFLINE_MANUAL_PRODUCT_TAG } from "../constants/offlineOrder";
 import { LISTING_PROJECTION } from "../constants/productListing";
@@ -24,7 +24,9 @@ import { getCache, setCache } from "./cacheService";
 const RANDOM_COUNT_TTL = 300;
 
 /** Shop catalog excludes gifting; admin shop catalog does too unless `category` overrides below. */
-export function storefrontBaseFilter(adminScope: boolean): Record<string, unknown> {
+export function storefrontBaseFilter(
+  adminScope: boolean,
+): Record<string, unknown> {
   if (adminScope) {
     return { category: { $ne: "Gifting" } };
   }
@@ -122,22 +124,33 @@ export async function listProductsViaApiFeatures(
 
   const categoryBase: Record<string, unknown> = {
     ...storefrontBaseFilter(parsed.adminScope),
-    ...(parsed.category ? { category: parsed.category } : {}),
-    ...(parsed.fabric ? { fabric: parsed.fabric } : {}),
+    ...(parsed.categories.length > 0 ?
+      { category: { $in: parsed.categories } }
+    : {}),
+    ...(parsed.fabrics.length > 0 ? { fabric: { $in: parsed.fabrics } } : {}),
     ...(parsed.isFeatured === true ? { isFeatured: true } : {}),
     ...(parsed.isFeatured === false ? { isFeatured: false } : {}),
-    ...(parsed.adminScope && parsed.isActive === true ? { isActive: true } : {}),
-    ...(parsed.adminScope && parsed.isActive === false ? { isActive: false } : {}),
+    ...(parsed.adminScope && parsed.isActive === true ?
+      { isActive: true }
+    : {}),
+    ...(parsed.adminScope && parsed.isActive === false ?
+      { isActive: false }
+    : {}),
     ...ratingFilter,
   };
 
   const queryString: Record<string, string | undefined> = {
-    ...reqQuery,
     page: String(parsed.page),
     limit: String(parsed.limit),
     sort: parsed.sort === "featured" ? "-isFeatured,-createdAt" : parsed.sort,
   };
   if (parsed.search) queryString.search = parsed.search;
+  if (parsed.minPrice !== undefined) {
+    queryString["price[gte]"] = String(parsed.minPrice);
+  }
+  if (parsed.maxPrice !== undefined) {
+    queryString["price[lte]"] = String(parsed.maxPrice);
+  }
 
   const features = new APIFeatures<IProduct>(
     Product.find(categoryBase),
@@ -180,8 +193,6 @@ export async function listProductsViaAdvancedSearch(
   parsed: ParsedProductListQuery,
 ): Promise<ProductListResult> {
   const { sortBy, sortOrder } = mapSortToAdvanced(parsed.sort);
-  const categories = parsed.category ? [parsed.category] : [];
-  const fabrics = parsed.fabric ? [parsed.fabric] : [];
 
   const searchResult = await advancedSearchService.searchProducts({
     query: parsed.search,
@@ -189,8 +200,8 @@ export async function listProductsViaAdvancedSearch(
     sortOrder,
     page: parsed.page,
     limit: parsed.limit,
-    categories,
-    fabrics,
+    categories: parsed.categories,
+    fabrics: parsed.fabrics,
     minPrice: parsed.minPrice,
     maxPrice: parsed.maxPrice,
     minRating: parsed.minRating,
@@ -205,6 +216,7 @@ export async function listProductsViaAdvancedSearch(
     page: searchResult.page,
     limit: searchResult.limit,
     total: searchResult.total,
+    hasNextPage: searchResult.page < searchResult.totalPages,
     searchMethod: searchResult.searchMethod,
   };
 }

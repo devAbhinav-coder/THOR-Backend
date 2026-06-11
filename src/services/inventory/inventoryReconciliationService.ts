@@ -1,8 +1,8 @@
-import Product from '../../models/Product';
-import StockLedger from '../../models/StockLedger';
-import logger from '../../utils/logger';
-import { recordInventoryMetric } from './inventoryMetricsService';
-import { syncProductTotalStock } from './stockBulkService';
+import Product from "../../models/Product";
+import StockLedger from "../../models/StockLedger";
+import logger from "../../types/utils/logger";
+import { recordInventoryMetric } from "./inventoryMetricsService";
+import { syncProductTotalStock } from "./stockBulkService";
 
 const RECONCILE_BATCH = Number(process.env.INVENTORY_RECONCILE_BATCH || 50);
 
@@ -18,7 +18,7 @@ export interface ReconciliationResult {
  */
 export async function runInventoryReconciliation(): Promise<ReconciliationResult> {
   const products = await Product.find({ isActive: true })
-    .select('_id variants.stock totalStock')
+    .select("_id variants.stock totalStock")
     .limit(RECONCILE_BATCH)
     .lean();
 
@@ -29,13 +29,13 @@ export async function runInventoryReconciliation(): Promise<ReconciliationResult
     if (computed !== p.totalStock) {
       await syncProductTotalStock(String(p._id));
       totalStockFixed += 1;
-      recordInventoryMetric('inventory.reconciliation.drift', {
+      recordInventoryMetric("inventory.reconciliation.drift", {
         productId: String(p._id),
         stored: p.totalStock,
         computed,
       });
       logger.warn({
-        msg: 'inventory_total_stock_drift_fixed',
+        msg: "inventory_total_stock_drift_fixed",
         productId: String(p._id),
         stored: p.totalStock,
         computed,
@@ -45,9 +45,9 @@ export async function runInventoryReconciliation(): Promise<ReconciliationResult
 
   // Lightweight orphan check: ledger entries whose product no longer exists
   const sampleLedgers = await StockLedger.find()
-    .sort('-createdAt')
+    .sort("-createdAt")
     .limit(20)
-    .select('product')
+    .select("product")
     .lean();
   let orphanCount = 0;
   for (const row of sampleLedgers) {

@@ -1,9 +1,12 @@
-import { FilterQuery, Types } from 'mongoose';
-import { enqueueBroadcastByUserFilter } from '../broadcastService';
-import { recordCouponOutbox, scheduleCouponBroadcastDispatch } from './couponBroadcastOutboxService';
-import { recordCouponMetric } from './couponMetricsService';
-import logger from '../../utils/logger';
-import { getRequestContext } from '../../utils/requestContext';
+import { FilterQuery, Types } from "mongoose";
+import { enqueueBroadcastByUserFilter } from "../broadcastService";
+import {
+  recordCouponOutbox,
+  scheduleCouponBroadcastDispatch,
+} from "./couponBroadcastOutboxService";
+import { recordCouponMetric } from "./couponMetricsService";
+import logger from "../../types/utils/logger";
+import { getRequestContext } from "../../types/utils/requestContext";
 
 type Recipient = { _id: Types.ObjectId; email: string; name?: string };
 
@@ -19,7 +22,7 @@ export const couponBroadcastService = {
       subject: string;
       html: string;
       jobIdPrefix: string;
-    }
+    },
   ): Promise<number> {
     const dedupeKey = `coupon_broadcast:${couponId}`;
     const ctx = getRequestContext();
@@ -28,13 +31,13 @@ export const couponBroadcastService = {
       dedupeKey,
       couponId,
       code,
-      description: description ?? '',
+      description: description ?? "",
     });
 
     if (!outboxId) {
-      recordCouponMetric('coupon.broadcast.outbox_failure', { couponId });
+      recordCouponMetric("coupon.broadcast.outbox_failure", { couponId });
       logger.error({
-        msg: 'coupon_broadcast_outbox_failed',
+        msg: "coupon_broadcast_outbox_failed",
         couponId,
         requestId: ctx?.requestId,
       });
@@ -42,11 +45,11 @@ export const couponBroadcastService = {
     }
 
     scheduleCouponBroadcastDispatch(outboxId, async () => {
-      const userFilter: FilterQuery<unknown> = { role: 'user', isActive: true };
+      const userFilter: FilterQuery<unknown> = { role: "user", isActive: true };
       return enqueueBroadcastByUserFilter(userFilter, buildPayload, 400);
     });
 
-    recordCouponMetric('coupon.broadcast.enqueued', { couponId });
+    recordCouponMetric("coupon.broadcast.enqueued", { couponId });
     return 0;
   },
 
@@ -55,9 +58,9 @@ export const couponBroadcastService = {
     code: string,
     description: string | undefined,
     couponId: string,
-    tpl: { subject: string; html: string }
+    tpl: { subject: string; html: string },
   ): Promise<number> {
-    const userFilter: FilterQuery<unknown> = { role: 'user', isActive: true };
+    const userFilter: FilterQuery<unknown> = { role: "user", isActive: true };
     return enqueueBroadcastByUserFilter(
       userFilter,
       () => ({
@@ -65,7 +68,7 @@ export const couponBroadcastService = {
         html: tpl.html,
         jobIdPrefix: `coupon:${couponId}`,
       }),
-      400
+      400,
     );
   },
 };

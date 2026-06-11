@@ -1,7 +1,7 @@
-import { redisConnection } from '../config/redis';
-import { deleteCache } from './cacheService';
-import logger from '../utils/logger';
-import { getRequestContext } from '../utils/requestContext';
+import { redisConnection } from "../config/redis";
+import { deleteCache } from "./cacheService";
+import logger from "../types/utils/logger";
+import { getRequestContext } from "../types/utils/requestContext";
 
 const VERSION_TTL_SEC = 60 * 60 * 24 * 30; // 30 days
 
@@ -13,7 +13,9 @@ function orderDetailKey(orderId: string, userId: string): string {
   return `cache:order:${orderId}:${userId}`;
 }
 
-export async function getUserOrdersCacheVersion(userId: string): Promise<number> {
+export async function getUserOrdersCacheVersion(
+  userId: string,
+): Promise<number> {
   const raw = await redisConnection.get(userListVersionKey(userId));
   if (!raw) return 0;
   const n = parseInt(raw, 10);
@@ -21,7 +23,9 @@ export async function getUserOrdersCacheVersion(userId: string): Promise<number>
 }
 
 /** Bump list cache generation — avoids Redis KEYS wildcard scans */
-export async function bumpUserOrdersCacheVersion(userId: string): Promise<number> {
+export async function bumpUserOrdersCacheVersion(
+  userId: string,
+): Promise<number> {
   const next = await redisConnection.incr(userListVersionKey(userId));
   await redisConnection.expire(userListVersionKey(userId), VERSION_TTL_SEC);
   return next;
@@ -32,9 +36,9 @@ export function buildMyOrdersCacheKey(
   version: number,
   skip: number,
   limit: number,
-  statusStr?: string
+  statusStr?: string,
 ): string {
-  const statusPart = statusStr ? statusStr.replace(/\s+/g, '') : 'all';
+  const statusPart = statusStr ? statusStr.replace(/\s+/g, "") : "all";
   return `cache:orders:${userId}:v${version}:${skip}:${limit}:${statusPart}`;
 }
 
@@ -42,7 +46,10 @@ export function buildMyOrdersCacheKey(
  * Targeted invalidation: version bump for list pages + optional detail key delete.
  * Safe to call without awaiting on the hot path.
  */
-export async function invalidateUserOrderCache(userId: string, orderId?: string): Promise<void> {
+export async function invalidateUserOrderCache(
+  userId: string,
+  orderId?: string,
+): Promise<void> {
   const started = Date.now();
   await bumpUserOrdersCacheVersion(userId);
   if (orderId) {
@@ -50,7 +57,7 @@ export async function invalidateUserOrderCache(userId: string, orderId?: string)
   }
   const ctx = getRequestContext();
   logger.debug({
-    msg: 'order_cache_invalidated',
+    msg: "order_cache_invalidated",
     userId,
     orderId,
     requestId: ctx?.requestId,
@@ -58,10 +65,13 @@ export async function invalidateUserOrderCache(userId: string, orderId?: string)
   });
 }
 
-export function scheduleInvalidateUserOrderCache(userId: string, orderId?: string): void {
+export function scheduleInvalidateUserOrderCache(
+  userId: string,
+  orderId?: string,
+): void {
   invalidateUserOrderCache(userId, orderId).catch((err: Error) => {
     logger.warn({
-      msg: 'order_cache_invalidation_failed',
+      msg: "order_cache_invalidation_failed",
       userId,
       orderId,
       error: err.message,

@@ -5,7 +5,7 @@ import {
   getBullMqWorkerConnection,
   redisEnabled,
 } from "../config/redis";
-import logger from "../utils/logger";
+import logger from "../types/utils/logger";
 import { sendEmailNow } from "../services/emailService";
 import { deliverBroadcastEmailWithRetries } from "../services/emailDeliveryService";
 import { ConnectionOptions } from "bullmq";
@@ -29,18 +29,21 @@ const broadcastChunkQueueName = "email-broadcast-chunks";
 const BROADCAST_CHUNK_SIZE = 10;
 
 const skipBullMqRedisChecks = bullmqSkipRedisVersionChecks();
-const transactionalQueueRedis = redisEnabled ? getBullMqQueueConnection() : null;
+const transactionalQueueRedis =
+  redisEnabled ? getBullMqQueueConnection() : null;
 const broadcastChunkQueueRedis = transactionalQueueRedis;
 
-export const emailQueue = transactionalQueueRedis
-  ? new Queue<EmailJobData>(transactionalQueueName, {
+export const emailQueue =
+  transactionalQueueRedis ?
+    new Queue<EmailJobData>(transactionalQueueName, {
       connection: transactionalQueueRedis as unknown as ConnectionOptions,
       skipVersionCheck: skipBullMqRedisChecks,
     })
   : null;
 
-export const broadcastChunkQueue = broadcastChunkQueueRedis
-  ? new Queue<BroadcastChunkJobData>(broadcastChunkQueueName, {
+export const broadcastChunkQueue =
+  broadcastChunkQueueRedis ?
+    new Queue<BroadcastChunkJobData>(broadcastChunkQueueName, {
       connection: broadcastChunkQueueRedis as unknown as ConnectionOptions,
       skipVersionCheck: skipBullMqRedisChecks,
     })

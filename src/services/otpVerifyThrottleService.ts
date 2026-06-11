@@ -1,5 +1,5 @@
 import { redisEnabled, redisConnection } from "../config/redis";
-import logger from "../utils/logger";
+import logger from "../types/utils/logger";
 import { serviceError } from "../auth/authErrors";
 
 const VERIFY_WINDOW_MS = 15 * 60 * 1000;
@@ -20,7 +20,10 @@ export async function getOtpVerifyLockoutRetryAfter(
     const n = raw ? parseInt(raw, 10) || 0 : 0;
     if (n < MAX_VERIFY_FAILS) return null;
     const ttlRaw = await redisConnection.call("TTL", key);
-    const ttl = typeof ttlRaw === "number" ? ttlRaw : parseInt(String(ttlRaw ?? "0"), 10) || 0;
+    const ttl =
+      typeof ttlRaw === "number" ? ttlRaw : (
+        parseInt(String(ttlRaw ?? "0"), 10) || 0
+      );
     return ttl > 0 ? ttl : VERIFY_WINDOW_SEC;
   } catch {
     return VERIFY_WINDOW_SEC;
@@ -49,7 +52,10 @@ export async function assertOtpVerifyAllowed(
     const n = raw ? parseInt(raw, 10) || 0 : 0;
     if (n >= MAX_VERIFY_FAILS) {
       const ttlRaw = await redisConnection.call("TTL", key);
-      const ttl = typeof ttlRaw === "number" ? ttlRaw : parseInt(String(ttlRaw ?? "0"), 10) || 0;
+      const ttl =
+        typeof ttlRaw === "number" ? ttlRaw : (
+          parseInt(String(ttlRaw ?? "0"), 10) || 0
+        );
       const retryAfter = ttl > 0 ? ttl : VERIFY_WINDOW_SEC;
       throw serviceError(
         "Too many verification attempts. Please try again later.",

@@ -3,24 +3,28 @@ import jwt from "jsonwebtoken";
 import { Response, Request } from "express";
 import RefreshToken from "../models/RefreshToken";
 import User from "../models/User";
-import AppError from "../utils/AppError";
+import AppError from "../types/utils/AppError";
 import { SESSION_EXPIRED } from "../auth/authErrors";
 import {
   revokeEntireRefreshFamily,
   sessionMetaFromRequest,
 } from "./authSessionService";
 import { emitAuthEvent } from "./authEventService";
-import { securityLog } from "../utils/securityLog";
+import { securityLog } from "../types/utils/securityLog";
 
 const ACCESS_EXPIRES = process.env.JWT_EXPIRES_IN || "15m";
 const REFRESH_MS =
   parseInt(process.env.REFRESH_TOKEN_DAYS || "30", 10) * 24 * 60 * 60 * 1000;
 
 export const signAccessToken = (userId: string): string => {
-  return jwt.sign({ id: userId }, process.env.JWT_SECRET as string, {
-    expiresIn: ACCESS_EXPIRES,
-    algorithm: "HS256",
-  } as jwt.SignOptions);
+  return jwt.sign(
+    { id: userId },
+    process.env.JWT_SECRET as string,
+    {
+      expiresIn: ACCESS_EXPIRES,
+      algorithm: "HS256",
+    } as jwt.SignOptions,
+  );
 };
 
 export const hashToken = (raw: string): string => {
@@ -103,7 +107,10 @@ export const sendAuthResponse = async (
 ): Promise<void> => {
   const accessToken = signAccessToken(String(user._id));
   const meta = req ? sessionMetaFromRequest(req) : {};
-  const { raw, expiresAt } = await createRefreshTokenForUser(String(user._id), meta);
+  const { raw, expiresAt } = await createRefreshTokenForUser(
+    String(user._id),
+    meta,
+  );
   setTokenCookies(res, accessToken, raw, expiresAt);
 
   const userObj = user.toObject() as unknown as Record<string, unknown>;
@@ -122,7 +129,10 @@ export function readRefreshTokenFromRequest(req: Request): string | undefined {
   const fromCookie = req.cookies?.refreshToken as string | undefined;
   if (fromCookie && fromCookie !== "loggedout") return fromCookie;
   const body = req.body as { refreshToken?: string };
-  if (typeof body?.refreshToken === "string" && body.refreshToken !== "loggedout") {
+  if (
+    typeof body?.refreshToken === "string" &&
+    body.refreshToken !== "loggedout"
+  ) {
     return body.refreshToken;
   }
   return undefined;

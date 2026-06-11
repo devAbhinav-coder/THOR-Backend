@@ -1,5 +1,5 @@
-import { redisEnabled, redisConnection } from '../../config/redis';
-import AppError from '../../utils/AppError';
+import { redisEnabled, redisConnection } from "../../config/redis";
+import AppError from "../../types/utils/AppError";
 
 const SUBSCRIBE_WINDOW_SEC = 60;
 const SUBSCRIBE_MAX = 15;
@@ -15,7 +15,7 @@ async function assertUnderLimit(
   action: string,
   max: number,
   windowSec: number,
-  message: string
+  message: string,
 ): Promise<void> {
   if (!redisEnabled) return;
   const k = key(userId, action);
@@ -31,19 +31,19 @@ async function assertUnderLimit(
 export async function assertSubscribeAllowed(userId: string): Promise<void> {
   await assertUnderLimit(
     userId,
-    'subscribe',
+    "subscribe",
     SUBSCRIBE_MAX,
     SUBSCRIBE_WINDOW_SEC,
-    'Too many subscription attempts. Please try again later.'
+    "Too many subscription attempts. Please try again later.",
   );
 }
 
 export async function assertTestPushAllowed(userId: string): Promise<void> {
   await assertUnderLimit(
     userId,
-    'test_push',
+    "test_push",
     TEST_PUSH_MAX,
     TEST_PUSH_WINDOW_SEC,
-    'Test push rate limit exceeded.'
+    "Test push rate limit exceeded.",
   );
 }

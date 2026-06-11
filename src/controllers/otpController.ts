@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
-import AppError from "../utils/AppError";
-import catchAsync from "../utils/catchAsync";
-import { sendSuccess } from "../utils/response";
+import AppError from "../types/utils/AppError";
+import catchAsync from "../types/utils/catchAsync";
+import { sendSuccess } from "../types/utils/response";
 import {
   sendOtp,
   resendOtp,
@@ -14,8 +14,8 @@ import { sendAuthResponse } from "../services/authTokenService";
 import { emitAuthEvent } from "../services/authEventService";
 import { authRequestMeta } from "../auth/authNormalize";
 import { toAppError, type ServiceError } from "../auth/authErrors";
-import { securityLog } from "../utils/securityLog";
-import logger from "../utils/logger";
+import { securityLog } from "../types/utils/securityLog";
+import logger from "../types/utils/logger";
 import { normalizeIdempotencyKey } from "../services/checkoutConcurrency";
 import {
   getIdempotentAuthVerifyResponse,
@@ -85,11 +85,7 @@ export const postSendOtp = catchAsync(
         "If an account exists for this email, you will receive a code shortly."
       : "Verification code sent to your email.";
 
-    sendSuccess(
-      res,
-      { type: body.type, retryAfter: RESEND_COOLDOWN_SEC },
-      msg,
-    );
+    sendSuccess(res, { type: body.type, retryAfter: RESEND_COOLDOWN_SEC }, msg);
   },
 );
 
@@ -113,11 +109,7 @@ export const postResendOtp = catchAsync(
         "If an account exists for this email, you will receive a code shortly."
       : "A new verification code was sent to your email.";
 
-    sendSuccess(
-      res,
-      { type: body.type, retryAfter: RESEND_COOLDOWN_SEC },
-      msg,
-    );
+    sendSuccess(res, { type: body.type, retryAfter: RESEND_COOLDOWN_SEC }, msg);
   },
 );
 
@@ -126,15 +118,22 @@ export const postVerifyOtp = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const body = req.body as VerifyOtpBody;
     const meta = authRequestMeta(req);
-    const idemKey = normalizeIdempotencyKey(req.headers["idempotency-key"] as string | undefined);
+    const idemKey = normalizeIdempotencyKey(
+      req.headers["idempotency-key"] as string | undefined,
+    );
     const idemScope = buildVerifyIdempotencyScope(body);
     const useIdempotency = Boolean(idemKey && body.type === "forgot_password");
 
     if (useIdempotency && idemKey) {
       const cached = await getIdempotentAuthVerifyResponse(idemScope, idemKey);
       if (cached) {
-        securityLog("auth.otp_idempotent_replay", { flow: body.type, ip: meta.ip });
-        return res.status(cached.statusCode).json(cached.body as Record<string, unknown>);
+        securityLog("auth.otp_idempotent_replay", {
+          flow: body.type,
+          ip: meta.ip,
+        });
+        return res
+          .status(cached.statusCode)
+          .json(cached.body as Record<string, unknown>);
       }
     }
 
@@ -147,11 +146,16 @@ export const postVerifyOtp = catchAsync(
 
     if (!result.ok) {
       if (result.statusCode === 429) {
-        securityLog("auth.otp_verify_throttled", { flow: body.type, ip: meta.ip });
+        securityLog("auth.otp_verify_throttled", {
+          flow: body.type,
+          ip: meta.ip,
+        });
       } else {
         securityLog("auth.otp_verify_failed", { flow: body.type, ip: meta.ip });
       }
-      return next(new AppError(result.message, result.statusCode, result.retryAfter));
+      return next(
+        new AppError(result.message, result.statusCode, result.retryAfter),
+      );
     }
 
     if (result.flow === "signup") {
@@ -164,7 +168,10 @@ export const postVerifyOtp = catchAsync(
         req,
         meta: { deviceLabel: meta.deviceLabel },
       });
-      securityLog("auth.otp_verify_success", { flow: "signup", userId: String(user._id) });
+      securityLog("auth.otp_verify_success", {
+        flow: "signup",
+        userId: String(user._id),
+      });
       await sendAuthResponse(res, user, 201, req);
       return;
     }
@@ -177,7 +184,10 @@ export const postVerifyOtp = catchAsync(
         req,
         meta: { deviceLabel: meta.deviceLabel },
       });
-      securityLog("auth.otp_verify_success", { flow: "login", userId: String(result.user._id) });
+      securityLog("auth.otp_verify_success", {
+        flow: "login",
+        userId: String(result.user._id),
+      });
       await sendAuthResponse(res, result.user, 200, req);
       return;
     }
@@ -188,7 +198,12 @@ export const postVerifyOtp = catchAsync(
       message: "Code verified. You can set a new password.",
     };
     if (useIdempotency && idemKey) {
-      await setIdempotentAuthVerifyResponse(idemScope, idemKey, 200, forgotBody);
+      await setIdempotentAuthVerifyResponse(
+        idemScope,
+        idemKey,
+        200,
+        forgotBody,
+      );
     }
     securityLog("auth.otp_verify_success", { flow: "forgot_password" });
     sendSuccess(

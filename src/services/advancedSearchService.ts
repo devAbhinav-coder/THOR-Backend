@@ -1,12 +1,12 @@
-import Product from '../models/Product';
-import { OFFLINE_MANUAL_PRODUCT_TAG } from '../constants/offlineOrder';
-import { LISTING_PROJECTION } from '../constants/productListing';
-import { getCache, setCache } from './cacheService';
-import { getCachedProductCount } from './productCountService';
-import { getProductCacheVersion } from './productCacheService';
-import { normalizeSearchQuery } from './productQueryParser';
-import { env } from '../config/env';
-import logger from '../utils/logger';
+import Product from "../models/Product";
+import { OFFLINE_MANUAL_PRODUCT_TAG } from "../constants/offlineOrder";
+import { LISTING_PROJECTION } from "../constants/productListing";
+import { getCache, setCache } from "./cacheService";
+import { getCachedProductCount } from "./productCountService";
+import { getProductCacheVersion } from "./productCacheService";
+import { normalizeSearchQuery } from "./productQueryParser";
+import { env } from "../config/env";
+import logger from "../types/utils/logger";
 
 /**
  * Advanced MongoDB search service with fuzzy matching and keyword similarity.
@@ -20,64 +20,196 @@ export class AdvancedSearchService {
   // Indian fashion keywords for similarity matching (102+ keywords)
   private readonly INDIAN_FASHION_KEYWORDS = [
     // Saree types
-    'saree', 'sari', 'sare', 'banarasi', 'kanjivaram', 'kanchipuram', 'tussar', 'tussar silk',
-    'chanderi', 'maheshwari', 'bandhani', 'bandhej', 'ikat', 'patola', 'pattu', 'silk',
-    'cotton', 'georgette', 'chiffon', 'crepe', 'net', 'organza', 'linen', 'khadi',
-    
+    "saree",
+    "sari",
+    "sare",
+    "banarasi",
+    "kanjivaram",
+    "kanchipuram",
+    "tussar",
+    "tussar silk",
+    "chanderi",
+    "maheshwari",
+    "bandhani",
+    "bandhej",
+    "ikat",
+    "patola",
+    "pattu",
+    "silk",
+    "cotton",
+    "georgette",
+    "chiffon",
+    "crepe",
+    "net",
+    "organza",
+    "linen",
+    "khadi",
+
     // Kurta types
-    'kurta', 'kurti', 'anarkali', 'straight', 'a-line', 'flared', 'palazzo', 'salwar',
-    'churidar', 'patiala', 'dhoti', 'pajama', 'pant', 'trouser', 'leggings',
-    
+    "kurta",
+    "kurti",
+    "anarkali",
+    "straight",
+    "a-line",
+    "flared",
+    "palazzo",
+    "salwar",
+    "churidar",
+    "patiala",
+    "dhoti",
+    "pajama",
+    "pant",
+    "trouser",
+    "leggings",
+
     // Lehenga types
-    'lehenga', 'lehenga choli', 'bridal lehenga', 'wedding lehenga', 'party wear',
-    'designer lehenga', 'heavy lehenga', 'light lehenga', 'embroidered',
-    
+    "lehenga",
+    "lehenga choli",
+    "bridal lehenga",
+    "wedding lehenga",
+    "party wear",
+    "designer lehenga",
+    "heavy lehenga",
+    "light lehenga",
+    "embroidered",
+
     // Fabric types
-    'silk', 'pure silk', 'raw silk', 'tussar silk', 'matka silk', 'mulberry silk',
-    'cotton', 'pure cotton', 'khadi cotton', 'handloom cotton', 'linen', 'pure linen',
-    'georgette', 'chiffon', 'crepe', 'net', 'organza', 'velvet', 'brocade', 'zari',
-    
+    "silk",
+    "pure silk",
+    "raw silk",
+    "tussar silk",
+    "matka silk",
+    "mulberry silk",
+    "cotton",
+    "pure cotton",
+    "khadi cotton",
+    "handloom cotton",
+    "linen",
+    "pure linen",
+    "georgette",
+    "chiffon",
+    "crepe",
+    "net",
+    "organza",
+    "velvet",
+    "brocade",
+    "zari",
+
     // Embellishments
-    'embroidered', 'embroidery', 'zari', 'zardozi', 'sequins', 'stones', 'beads',
-    'mirror', 'mirror work', 'patch', 'patch work', 'print', 'printed', 'block print',
-    'digital print', 'hand painted', 'painted',
-    
+    "embroidered",
+    "embroidery",
+    "zari",
+    "zardozi",
+    "sequins",
+    "stones",
+    "beads",
+    "mirror",
+    "mirror work",
+    "patch",
+    "patch work",
+    "print",
+    "printed",
+    "block print",
+    "digital print",
+    "hand painted",
+    "painted",
+
     // Colors
-    'red', 'maroon', 'burgundy', 'pink', 'rose', 'peach', 'orange', 'saffron',
-    'yellow', 'gold', 'green', 'emerald', 'blue', 'navy', 'royal blue', 'purple',
-    'violet', 'lavender', 'black', 'white', 'ivory', 'cream', 'beige', 'brown',
-    'grey', 'silver', 'multicolor', 'multicoloured',
-    
+    "red",
+    "maroon",
+    "burgundy",
+    "pink",
+    "rose",
+    "peach",
+    "orange",
+    "saffron",
+    "yellow",
+    "gold",
+    "green",
+    "emerald",
+    "blue",
+    "navy",
+    "royal blue",
+    "purple",
+    "violet",
+    "lavender",
+    "black",
+    "white",
+    "ivory",
+    "cream",
+    "beige",
+    "brown",
+    "grey",
+    "silver",
+    "multicolor",
+    "multicoloured",
+
     // Occasions
-    'wedding', 'bridal', 'engagement', 'reception', 'party', 'festive', 'diwali',
-    'dussehra', 'eid', 'christmas', 'new year', 'birthday', 'anniversary',
-    'formal', 'casual', 'office', 'work', 'daily', 'everyday',
-    
+    "wedding",
+    "bridal",
+    "engagement",
+    "reception",
+    "party",
+    "festive",
+    "diwali",
+    "dussehra",
+    "eid",
+    "christmas",
+    "new year",
+    "birthday",
+    "anniversary",
+    "formal",
+    "casual",
+    "office",
+    "work",
+    "daily",
+    "everyday",
+
     // Styles
-    'traditional', 'ethnic', 'contemporary', 'modern', 'fusion', 'indo-western',
-    'classic', 'vintage', 'royal', 'regal', 'luxury', 'premium', 'designer',
-    
+    "traditional",
+    "ethnic",
+    "contemporary",
+    "modern",
+    "fusion",
+    "indo-western",
+    "classic",
+    "vintage",
+    "royal",
+    "regal",
+    "luxury",
+    "premium",
+    "designer",
+
     // Patterns
-    'floral', 'geometric', 'abstract', 'paisley', 'buta', 'buti', 'border',
-    'pallu', 'pallu design', 'all over', 'allover',
+    "floral",
+    "geometric",
+    "abstract",
+    "paisley",
+    "buta",
+    "buti",
+    "border",
+    "pallu",
+    "pallu design",
+    "all over",
+    "allover",
   ];
 
   // Synonym mapping for better search matching
   private readonly SYNONYMS: Record<string, string[]> = {
-    'saree': ['sari', 'sare', 'sarees', 'saris'],
-    'kurta': ['kurti', 'kurtas', 'kurtis'],
-    'lehenga': ['lehenga choli', 'bridal lehenga', 'lehengas'],
-    'silk': ['pure silk', 'silk fabric', 'silken'],
-    'cotton': ['pure cotton', 'cotton fabric'],
-    'embroidered': ['embroidery', 'embroideries'],
-    'zari': ['zardozi', 'gold work'],
-    'traditional': ['ethnic', 'conventional'],
-    'modern': ['contemporary', 'current'],
-    'wedding': ['bridal', 'marriage', 'matrimonial'],
-    'party': ['celebration', 'festive', 'function'],
-    'red': ['maroon', 'burgundy', 'crimson'],
-    'blue': ['navy', 'royal blue', 'azure'],
-    'green': ['emerald', 'forest', 'olive'],
+    saree: ["sari", "sare", "sarees", "saris"],
+    kurta: ["kurti", "kurtas", "kurtis"],
+    lehenga: ["lehenga choli", "bridal lehenga", "lehengas"],
+    silk: ["pure silk", "silk fabric", "silken"],
+    cotton: ["pure cotton", "cotton fabric"],
+    embroidered: ["embroidery", "embroideries"],
+    zari: ["zardozi", "gold work"],
+    traditional: ["ethnic", "conventional"],
+    modern: ["contemporary", "current"],
+    wedding: ["bridal", "marriage", "matrimonial"],
+    party: ["celebration", "festive", "function"],
+    red: ["maroon", "burgundy", "crimson"],
+    blue: ["navy", "royal blue", "azure"],
+    green: ["emerald", "forest", "olive"],
   };
 
   private constructor() {}
@@ -92,13 +224,18 @@ export class AdvancedSearchService {
   /**
    * Generate cache key for search queries.
    */
-  private async generateSearchCacheKey(params: Record<string, unknown>): Promise<string> {
+  private async generateSearchCacheKey(
+    params: Record<string, unknown>,
+  ): Promise<string> {
     const sortedParams = Object.keys(params)
       .sort()
-      .map(key => `${key}=${JSON.stringify(params[key])}`)
-      .join('&');
-    
-    const hash = require('crypto').createHash('md5').update(sortedParams).digest('hex');
+      .map((key) => `${key}=${JSON.stringify(params[key])}`)
+      .join("&");
+
+    const hash = require("crypto")
+      .createHash("md5")
+      .update(sortedParams)
+      .digest("hex");
     const v = await getProductCacheVersion();
     return `cache:v${v}:search:advanced:${hash}`;
   }
@@ -111,9 +248,12 @@ export class AdvancedSearchService {
       return [];
     }
 
-    const words = query.toLowerCase().split(/\s+/).filter(word => word.length > 2);
+    const words = query
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((word) => word.length > 2);
     const expandedQueries: string[] = [query];
-    
+
     // Add synonym expansions
     for (const word of words) {
       if (this.SYNONYMS[word]) {
@@ -128,14 +268,14 @@ export class AdvancedSearchService {
 
     // Add common variations (plural/singular)
     for (const word of words) {
-      if (word.endsWith('s') && word.length > 3) {
+      if (word.endsWith("s") && word.length > 3) {
         const singular = word.slice(0, -1);
         const singularQuery = query.toLowerCase().replace(word, singular);
         if (!expandedQueries.includes(singularQuery)) {
           expandedQueries.push(singularQuery);
         }
-      } else if (!word.endsWith('s')) {
-        const plural = word + 's';
+      } else if (!word.endsWith("s")) {
+        const plural = word + "s";
         const pluralQuery = query.toLowerCase().replace(word, plural);
         if (!expandedQueries.includes(pluralQuery)) {
           expandedQueries.push(pluralQuery);
@@ -149,24 +289,30 @@ export class AdvancedSearchService {
   /**
    * Calculate keyword similarity score between query and product.
    */
-  private calculateKeywordSimilarity(query: string, product: {
-    name: string;
-    description: string;
-    tags: string[];
-    category: string;
-    fabric: string;
-  }): number {
-    const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+  private calculateKeywordSimilarity(
+    query: string,
+    product: {
+      name: string;
+      description: string;
+      tags: string[];
+      category: string;
+      fabric: string;
+    },
+  ): number {
+    const queryWords = query
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 2);
     const productText = [
       product.name.toLowerCase(),
       product.description.toLowerCase(),
       product.category.toLowerCase(),
-      product.fabric?.toLowerCase() || '',
-      ...(product.tags || []).map(tag => tag.toLowerCase()),
-    ].join(' ');
+      product.fabric?.toLowerCase() || "",
+      ...(product.tags || []).map((tag) => tag.toLowerCase()),
+    ].join(" ");
 
     let score = 0;
-    
+
     // Exact matches
     for (const word of queryWords) {
       if (productText.includes(word)) {
@@ -204,17 +350,17 @@ export class AdvancedSearchService {
    */
   private isSimilar(word1: string, word2: string): boolean {
     if (word1 === word2) return true;
-    
+
     // Levenshtein distance for short words
     if (word1.length <= 6 || word2.length <= 6) {
       const distance = this.levenshteinDistance(word1, word2);
       return distance <= 2; // Allow 2 character differences for short words
     }
-    
+
     // For longer words, check for common prefixes/suffixes
     const minLength = Math.min(word1.length, word2.length);
     const commonChars = this.countCommonChars(word1, word2);
-    
+
     return commonChars >= minLength * 0.7; // 70% similarity
   }
 
@@ -222,7 +368,9 @@ export class AdvancedSearchService {
    * Calculate Levenshtein distance between two strings.
    */
   private levenshteinDistance(a: string, b: string): number {
-    const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
+    const matrix = Array(b.length + 1)
+      .fill(null)
+      .map(() => Array(a.length + 1).fill(null));
 
     for (let i = 0; i <= a.length; i++) matrix[0][i] = i;
     for (let j = 0; j <= b.length; j++) matrix[j][0] = j;
@@ -233,7 +381,7 @@ export class AdvancedSearchService {
         matrix[j][i] = Math.min(
           matrix[j][i - 1] + 1, // deletion
           matrix[j - 1][i] + 1, // insertion
-          matrix[j - 1][i - 1] + indicator // substitution
+          matrix[j - 1][i - 1] + indicator, // substitution
         );
       }
     }
@@ -248,11 +396,11 @@ export class AdvancedSearchService {
     const aChars = new Set(a);
     const bChars = new Set(b);
     let common = 0;
-    
+
     for (const char of aChars) {
       if (bChars.has(char)) common++;
     }
-    
+
     return common;
   }
 
@@ -263,7 +411,7 @@ export class AdvancedSearchService {
     query?: string;
     filters?: Record<string, unknown>;
     sortBy?: string;
-    sortOrder?: 'asc' | 'desc';
+    sortOrder?: "asc" | "desc";
     page?: number;
     limit?: number;
     categories?: string[];
@@ -281,14 +429,14 @@ export class AdvancedSearchService {
     page: number;
     limit: number;
     totalPages: number;
-    searchMethod: 'advanced' | 'basic';
+    searchMethod: "advanced" | "basic";
     cached: boolean;
   }> {
     const {
-      query = '',
+      query = "",
       filters = {},
-      sortBy = 'createdAt',
-      sortOrder = 'desc',
+      sortBy = "createdAt",
+      sortOrder = "desc",
       page = 1,
       limit = env.pagination.defaultLimit,
       categories = [],
@@ -330,7 +478,7 @@ export class AdvancedSearchService {
         page: number;
         limit: number;
         totalPages: number;
-        searchMethod: 'advanced' | 'basic';
+        searchMethod: "advanced" | "basic";
       }>(cacheKey);
 
       if (cached) {
@@ -342,7 +490,7 @@ export class AdvancedSearchService {
     }
 
     const hasQuery = safeQuery.length > 0;
-    let searchMethod: 'advanced' | 'basic' = 'basic';
+    let searchMethod: "advanced" | "basic" = "basic";
     let result: {
       products: Array<Record<string, unknown>>;
       total: number;
@@ -353,7 +501,7 @@ export class AdvancedSearchService {
 
     if (hasQuery) {
       // Use advanced search with fuzzy matching
-      searchMethod = 'advanced';
+      searchMethod = "advanced";
       result = await this.advancedSearch({
         query: safeQuery,
         filters,
@@ -410,7 +558,7 @@ export class AdvancedSearchService {
     query: string;
     filters?: Record<string, unknown>;
     sortBy?: string;
-    sortOrder?: 'asc' | 'desc';
+    sortOrder?: "asc" | "desc";
     page?: number;
     limit?: number;
     categories?: string[];
@@ -431,8 +579,8 @@ export class AdvancedSearchService {
     const {
       query,
       filters = {},
-      sortBy = 'createdAt',
-      sortOrder = 'desc',
+      sortBy = "createdAt",
+      sortOrder = "desc",
       page = 1,
       limit = env.pagination.defaultLimit,
       categories = [],
@@ -447,13 +595,14 @@ export class AdvancedSearchService {
 
     const safeQuery = normalizeSearchQuery(query);
 
-    const baseFilter: Record<string, unknown> = adminScope ?
-      { category: { $ne: "Gifting" } }
-    : {
-        isActive: true,
-        tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
-        category: { $ne: "Gifting" },
-      };
+    const baseFilter: Record<string, unknown> =
+      adminScope ?
+        { category: { $ne: "Gifting" } }
+      : {
+          isActive: true,
+          tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
+          category: { $ne: "Gifting" },
+        };
 
     if (categories.length > 0) {
       baseFilter.category = { $in: categories };
@@ -492,11 +641,11 @@ export class AdvancedSearchService {
     });
 
     const expandedQueries = this.expandSearchQuery(safeQuery);
-    
+
     // Build regex patterns for fuzzy matching
-    const regexPatterns = expandedQueries.map(q => {
-      const words = q.split(/\s+/).filter(w => w.length > 2);
-      const regexStrings = words.map(word => {
+    const regexPatterns = expandedQueries.map((q) => {
+      const words = q.split(/\s+/).filter((w) => w.length > 2);
+      const regexStrings = words.map((word) => {
         // Create fuzzy regex pattern
         if (word.length <= 3) {
           return word; // Exact match for short words
@@ -504,13 +653,13 @@ export class AdvancedSearchService {
         // Allow 1 character difference for longer words
         return `(${word}|${word.slice(0, -1)}|${word}s)`;
       });
-      return new RegExp(regexStrings.join('.*'), 'i');
+      return new RegExp(regexStrings.join(".*"), "i");
     });
 
     // Build $or conditions for fuzzy matching
     const orConditions = [
       // Text search on multiple fields
-      ...regexPatterns.map(pattern => ({
+      ...regexPatterns.map((pattern) => ({
         $or: [
           { name: { $regex: pattern } },
           { description: { $regex: pattern } },
@@ -531,9 +680,7 @@ export class AdvancedSearchService {
     }
 
     const finalFilter =
-      andClauses.length === 1 ?
-        andClauses[0]!
-      : { $and: andClauses };
+      andClauses.length === 1 ? andClauses[0]! : { $and: andClauses };
 
     const skip = (page - 1) * limit;
 
@@ -550,7 +697,7 @@ export class AdvancedSearchService {
       .maxTimeMS(5000);
 
     // Calculate keyword similarity scores and sort by relevance
-    const scoredProducts = products.map(product => {
+    const scoredProducts = products.map((product) => {
       const similarityScore = this.calculateKeywordSimilarity(safeQuery, {
         name: product.name as string,
         description: product.description as string,
@@ -566,8 +713,9 @@ export class AdvancedSearchService {
     });
 
     // Sort by relevance score (if query exists)
-    const sortedProducts = safeQuery.trim()
-      ? scoredProducts.sort((a, b) => {
+    const sortedProducts =
+      safeQuery.trim() ?
+        scoredProducts.sort((a, b) => {
           const scoreA = a._relevanceScore as number;
           const scoreB = b._relevanceScore as number;
           return scoreB - scoreA; // Descending by relevance
@@ -575,7 +723,9 @@ export class AdvancedSearchService {
       : scoredProducts;
 
     // Remove relevance score from final output
-    const finalProducts = sortedProducts.map(({ _relevanceScore, ...rest }) => rest);
+    const finalProducts = sortedProducts.map(
+      ({ _relevanceScore, ...rest }) => rest,
+    );
 
     return {
       products: finalProducts,
@@ -589,14 +739,24 @@ export class AdvancedSearchService {
   /**
    * Build sort object with relevance consideration.
    */
-  private buildSort(sortBy: string, sortOrder: 'asc' | 'desc', query: string): Record<string, 1 | -1 | { $meta: 'textScore' }> {
-    const sort: Record<string, 1 | -1 | { $meta: 'textScore' }> = {};
+  private buildSort(
+    sortBy: string,
+    sortOrder: "asc" | "desc",
+    query: string,
+  ): Record<string, 1 | -1 | { $meta: "textScore" }> {
+    const sort: Record<string, 1 | -1 | { $meta: "textScore" }> = {};
 
-    if (query.trim() && sortBy === 'relevance') {
+    if (query.trim() && sortBy === "relevance") {
       // If sorting by relevance and there's a query, use text score
-      sort.score = { $meta: 'textScore' };
-    } else if (sortBy === 'price' || sortBy === 'ratings.average' || sortBy === 'createdAt' || sortBy === 'viewCount' || sortBy === 'soldCount') {
-      sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
+      sort.score = { $meta: "textScore" };
+    } else if (
+      sortBy === "price" ||
+      sortBy === "ratings.average" ||
+      sortBy === "createdAt" ||
+      sortBy === "viewCount" ||
+      sortBy === "soldCount"
+    ) {
+      sort[sortBy] = sortOrder === "asc" ? 1 : -1;
     } else {
       // Default sort by creation date
       sort.createdAt = -1;
@@ -611,7 +771,7 @@ export class AdvancedSearchService {
   private async basicSearch(options: {
     filters?: Record<string, unknown>;
     sortBy?: string;
-    sortOrder?: 'asc' | 'desc';
+    sortOrder?: "asc" | "desc";
     page?: number;
     limit?: number;
     categories?: string[];
@@ -631,8 +791,8 @@ export class AdvancedSearchService {
   }> {
     const {
       filters = {},
-      sortBy = 'createdAt',
-      sortOrder = 'desc',
+      sortBy = "createdAt",
+      sortOrder = "desc",
       page = 1,
       limit = env.pagination.defaultLimit,
       categories = [],
@@ -645,13 +805,14 @@ export class AdvancedSearchService {
       adminScope = false,
     } = options;
 
-    const baseFilter: Record<string, unknown> = adminScope ?
-      { category: { $ne: "Gifting" } }
-    : {
-        isActive: true,
-        tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
-        category: { $ne: "Gifting" },
-      };
+    const baseFilter: Record<string, unknown> =
+      adminScope ?
+        { category: { $ne: "Gifting" } }
+      : {
+          isActive: true,
+          tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
+          category: { $ne: "Gifting" },
+        };
 
     // Apply category filter
     if (categories.length > 0) {
@@ -677,7 +838,7 @@ export class AdvancedSearchService {
 
     // Apply rating filter
     if (minRating !== undefined) {
-      baseFilter['ratings.average'] = { $gte: minRating };
+      baseFilter["ratings.average"] = { $gte: minRating };
     }
 
     // Apply featured filter
@@ -696,7 +857,7 @@ export class AdvancedSearchService {
     });
 
     // Build sort
-    const sort = this.buildSort(sortBy, sortOrder, '');
+    const sort = this.buildSort(sortBy, sortOrder, "");
 
     // Calculate skip
     const skip = (page - 1) * limit;
@@ -725,15 +886,18 @@ export class AdvancedSearchService {
   /**
    * Autocomplete with fuzzy matching.
    */
-  async autocomplete(query: string, limit = 5): Promise<
+  async autocomplete(
+    query: string,
+    limit = 5,
+  ): Promise<
     Array<{
-    id: string;
-    name: string;
-    slug: string;
-    image: string;
-    price: number;
-    category: string;
-    relevance: number;
+      id: string;
+      name: string;
+      slug: string;
+      image: string;
+      price: number;
+      category: string;
+      relevance: number;
     }>
   > {
     const safeQuery = normalizeSearchQuery(query);
@@ -743,28 +907,30 @@ export class AdvancedSearchService {
 
     const v = await getProductCacheVersion();
     const cacheKey = `cache:v${v}:autocomplete:${require("crypto").createHash("md5").update(safeQuery).digest("hex")}`;
-    
+
     // Try cache first
-    const cached = await getCache<Array<{
-      id: string;
-      name: string;
-      slug: string;
-      image: string;
-      price: number;
-      category: string;
-      relevance: number;
-    }>>(cacheKey);
-    
+    const cached = await getCache<
+      Array<{
+        id: string;
+        name: string;
+        slug: string;
+        image: string;
+        price: number;
+        category: string;
+        relevance: number;
+      }>
+    >(cacheKey);
+
     if (cached) {
       return cached;
     }
 
     // Expand query for fuzzy matching
     const expandedQueries = this.expandSearchQuery(safeQuery);
-    const regexPatterns = expandedQueries.map(q => new RegExp(q, 'i'));
+    const regexPatterns = expandedQueries.map((q) => new RegExp(q, "i"));
 
     // Build search conditions
-    const conditions = regexPatterns.map(pattern => ({
+    const conditions = regexPatterns.map((pattern) => ({
       $or: [
         { name: { $regex: pattern } },
         { category: { $regex: pattern } },
@@ -780,22 +946,24 @@ export class AdvancedSearchService {
     })
       .sort({ isFeatured: -1, viewCount: -1 })
       .limit(limit * 2) // Get more to filter by relevance
-      .select('name slug images price category description tags fabric')
-      .lean<Array<{
-        _id: string;
-        name: string;
-        slug: string;
-        images: Array<{ url: string }>;
-        price: number;
-        category: string;
-        description: string;
-        tags: string[];
-        fabric: string;
-      }>>()
+      .select("name slug images price category description tags fabric")
+      .lean<
+        Array<{
+          _id: string;
+          name: string;
+          slug: string;
+          images: Array<{ url: string }>;
+          price: number;
+          category: string;
+          description: string;
+          tags: string[];
+          fabric: string;
+        }>
+      >()
       .maxTimeMS(3000);
 
     // Calculate relevance scores
-    const scoredProducts = products.map(product => {
+    const scoredProducts = products.map((product) => {
       const relevance = this.calculateKeywordSimilarity(safeQuery, {
         name: product.name,
         description: product.description,
@@ -808,7 +976,7 @@ export class AdvancedSearchService {
         id: product._id.toString(),
         name: product.name,
         slug: product.slug,
-        image: product.images.length > 0 ? product.images[0].url : '',
+        image: product.images.length > 0 ? product.images[0].url : "",
         price: product.price,
         category: product.category,
         relevance,
@@ -835,9 +1003,9 @@ export class AdvancedSearchService {
       return [];
     }
 
-    const suggestions = this.INDIAN_FASHION_KEYWORDS
-      .filter(keyword => this.isSimilar(safeQuery.toLowerCase(), keyword))
-      .slice(0, 5); // Top 5 suggestions
+    const suggestions = this.INDIAN_FASHION_KEYWORDS.filter((keyword) =>
+      this.isSimilar(safeQuery.toLowerCase(), keyword),
+    ).slice(0, 5); // Top 5 suggestions
 
     return suggestions;
   }
@@ -845,17 +1013,30 @@ export class AdvancedSearchService {
   /**
    * Get trending searches based on view counts.
    */
-  async getTrendingSearches(limit = 10): Promise<Array<{ query: string; count: number }>> {
+  async getTrendingSearches(
+    limit = 10,
+  ): Promise<Array<{ query: string; count: number }>> {
     // In a real implementation, you'd track search queries in a separate collection
     // For now, return popular product categories and fabrics
     const popularCategories = await Product.aggregate([
-      { $match: { isActive: true, tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] } } },
-      { $group: { _id: '$category', count: { $sum: 1 }, totalViews: { $sum: '$viewCount' } } },
+      {
+        $match: {
+          isActive: true,
+          tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
+        },
+      },
+      {
+        $group: {
+          _id: "$category",
+          count: { $sum: 1 },
+          totalViews: { $sum: "$viewCount" },
+        },
+      },
       { $sort: { totalViews: -1 } },
       { $limit: limit },
     ]);
 
-    return popularCategories.map(item => ({
+    return popularCategories.map((item) => ({
       query: item._id,
       count: item.totalViews,
     }));
@@ -875,28 +1056,34 @@ export class AdvancedSearchService {
       await Product.findOne().limit(1);
       mongodbStatus = true;
     } catch (error) {
-      logger.error(`MongoDB health check failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      logger.error(
+        `MongoDB health check failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     }
 
     // Check cache (Redis)
     let cacheStatus = false;
     try {
-      const testKey = 'health:test';
-      await setCache(testKey, 'test', 1);
+      const testKey = "health:test";
+      await setCache(testKey, "test", 1);
       const value = await getCache<string>(testKey);
-      cacheStatus = value === 'test';
+      cacheStatus = value === "test";
     } catch (error) {
-      logger.error(`Cache health check failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      logger.error(
+        `Cache health check failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     }
 
     // Check text search indexes
     let indexesStatus = false;
     try {
       const indexes = await Product.collection.indexes();
-      const hasTextIndex = indexes.some(index => 'text' in index.key);
+      const hasTextIndex = indexes.some((index) => "text" in index.key);
       indexesStatus = hasTextIndex;
     } catch (error) {
-      logger.error(`Index health check failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      logger.error(
+        `Index health check failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     }
 
     return {

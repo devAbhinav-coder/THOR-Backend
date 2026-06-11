@@ -1,24 +1,19 @@
-import sanitizeHtml from 'sanitize-html';
-import { aiConfig, assertAiEnabled } from '../../config/ai';
-import AppError from '../../utils/AppError';
-import logger from '../../utils/logger';
+import sanitizeHtml from "sanitize-html";
+import { aiConfig, assertAiEnabled } from "../../config/ai";
+import AppError from "../../types/utils/AppError";
+import logger from "../../types/utils/logger";
+import { GROQ_SYSTEM_GUARDRAILS } from "./aiPromptConstants";
 
-export type GroqMessage = { role: 'system' | 'user' | 'assistant'; content: string };
-
-const SYSTEM_GUARDRAILS = `You are Rani Admin AI for The House of Rani (Indian ethnic wear e-commerce).
-Rules:
-- Answer only from the JSON context provided. Do not invent orders, revenue, or stock numbers.
-- Be concise: use bullet lists. Mix simple Hindi and English if helpful for Indian store owners.
-- Never reveal API keys, passwords, or full payment card data.
-- Suggestions only — never say you executed refunds, price changes, or emails.
-- If context is insufficient, say what data is missing.
-- FORMAT: Put each bullet on its own line starting with "• " (newline between bullets).`;
+export type GroqMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
+};
 
 function decodeHtmlEntities(text: string): string {
   return text
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&apos;/g, "'");
@@ -32,9 +27,9 @@ export function sanitizeAiText(raw: string, maxLen = 8000): string {
       allowedAttributes: {},
     }),
   )
-    .replace(/\r\n/g, '\n')
-    .replace(/[^\S\n]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\r\n/g, "\n")
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
     .trim()
     .slice(0, maxLen);
 }
@@ -43,18 +38,24 @@ const BULLET_LINE = /^(?:[-–—•*]|\d+[.)])\s+(.+)$/;
 
 function stripMarkdown(raw: string): string {
   return raw
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/__([^_]+)__/g, '$1')
-    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
     .trim();
 }
 
-export function parseAiStructuredText(text: string): { intro: string; bullets: string[] } {
+export function parseAiStructuredText(text: string): {
+  intro: string;
+  bullets: string[];
+} {
   const normalized = stripMarkdown(sanitizeAiText(text, 12000));
-  if (!normalized) return { intro: '', bullets: [] };
+  if (!normalized) return { intro: "", bullets: [] };
 
-  const lines = normalized.split('\n').map((l) => l.trim()).filter(Boolean);
+  const lines = normalized
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
   const bullets: string[] = [];
   const introParts: string[] = [];
 
@@ -64,12 +65,15 @@ export function parseAiStructuredText(text: string): { intro: string; bullets: s
       bullets.push(m[1].trim());
       continue;
     }
-    if (line.startsWith('•')) {
-      bullets.push(line.replace(/^•\s*/, '').trim());
+    if (line.startsWith("•")) {
+      bullets.push(line.replace(/^•\s*/, "").trim());
       continue;
     }
     if (/\s•\s/.test(line)) {
-      const parts = line.split(/\s*•\s*/).map((p) => p.trim()).filter((p) => p.length > 2);
+      const parts = line
+        .split(/\s*•\s*/)
+        .map((p) => p.trim())
+        .filter((p) => p.length > 2);
       if (parts.length > 1) {
         bullets.push(...parts);
         continue;
@@ -78,9 +82,16 @@ export function parseAiStructuredText(text: string): { intro: string; bullets: s
     introParts.push(line);
   }
 
-  if (bullets.length === 0 && introParts.length === 1 && introParts[0].length > 100) {
+  if (
+    bullets.length === 0 &&
+    introParts.length === 1 &&
+    introParts[0].length > 100
+  ) {
     const chunk = introParts[0];
-    const inlineBullets = chunk.split(/\s*•\s*/).map((p) => p.trim()).filter((p) => p.length > 3);
+    const inlineBullets = chunk
+      .split(/\s*•\s*/)
+      .map((p) => p.trim())
+      .filter((p) => p.length > 3);
     if (inlineBullets.length > 1) {
       return { intro: inlineBullets[0], bullets: inlineBullets.slice(1, 10) };
     }
@@ -93,7 +104,7 @@ export function parseAiStructuredText(text: string): { intro: string; bullets: s
     }
   }
 
-  const intro = introParts.join(' ').trim();
+  const intro = introParts.join(" ").trim();
   if (bullets.length === 0 && intro) {
     return { intro, bullets: [] };
   }
@@ -114,14 +125,72 @@ export function buildFormattedAiFields(text: string): {
 } {
   const { intro, bullets } = parseAiStructuredText(text);
   const displayText =
-    bullets.length > 0
-      ? [intro, ...bullets.map((b) => `• ${b}`)].filter(Boolean).join('\n')
-      : text;
+    bullets.length > 0 ?
+      [intro, ...bullets.map((b) => `• ${b}`)].filter(Boolean).join("\n")
+    : text;
   return {
     text: displayText,
-    bullets: bullets.length > 0 ? bullets : intro ? [intro] : [],
+    bullets:
+      bullets.length > 0 ? bullets
+      : intro ? [intro]
+      : [],
     ...(intro && bullets.length > 0 ? { intro } : {}),
   };
+}
+
+function processGroqResponse(raw: string, jsonObject?: boolean): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  // JSON drafts include HTML in string fields — sanitizeAiText would corrupt them.
+  if (jsonObject) return trimmed.slice(0, 48000);
+  return sanitizeAiText(trimmed);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function callGroqOnce(
+  messages: GroqMessage[],
+  maxTokens: number | undefined,
+  jsonObject: boolean | undefined,
+  signal: AbortSignal,
+): Promise<{ text: string; model: string }> {
+  const res = await fetch(`${aiConfig.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${aiConfig.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: aiConfig.model,
+      messages,
+      temperature: aiConfig.temperature,
+      max_tokens: maxTokens ?? aiConfig.maxTokens,
+      ...(jsonObject ? { response_format: { type: "json_object" } } : {}),
+    }),
+    signal,
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => "");
+    logger.warn(`Groq API error ${res.status}: ${errBody.slice(0, 200)}`);
+    if (res.status === 429) {
+      throw new AppError(
+        "Groq rate limit reached — wait 1–2 minutes, then try again.",
+        429,
+      );
+    }
+    throw new AppError("AI service temporarily unavailable.", 502);
+  }
+
+  const json = (await res.json()) as {
+    choices?: { message?: { content?: string } }[];
+  };
+  const raw = json.choices?.[0]?.message?.content || "";
+  const text = processGroqResponse(raw, jsonObject);
+  if (!text) throw new AppError("AI returned an empty response.", 502);
+  return { text, model: aiConfig.model };
 }
 
 async function callGroq(
@@ -129,52 +198,41 @@ async function callGroq(
   maxTokens?: number,
   jsonObject?: boolean,
 ): Promise<{ text: string; model: string }> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), aiConfig.requestTimeoutMs);
+  const retries = [0, 2500, 6000];
+  let lastErr: unknown;
 
-  try {
-    const res = await fetch(`${aiConfig.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${aiConfig.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: aiConfig.model,
-        messages,
-        temperature: aiConfig.temperature,
-        max_tokens: maxTokens ?? aiConfig.maxTokens,
-        ...(jsonObject ? { response_format: { type: 'json_object' } } : {}),
-      }),
-      signal: controller.signal,
-    });
+  for (let attempt = 0; attempt < retries.length; attempt++) {
+    if (attempt > 0) await sleep(retries[attempt]);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), aiConfig.requestTimeoutMs);
 
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '');
-      logger.warn(`Groq API error ${res.status}: ${errBody.slice(0, 200)}`);
-      if (res.status === 429) {
-        throw new AppError('AI rate limit reached. Try again in a few minutes.', 429);
+    try {
+      return await callGroqOnce(messages, maxTokens, jsonObject, controller.signal);
+    } catch (e) {
+      lastErr = e;
+      if (e instanceof AppError && e.statusCode === 429 && attempt < retries.length - 1) {
+        logger.warn(`Groq 429 — retry ${attempt + 1}/${retries.length - 1}`);
+        continue;
       }
-      throw new AppError('AI service temporarily unavailable.', 502);
+      if (e instanceof AppError) throw e;
+      if ((e as Error).name === "AbortError") {
+        throw new AppError("AI request timed out. Please try again.", 504);
+      }
+      logger.warn(`Groq request failed: ${(e as Error).message}`);
+      throw new AppError("AI service error. Please try again.", 502);
+    } finally {
+      clearTimeout(timer);
     }
-
-    const json = (await res.json()) as {
-      choices?: { message?: { content?: string } }[];
-    };
-    const raw = json.choices?.[0]?.message?.content || '';
-    const text = sanitizeAiText(raw);
-    if (!text) throw new AppError('AI returned an empty response.', 502);
-    return { text, model: aiConfig.model };
-  } catch (e) {
-    if (e instanceof AppError) throw e;
-    if ((e as Error).name === 'AbortError') {
-      throw new AppError('AI request timed out. Please try again.', 504);
-    }
-    logger.warn(`Groq request failed: ${(e as Error).message}`);
-    throw new AppError('AI service error. Please try again.', 502);
-  } finally {
-    clearTimeout(timer);
   }
+
+  if (lastErr instanceof AppError) throw lastErr;
+  throw new AppError("AI service error. Please try again.", 502);
+}
+
+function trimPrompt(raw: string, maxLen: number, jsonObject?: boolean): string {
+  const decoded = decodeHtmlEntities(raw).replace(/\r\n/g, "\n").trim();
+  if (jsonObject) return decoded.slice(0, maxLen);
+  return sanitizeAiText(decoded, maxLen);
 }
 
 export async function groqChatCompletion(
@@ -184,17 +242,23 @@ export async function groqChatCompletion(
     maxTokens?: number;
     temperature?: number;
     jsonObject?: boolean;
+    maxPromptChars?: number;
   },
 ): Promise<{ text: string; model: string }> {
   assertAiEnabled();
+  const maxPrompt = options?.maxPromptChars ?? (options?.jsonObject ? 14000 : 6000);
   const messages: GroqMessage[] = [
     {
-      role: 'system',
-      content: options?.systemExtra
-        ? `${SYSTEM_GUARDRAILS}\n\n${options.systemExtra}`
-        : SYSTEM_GUARDRAILS,
+      role: "system",
+      content:
+        options?.systemExtra ?
+          `${GROQ_SYSTEM_GUARDRAILS}\n\n${options.systemExtra}`
+        : GROQ_SYSTEM_GUARDRAILS,
     },
-    { role: 'user', content: sanitizeAiText(userPrompt, 6000) },
+    {
+      role: "user",
+      content: trimPrompt(userPrompt, maxPrompt, options?.jsonObject),
+    },
   ];
   return callGroq(messages, options?.maxTokens, options?.jsonObject);
 }
@@ -206,25 +270,33 @@ export async function groqChatWithHistory(
   assertAiEnabled();
   const sanitized = messages.map((m) => ({
     role: m.role,
-    content: m.role === 'system' ? m.content.slice(0, 12000) : sanitizeAiText(m.content, 2000),
+    content:
+      m.role === "system" ?
+        m.content.slice(0, 12000)
+      : sanitizeAiText(m.content, 2000),
   }));
   return callGroq(sanitized, options?.maxTokens);
 }
 
-function stripModelJsonWrapper(raw: string): string {
+export function stripModelJsonWrapper(raw: string): string {
   let s = raw.trim();
   const fenced = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fenced) return fenced[1].trim();
-  if (s.startsWith('```')) {
-    return s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/g, '').trim();
+  if (s.startsWith("```")) {
+    return s
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/g, "")
+      .trim();
   }
   return s;
 }
 
-export function parseJsonFromModel<T extends Record<string, unknown>>(raw: string): T | null {
+export function parseJsonFromModel<T extends Record<string, unknown>>(
+  raw: string,
+): T | null {
   const trimmed = stripModelJsonWrapper(raw);
-  const start = trimmed.indexOf('{');
-  const end = trimmed.lastIndexOf('}');
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
   if (start < 0 || end <= start) return null;
   const blob = trimmed.slice(start, end + 1);
   try {
@@ -232,7 +304,7 @@ export function parseJsonFromModel<T extends Record<string, unknown>>(raw: strin
   } catch {
     try {
       const fixed = blob
-        .replace(/,\s*([}\]])/g, '$1')
+        .replace(/,\s*([}\]])/g, "$1")
         .replace(/[\u201c\u201d]/g, '"')
         .replace(/[\u2018\u2019]/g, "'");
       return JSON.parse(fixed) as T;

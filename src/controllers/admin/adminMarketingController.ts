@@ -1,31 +1,31 @@
-import { Request, Response, NextFunction } from 'express';
-import User from '../../models/User';
-import AppError from '../../utils/AppError';
-import catchAsync from '../../utils/catchAsync';
-import { sendSuccess } from '../../utils/response';
+import { Request, Response, NextFunction } from "express";
+import User from "../../models/User";
+import AppError from "../../types/utils/AppError";
+import catchAsync from "../../types/utils/catchAsync";
+import { sendSuccess } from "../../types/utils/response";
 import {
   getMarketingAudienceStats,
   marketingDeliveryConfigured,
   sendMarketingCampaign,
   type MarketingAudience,
   type MarketingChannel,
-} from '../../services/marketingCampaignService';
+} from "../../services/marketingCampaignService";
 
 export const getMarketingAudiencePreview = catchAsync(
   async (req: Request, res: Response) => {
-    const audience = (req.query.audience as MarketingAudience) || 'users';
-    const channelsRaw = String(req.query.channels || 'email');
+    const audience = (req.query.audience as MarketingAudience) || "users";
+    const channelsRaw = String(req.query.channels || "email");
     const channels = channelsRaw
-      .split(',')
+      .split(",")
       .map((c) => c.trim())
       .filter((c): c is MarketingChannel =>
-        ['email', 'in_app', 'push'].includes(c),
+        ["email", "in_app", "push"].includes(c),
       ) as MarketingChannel[];
-    const includeOfflineLeads = req.query.includeOfflineLeads === 'true';
+    const includeOfflineLeads = req.query.includeOfflineLeads === "true";
 
     const stats = await getMarketingAudienceStats(
       audience,
-      channels.length ? channels : ['email'],
+      channels.length ? channels : ["email"],
       undefined,
       includeOfflineLeads,
     );
@@ -42,7 +42,7 @@ export const sendCustomMarketingEmail = catchAsync(
     const {
       subject,
       messageHtml,
-      audience = 'users',
+      audience = "users",
       userIds,
       ctaText,
       ctaLink,
@@ -60,24 +60,27 @@ export const sendCustomMarketingEmail = catchAsync(
     };
 
     if (!subject?.trim() || !messageHtml?.trim()) {
-      return next(new AppError('Subject and message are required.', 400));
+      return next(new AppError("Subject and message are required.", 400));
     }
 
     const activeChannels =
-      channels?.length ? channels : (['email'] as MarketingChannel[]);
+      channels?.length ? channels : (["email"] as MarketingChannel[]);
 
-    if (activeChannels.includes('email') && !marketingDeliveryConfigured().resendConfigured) {
+    if (
+      activeChannels.includes("email") &&
+      !marketingDeliveryConfigured().resendConfigured
+    ) {
       return next(
         new AppError(
-          'Email delivery is not configured (RESEND_API_KEY missing). Enable in-app or browser notifications, or configure Resend.',
+          "Email delivery is not configured (RESEND_API_KEY missing). Enable in-app or browser notifications, or configure Resend.",
           503,
         ),
       );
     }
 
-    if (audience === 'selected') {
+    if (audience === "selected") {
       if (!userIds || userIds.length === 0) {
-        return next(new AppError('Select at least one user.', 400));
+        return next(new AppError("Select at least one user.", 400));
       }
     }
 
@@ -95,7 +98,7 @@ export const sendCustomMarketingEmail = catchAsync(
     const parts: string[] = [];
     if (result.emailsQueued > 0) {
       parts.push(
-        `${result.emailsQueued} email(s) queued${result.emailChunkJobs ? ` in ${result.emailChunkJobs} batch(es)` : ''}`,
+        `${result.emailsQueued} email(s) queued${result.emailChunkJobs ? ` in ${result.emailChunkJobs} batch(es)` : ""}`,
       );
     }
     if (result.offlineEmailsQueued > 0) {
@@ -103,17 +106,17 @@ export const sendCustomMarketingEmail = catchAsync(
     }
     if (result.notificationsQueued > 0) {
       const notifBits: string[] = [];
-      if (activeChannels.includes('in_app')) notifBits.push('in-app');
-      if (activeChannels.includes('push')) notifBits.push('browser push');
+      if (activeChannels.includes("in_app")) notifBits.push("in-app");
+      if (activeChannels.includes("push")) notifBits.push("browser push");
       parts.push(
-        `${result.notificationsQueued} account(s) — ${notifBits.join(' + ')}`,
+        `${result.notificationsQueued} account(s) — ${notifBits.join(" + ")}`,
       );
     }
 
     sendSuccess(
       res,
       result,
-      parts.length ? parts.join('. ') + '.' : 'Campaign queued.',
+      parts.length ? parts.join(". ") + "." : "Campaign queued.",
     );
   },
 );

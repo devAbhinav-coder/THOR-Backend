@@ -1,9 +1,9 @@
-import mongoose, { ClientSession } from 'mongoose';
-import { Request } from 'express';
-import Order from '../models/Order';
-import AppError from '../utils/AppError';
-import { writeAdminAudit } from './adminAuditService';
-import logger from '../utils/logger';
+import mongoose, { ClientSession } from "mongoose";
+import { Request } from "express";
+import Order from "../models/Order";
+import AppError from "../types/utils/AppError";
+import { writeAdminAudit } from "./adminAuditService";
+import logger from "../types/utils/logger";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -11,7 +11,9 @@ import logger from '../utils/logger';
  * Run `fn` inside a Mongo transaction when a replica set is available.
  * On a standalone mongod (dev), degrades gracefully — runs without a session.
  */
-async function withOptionalTransaction<T>(fn: (session: ClientSession | null) => Promise<T>): Promise<T> {
+async function withOptionalTransaction<T>(
+  fn: (session: ClientSession | null) => Promise<T>,
+): Promise<T> {
   let session: ClientSession | null = null;
   try {
     session = await mongoose.startSession();
@@ -21,13 +23,15 @@ async function withOptionalTransaction<T>(fn: (session: ClientSession | null) =>
     });
     return result;
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : '';
+    const msg = err instanceof Error ? err.message : "";
     if (
-      msg.includes('Transaction numbers are only allowed') ||
-      msg.includes('not a repl set') ||
-      msg.includes('replica set')
+      msg.includes("Transaction numbers are only allowed") ||
+      msg.includes("not a repl set") ||
+      msg.includes("replica set")
     ) {
-      logger.warn('[adminReturnService] Mongo transactions unavailable — running without transaction');
+      logger.warn(
+        "[adminReturnService] Mongo transactions unavailable — running without transaction",
+      );
       return fn(null);
     }
     throw err;
@@ -40,7 +44,7 @@ async function withOptionalTransaction<T>(fn: (session: ClientSession | null) =>
 
 export interface ResolveReturnResult {
   order: InstanceType<typeof Order>;
-  newStatus: 'approved' | 'rejected';
+  newStatus: "approved" | "rejected";
 }
 
 /**
@@ -50,19 +54,22 @@ export interface ResolveReturnResult {
 export async function resolveReturn(
   req: Request,
   orderId: string,
-  action: 'approve' | 'reject',
-  adminNote?: string
+  action: "approve" | "reject",
+  adminNote?: string,
 ): Promise<ResolveReturnResult> {
-  const newStatus = action === 'approve' ? 'approved' : 'rejected';
+  const newStatus = action === "approve" ? "approved" : "rejected";
 
   return withOptionalTransaction(async (session) => {
     const order = await Order.findById(orderId)
-      .populate('user', 'name email')
+      .populate("user", "name email")
       .session(session);
 
-    if (!order) throw new AppError('Order not found', 404);
-    if (order.returnStatus !== 'requested') {
-      throw new AppError('Only orders with requested return status can be resolved', 400);
+    if (!order) throw new AppError("Order not found", 404);
+    if (order.returnStatus !== "requested") {
+      throw new AppError(
+        "Only orders with requested return status can be resolved",
+        400,
+      );
     }
 
     order.returnStatus = newStatus;
@@ -71,9 +78,9 @@ export async function resolveReturn(
       order.returnRequest.adminNote = adminNote?.trim();
     }
 
-    if (action === 'approve') {
+    if (action === "approve") {
       order.statusHistory.push({
-        status: 'return_approved',
+        status: "return_approved",
         timestamp: new Date(),
         note: adminNote,
       } as never);
@@ -90,7 +97,7 @@ export async function resolveReturn(
       req,
       `order.return_${newStatus}` as string,
       { orderId: order._id, adminNote },
-      orderId
+      orderId,
     );
 
     return { order, newStatus };

@@ -1,12 +1,12 @@
-import { getCache, setCache, deleteCache } from '../cacheService';
-import { redisConnection, redisEnabled } from '../../config/redis';
-import logger from '../../utils/logger';
-import { getRequestContext } from '../../utils/requestContext';
+import { getCache, setCache, deleteCache } from "../cacheService";
+import { redisConnection, redisEnabled } from "../../config/redis";
+import logger from "../../types/utils/logger";
+import { getRequestContext } from "../../types/utils/requestContext";
 import {
   WISHLIST_LIST_CACHE_TTL_SEC,
   WISHLIST_COUNT_CACHE_TTL_SEC,
-} from './wishlistConstants';
-import type { WishlistProductDto } from './wishlistDto';
+} from "./wishlistConstants";
+import type { WishlistProductDto } from "./wishlistDto";
 
 export type WishlistListCachePayload = {
   products: WishlistProductDto[];
@@ -28,18 +28,24 @@ export const wishlistCacheService = {
   async getList(
     userId: string,
     page?: number,
-    limit?: number
+    limit?: number,
   ): Promise<WishlistListCachePayload | null> {
-    return getCache<WishlistListCachePayload>(listCacheKey(userId, page, limit));
+    return getCache<WishlistListCachePayload>(
+      listCacheKey(userId, page, limit),
+    );
   },
 
   async setList(
     userId: string,
     payload: WishlistListCachePayload,
     page?: number,
-    limit?: number
+    limit?: number,
   ): Promise<void> {
-    await setCache(listCacheKey(userId, page, limit), payload, WISHLIST_LIST_CACHE_TTL_SEC);
+    await setCache(
+      listCacheKey(userId, page, limit),
+      payload,
+      WISHLIST_LIST_CACHE_TTL_SEC,
+    );
   },
 
   async getCount(userId: string): Promise<number | null> {
@@ -55,7 +61,7 @@ export const wishlistCacheService = {
     this.invalidate(userId).catch((err: Error) => {
       const ctx = getRequestContext();
       logger.warn({
-        msg: 'wishlist_cache_invalidation_failed',
+        msg: "wishlist_cache_invalidation_failed",
         userId,
         requestId: ctx?.requestId,
         error: err.message,

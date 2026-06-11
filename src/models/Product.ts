@@ -97,6 +97,7 @@ const productSchema = new Schema<IProduct>(
     },
     viewCount: { type: Number, default: 0, min: 0 },
     soldCount: { type: Number, default: 0, min: 0 },
+    contentEmbedding: { type: [Number], default: [], select: false },
     hsnCode: { type: String, trim: true },
     seoTitle: String,
     seoDescription: String,

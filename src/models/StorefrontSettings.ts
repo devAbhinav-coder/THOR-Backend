@@ -148,6 +148,35 @@ const homeGiftShowcaseCardSchema = new Schema(
   { _id: false }
 );
 
+const homeEditorialGalleryTileSchema = new Schema(
+  {
+    image: { type: String, trim: true },
+    imagePublicId: { type: String, trim: true },
+    link: { type: String, trim: true, maxlength: 240 },
+    alt: { type: String, trim: true, maxlength: 140 },
+  },
+  { _id: false },
+);
+
+const homeEditorialGallerySchema = new Schema(
+  {
+    eyebrow: { type: String, trim: true, maxlength: 80 },
+    title: { type: String, trim: true, maxlength: 140 },
+    subtitle: { type: String, trim: true, maxlength: 260 },
+    ctaText: { type: String, trim: true, maxlength: 40 },
+    ctaLink: { type: String, trim: true, maxlength: 240 },
+    isActive: { type: Boolean, default: true },
+    tiles: {
+      type: [homeEditorialGalleryTileSchema],
+      validate: [
+        (arr: unknown[]) => !Array.isArray(arr) || arr.length <= 3,
+        "Max 3 editorial gallery tiles",
+      ],
+    },
+  },
+  { _id: false },
+);
+
 const homeGiftShowcaseSchema = new Schema(
   {
     isActive: { type: Boolean, default: true },
@@ -175,6 +204,7 @@ const storefrontSettingsSchema = new Schema(
     giftingHeroBanners: [giftingHeroBannerSchema],
     giftingSecondaryBanners: [giftingSecondaryBannerSchema],
     homeGiftShowcase: homeGiftShowcaseSchema,
+    homeEditorialGallery: homeEditorialGallerySchema,
     footer: footerSchema,
   },
   { timestamps: true }
