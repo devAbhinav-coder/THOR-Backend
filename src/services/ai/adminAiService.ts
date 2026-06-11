@@ -642,8 +642,8 @@ ${JSON.stringify(compactCtx)}`;
   const blogLlmOpts = {
     systemExtra:
       "Return valid JSON only. content field must contain safe HTML with p, h2, h3, ul, li, strong, a tags.",
-    maxTokens: blogAiConfig.provider === "gemini" ? 4096 : 3200,
-    maxPromptChars: blogAiConfig.provider === "gemini" ? 24000 : 12000,
+    maxTokens: 3200,
+    maxPromptChars: 12000,
     jsonObject: true as const,
   };
 
@@ -665,8 +665,8 @@ Products to link: ${JSON.stringify((compactCtx.relatedProducts as unknown[]) || 
 
     const retry = await blogChatCompletion(retryPrompt, {
       systemExtra: "JSON only. Shorter article.",
-      maxTokens: blogAiConfig.provider === "gemini" ? 3000 : 2200,
-      maxPromptChars: blogAiConfig.provider === "gemini" ? 16000 : 8000,
+      maxTokens: 2200,
+      maxPromptChars: 8000,
       jsonObject: true,
     });
     text = retry.text;
@@ -675,9 +675,8 @@ Products to link: ${JSON.stringify((compactCtx.relatedProducts as unknown[]) || 
   }
 
   if (!norm.content || norm.content.length < 120) {
-    const providerLabel = blogAiConfig.provider === "gemini" ? "Gemini" : "Groq";
     throw new AppError(
-      `Blog draft failed — ${providerLabel} returned an empty or truncated response. Wait a moment and click Regenerate.`,
+      "Blog draft failed — Groq returned an empty or truncated response. Wait a moment and click Regenerate.",
       502,
     );
   }

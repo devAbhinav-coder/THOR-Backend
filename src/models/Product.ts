@@ -109,7 +109,7 @@ const productSchema = new Schema<IProduct>(
   }
 );
 
-productSchema.virtual('discountPercent').get(function () {
+productSchema.virtual('discountPercent').get(function (this: IProduct) {
   if (this.comparePrice && this.comparePrice > this.price) {
     return Math.round(((this.comparePrice - this.price) / this.comparePrice) * 100);
   }

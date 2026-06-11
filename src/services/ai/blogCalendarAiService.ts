@@ -78,7 +78,7 @@ function normalizeItems(
         .filter(Boolean)
         .slice(0, 8);
 
-      return {
+      const plan: BlogCalendarPlanItem = {
         topic: topic.slice(0, 280),
         keywords: keywords.length ? keywords : [topic.split(" ")[0]].filter(Boolean),
         category: String(item.category || "saree-styling").slice(0, 40),
@@ -86,10 +86,13 @@ function normalizeItems(
         notes: String(item.notes || item.trendReason || "").slice(0, 500),
         trendScore: Math.min(100, Math.max(0, Number(item.trendScore) || 70)),
         trendReason: String(item.trendReason || "Seasonal ethnic wear interest").slice(0, 200),
-        festivalHook: item.festivalHook ? String(item.festivalHook).slice(0, 120) : undefined,
       };
+      if (item.festivalHook) {
+        plan.festivalHook = String(item.festivalHook).slice(0, 120);
+      }
+      return plan;
     })
-    .filter((x): x is BlogCalendarPlanItem => Boolean(x))
+    .filter((x): x is BlogCalendarPlanItem => x !== null)
     .slice(0, weeks * 2);
 }
 

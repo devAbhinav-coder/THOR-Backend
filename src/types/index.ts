@@ -101,6 +101,9 @@ export interface IProduct extends Document {
   viewCount: number;
   /** Checkout frequency tracker */
   soldCount: number;
+  /** Vector search embedding — not selected by default in queries */
+  contentEmbedding?: number[];
+  discountPercent?: number;
   hsnCode?: string;
   seoTitle?: string;
   seoDescription?: string;

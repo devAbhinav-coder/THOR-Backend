@@ -78,7 +78,7 @@ const MONTHLY_TRENDS: Record<number, TrendSeed[]> = {
 };
 
 /** Approximate festival dates — content planning hooks (India). */
-function festivalCalendar(year: number): Array<{ name: string; month: number; day: number; angle: string }> {
+function festivalCalendar(year: number): Array<{ name: string; month: number; day: number; angle: string; year: number }> {
   return [
     { name: "Holi", month: 2, day: 14, angle: "Colour-safe saree care & festive looks" },
     { name: "Raksha Bandhan", month: 7, day: 28, angle: "Sister gifting — saree gift guides" },

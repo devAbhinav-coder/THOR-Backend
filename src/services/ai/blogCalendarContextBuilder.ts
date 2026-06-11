@@ -46,7 +46,7 @@ export async function buildBlogCalendarContext(input?: {
 
   const coveredTopics = publishedBlogs.map((b) => b.title);
   const plannedTopics = existingPlans.map((p) => p.topic);
-  const gapCategories = BLOG_CATEGORIES.map((c) => c.value).filter(
+  const gapCategories = BLOG_CATEGORIES.filter(
     (cat) => !publishedBlogs.some((b) => (b as { category?: string }).category === cat),
   );
 
@@ -56,7 +56,7 @@ export async function buildBlogCalendarContext(input?: {
     season: getSeasonLabel(now),
     planningHorizonWeeks: weeks,
     focusHint: input?.focus?.trim() || null,
-    allowedCategories: BLOG_CATEGORIES.map((c) => c.value),
+    allowedCategories: [...BLOG_CATEGORIES],
     trendSeeds: getMonthlyTrendSeeds(now),
     upcomingFestivals: getUpcomingFestivals(weeks * 7 + 14, now),
     googleTrendsNote:
