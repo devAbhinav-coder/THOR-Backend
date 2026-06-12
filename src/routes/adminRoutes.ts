@@ -5,6 +5,7 @@ import { getAdminAuditLogs }       from '../controllers/admin/adminAuditControll
 import {
   getAllOrders,
   getOrderDetails,
+  deleteOrder,
   updateOrderStatus,
   generateOrderInvoice,
   processRefundController as processRefund,
@@ -211,6 +212,7 @@ router.post(
   createOfflineOrder,
 );
 router.get('/orders/:id', getOrderDetails);
+router.delete('/orders/:id', adminSensitiveLimiter, deleteOrder);
 router.get('/delhivery/status', getDelhiveryIntegrationStatus);
 router.get(
   '/delhivery/serviceability',

@@ -119,6 +119,22 @@ export const getOrderDetails = catchAsync(
   },
 );
 
+// ─── Delete ───────────────────────────────────────────────────────────────────
+
+export const deleteOrder = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    if (!Types.ObjectId.isValid(req.params.id)) {
+      return next(new AppError("Invalid order id.", 400));
+    }
+    const order = await Order.findById(req.params.id);
+    if (!order) return next(new AppError("Order not found.", 404));
+
+    await order.deleteOne();
+
+    res.status(204).end();
+  }
+);
+
 // ─── Status Update ────────────────────────────────────────────────────────────
 
 export const updateOrderStatus = catchAsync(
