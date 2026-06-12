@@ -127,10 +127,10 @@ export const createOfflineOrder = catchAsync(
       notes,
     } = body;
 
-    const phone10 = normalizeInPhone(String(phone || ""));
-    if (!/^[6-9]\d{9}$/.test(phone10)) {
+    const phone10 = phone ? normalizeInPhone(String(phone)) : "";
+    if (phone && !/^[6-9]\d{9}$/.test(phone10)) {
       return next(
-        new AppError("Enter a valid 10-digit Indian mobile number.", 400),
+        new AppError("If provided, phone must be a valid 10-digit Indian mobile number.", 400),
       );
     }
 
@@ -344,22 +344,26 @@ export const createOfflineOrder = catchAsync(
       lineTotal: Math.round(i.price * i.quantity * 100) / 100,
     }));
 
-    const emailNorm = String(email || "")
-      .trim()
-      .toLowerCase();
+    const hasEmail = Boolean(email && email.trim() !== "");
+    const emailNorm = hasEmail
+      ? String(email).trim().toLowerCase()
+      : `guest_${Date.now()}_${Math.floor(Math.random() * 1000)}@offline.local`;
+
     let user = await User.findOne({ email: emailNorm });
     if (!user) {
       try {
-        user = await User.create({
+        const payload: any = {
           name: customerName.trim().slice(0, 50),
           email: emailNorm,
           password: randomStrongPassword(),
-          phone: phone10,
           offlineLead: true,
-        });
+        };
+        if (phone10) payload.phone = phone10;
+
+        user = await User.create(payload);
       } catch (err: unknown) {
         const code = (err as { code?: number })?.code;
-        if (code === 11000) {
+        if (code === 11000 && hasEmail) {
           user = await User.findOne({ email: emailNorm });
         }
         if (!user) throw err;
@@ -372,13 +376,13 @@ export const createOfflineOrder = catchAsync(
     }
 
     user.name = customerName.trim().slice(0, 50);
-    user.phone = phone10;
+    if (phone10) user.phone = phone10;
     await user.save();
 
     const isOfflineMarketingLead = Boolean(
       (user as { offlineLead?: boolean }).offlineLead,
     );
-    if (!isOfflineMarketingLead) {
+    if (!isOfflineMarketingLead && hasEmail) {
       await removeOfflineCustomerByEmail(emailNorm);
     }
 
@@ -398,7 +402,7 @@ export const createOfflineOrder = catchAsync(
         }
       : {
           name: customerName.trim().slice(0, 80),
-          phone: phone10,
+          phone: phone10 || "0000000000",
           label: "Customer",
           street:
             "In-person fulfilment — goods handed over at point of sale (no courier dispatch for this order).",
@@ -496,22 +500,24 @@ export const createOfflineOrder = catchAsync(
         String(user._id),
       );
 
-      const userTemplate = emailTemplates.offlineOrderThankYou(
-        user.name,
-        order.orderNumber,
-        order.total,
-        {
-          orderId: String(order._id),
-          fulfillment,
-          paymentLabel,
-          items: emailLineItems,
-        },
-      );
-      await enqueueEmail({
-        to: user.email,
-        subject: userTemplate.subject,
-        html: userTemplate.html,
-      });
+      if (hasEmail) {
+        const userTemplate = emailTemplates.offlineOrderThankYou(
+          user.name,
+          order.orderNumber,
+          order.total,
+          {
+            orderId: String(order._id),
+            fulfillment,
+            paymentLabel,
+            items: emailLineItems,
+          },
+        );
+        await enqueueEmail({
+          to: user.email,
+          subject: userTemplate.subject,
+          html: userTemplate.html,
+        });
+      }
 
       const adminTemplate = emailTemplates.adminNewOrder(
         order.orderNumber,
@@ -540,7 +546,7 @@ export const createOfflineOrder = catchAsync(
         offlineCopy.type,
       ).catch(() => {});
 
-      if (isOfflineMarketingLead) {
+      if (isOfflineMarketingLead && hasEmail && phone10) {
         await upsertOfflineCustomerRecord({
           email: emailNorm,
           phone: phone10,

@@ -765,8 +765,8 @@ export const createOfflineOrderSchema = z.object({
   body: z
     .object({
       customerName: z.string().min(2).max(50),
-      email: z.string().email(),
-      phone: z.string().min(8).max(20),
+      email: z.string().email().or(z.literal('')).optional(),
+      phone: z.string().min(8).max(20).or(z.literal('')).optional(),
       orderSource: z.enum(['stall', 'personal_contact']),
       fulfillment: z.enum(['delhivery', 'offline_handover']),
       paymentMethod: z.enum(['offline_upi', 'offline_cash']),
