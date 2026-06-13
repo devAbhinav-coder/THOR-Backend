@@ -1,0 +1,98 @@
+# ─── OpenTelemetry Local Observability Stack ─────────────────────────────────
+# Starts Jaeger (traces) + Prometheus (metrics) + Grafana (dashboards)
+# All on a single Docker network: otel-net
+#
+# Usage:
+#   docker compose up -d
+#
+# Then in your .env:
+#   OTEL_ENABLED=true
+#   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+#
+# UIs:
+#   Jaeger:     http://localhost:16686
+#   Prometheus: http://localhost:9090
+#   Grafana:    http://localhost:3001  (admin / admin)
+# ─────────────────────────────────────────────────────────────────────────────
+
+networks:
+  otel-net:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:
+
+services:
+  # ── OpenTelemetry Collector (fan-out to Jaeger + Prometheus) ────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP  ← your backend sends here
+      - "8888:8888"   # Collector metrics (Prometheus scrape)
+      - "8889:8889"   # Prometheus exporter (scraped by Prometheus)
+    depends_on:
+      - jaeger
+    networks:
+      - otel-net
+
+  # ── Jaeger (distributed tracing UI) ─────────────────────────────────────────
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    restart: unless-stopped
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "14317:4317"    # Jaeger OTLP gRPC (internal; collector uses this)
+      - "14318:4318"    # Jaeger OTLP HTTP  (internal)
+    networks:
+      - otel-net
+
+  # ── Prometheus (metrics scraping) ────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - otel-collector
+    networks:
+      - otel-net
+
+  # ── Grafana (dashboards for traces + metrics) ────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=false
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+      - jaeger
+    networks:
+      - otel-net

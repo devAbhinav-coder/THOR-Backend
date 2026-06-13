@@ -112,6 +112,7 @@ import { xssSanitize } from "./middleware/xssSanitize";
 import { responseAdapter } from "./middleware/responseAdapter";
 import { paginationGuard } from "./middleware/paginationGuard";
 import { openApiSpec } from "./docs/openapi";
+import { shutdownOtel } from "./instrumentation/otel";
 import {
   getCorsAllowedOriginSet,
   normalizeOriginUrl,
@@ -466,6 +467,8 @@ const shutdown = async (signal: string) => {
       }
       await mongoose.connection.close();
       await closeAllRedisConnections();
+      // Flush OpenTelemetry spans and metrics before exit
+      await shutdownOtel();
       logger.info("Connections closed.");
     } catch (e) {
       logger.error(`Shutdown error: ${(e as Error).message}`);

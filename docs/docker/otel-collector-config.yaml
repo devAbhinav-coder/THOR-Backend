@@ -1,0 +1,69 @@
+# ─── OpenTelemetry Collector Configuration ────────────────────────────────────
+# Receives from backend → exports to Jaeger (traces) + Prometheus (metrics)
+# ─────────────────────────────────────────────────────────────────────────────
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins: ["*"]
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+
+  # Drop health-check spans to keep trace UI clean
+  filter/drop-health:
+    traces:
+      span:
+        - 'attributes["http.route"] == "/api/health"'
+        - 'attributes["url.path"] == "/api/health"'
+
+  memory_limiter:
+    limit_mib: 512
+    spike_limit_mib: 128
+    check_interval: 5s
+
+  # Updated alias: resource_detection (was: resourcedetection)
+  resource_detection:
+    detectors: [env, system]
+    override: false
+
+exporters:
+  # Traces → Jaeger  (updated alias: otlp_grpc)
+  otlp_grpc/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+  # Metrics → Prometheus pull endpoint (scraped by Prometheus)
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    namespace: hor_backend
+    send_timestamps: true
+    metric_expiration: 3m
+
+  # Debug logging (comment out in production)
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/drop-health, resource_detection, batch]
+      exporters: [otlp_grpc/jaeger, debug]
+
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource_detection, batch]
+      exporters: [prometheus, debug]
+
+  telemetry:
+    logs:
+      level: warn
