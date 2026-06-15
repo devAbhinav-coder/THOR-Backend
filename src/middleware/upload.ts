@@ -24,7 +24,7 @@ const imageFileFilter = (
 export const uploadProductImages = multer({
   storage: memoryStorage,
   fileFilter: imageFileFilter,
-  limits: { fileSize: 5 * 1024 * 1024, files: 7 },
+  limits: { fileSize: 12 * 1024 * 1024, files: 7 },
 }).array("images", 7);
 
 export const uploadAvatar = multer({
@@ -36,13 +36,13 @@ export const uploadAvatar = multer({
 export const uploadReviewImages = multer({
   storage: memoryStorage,
   fileFilter: imageFileFilter,
-  limits: { fileSize: 3 * 1024 * 1024, files: 3 },
+  limits: { fileSize: 12 * 1024 * 1024, files: 3 },
 }).array("images", 3);
 
 export const uploadGiftingImages = multer({
   storage: memoryStorage,
   fileFilter: imageFileFilter,
-  limits: { fileSize: 5 * 1024 * 1024, files: 5 },
+  limits: { fileSize: 12 * 1024 * 1024, files: 5 },
 }).array("images", 5);
 
 /** Cart custom-field uploads: single image via `images` field (frontend contract). */
@@ -55,7 +55,7 @@ export const uploadCartCustomFieldImage = multer({
 export const uploadStorefrontAssets = multer({
   storage: memoryStorage,
   fileFilter: imageFileFilter,
-  limits: { fileSize: 5 * 1024 * 1024, files: 20 },
+  limits: { fileSize: 10 * 1024 * 1024, files: 20 },
 }).any();
 
 interface CloudinaryUploadResult {
@@ -99,7 +99,8 @@ export const processProductImages = async (
 
     const uploadPromises = files.map((file) =>
       uploadToCloudinary(file.buffer, "house-of-rani/products", [
-        { width: 800, height: 800, crop: "limit" },
+        { width: 2048, height: 2730, crop: "limit" },
+        { quality: 92 },
       ]),
     );
 
@@ -209,7 +210,8 @@ export const processGiftingImages = async (
 
     const uploadPromises = files.map((file) =>
       uploadToCloudinary(file.buffer, "house-of-rani/gifting-requests", [
-        { width: 1000, height: 1000, crop: "limit" },
+        { width: 2048, height: 2730, crop: "limit" },
+        { quality: 92 },
       ]),
     );
 
@@ -436,8 +438,7 @@ export const handleBlogUploadError = (
 ): void => {
   if (err instanceof multer.MulterError) {
     const msg =
-      err.code === "LIMIT_FILE_SIZE" ?
-        "Each image must be 5 MB or smaller."
+      err.code === "LIMIT_FILE_SIZE" ? "Each image must be 5 MB or smaller."
       : err.code === "LIMIT_FILE_COUNT" ?
         "You can upload at most 10 images per blog."
       : `Upload error: ${err.message}`;
