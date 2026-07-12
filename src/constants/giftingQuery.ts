@@ -5,4 +5,4 @@ export const GIFTING_PRODUCT_CACHE_TTL = Number(process.env.GIFTING_PRODUCT_CACH
 export const GIFTING_RANDOM_POOL_TTL = Number(process.env.GIFTING_RANDOM_POOL_TTL || 300);
 
 export const GIFTABLE_PRODUCT_SELECT =
-  'name slug price comparePrice images category description shortDescription tags giftOccasions isFeatured isActive isGiftable minOrderQty isCustomizable customFields productDetails totalStock soldCount variants hsnCode';
+  'name slug price comparePrice images category description shortDescription tags occasions isFeatured isActive isGiftable minOrderQty isCustomizable customFields productDetails totalStock soldCount variants hsnCode';

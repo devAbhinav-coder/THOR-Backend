@@ -4,7 +4,7 @@ import AppError from "../types/utils/AppError";
 import { refProductId } from "../types/utils/productStock";
 
 export const getGiftMinQty = (product: InstanceType<typeof Product>) => {
-  const isCorporateGift = (product.giftOccasions || []).some(
+  const isCorporateGift = (product.occasions || []).some(
     (o) => String(o).trim().toLowerCase() === "corporate",
   );
   const baseMin = Math.max(Number(product.minOrderQty || 1), 1);

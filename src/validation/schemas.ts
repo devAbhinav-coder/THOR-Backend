@@ -226,6 +226,7 @@ export const productListQuerySchema = z.object({
       maxPrice: z.coerce.number().min(0).optional(),
       minRating: z.coerce.number().int().min(1).max(5).optional(),
       isFeatured: z.enum(['true', 'false']).optional(),
+      onSale: z.enum(['true', 'false']).optional(),
       isActive: z.enum(['true', 'false']).optional(),
       isRandom: z.enum(['true', 'false']).optional(),
       excludeIds: z.string().max(4000).optional(),
@@ -248,6 +249,7 @@ export const productSearchQuerySchema = z.object({
     maxPrice: z.coerce.number().min(0).optional(),
     minRating: z.coerce.number().int().min(1).max(5).optional(),
     isFeatured: z.enum(['true', 'false']).optional(),
+    onSale: z.enum(['true', 'false']).optional(),
     isActive: z.enum(['true', 'false']).optional(),
   }),
 });
@@ -313,6 +315,11 @@ const productCustomFieldSchema = z.object({
   isRequired: z.boolean().optional(),
 });
 
+const imagesMetaField = z
+  .string()
+  .optional()
+  .describe("JSON array mapping each product image to a color (admin FormData)");
+
 export const createProductSchema = z.object({
   body: z.object({
     name: z.string().min(3, 'Name must be at least 3 characters').max(200),
@@ -324,6 +331,7 @@ export const createProductSchema = z.object({
     category: z.string().min(1, 'Category is required'),
     subcategory: z.string().optional(),
     fabric: z.string().optional(),
+    imagesMeta: imagesMetaField,
     // variants arrives as a JSON string from FormData
     variants: jsonStringToArray(variantSchema).refine(
       (arr) => arr.length > 0,
@@ -343,7 +351,7 @@ export const createProductSchema = z.object({
     isGiftable: optionalBooleanFromString,
     isCustomizable: optionalBooleanFromString,
     minOrderQty: z.coerce.number().int().min(1).optional(),
-    giftOccasions: jsonStringToArray(z.string()).optional(),
+    occasions: jsonStringToArray(z.string()).optional(),
     hsnCode: z.string().max(32).optional(),
     seoTitle: z.string().optional(),
     seoDescription: z.string().optional(),
@@ -366,6 +374,7 @@ export const updateProductSchema = z.object({
     category: z.string().min(1).optional(),
     subcategory: z.string().optional(),
     fabric: z.string().optional(),
+    imagesMeta: imagesMetaField,
     variants: jsonStringToArray(variantSchema).optional(),
     tags: z.preprocess((val) => {
       if (!val || val === '') return undefined;
@@ -380,7 +389,7 @@ export const updateProductSchema = z.object({
     isGiftable: optionalBooleanFromString,
     isCustomizable: optionalBooleanFromString,
     minOrderQty: z.coerce.number().int().min(1).optional(),
-    giftOccasions: jsonStringToArray(z.string()).optional(),
+    occasions: jsonStringToArray(z.string()).optional(),
     hsnCode: z.string().max(32).optional(),
     seoTitle: z.string().optional(),
     seoDescription: z.string().optional(),
@@ -399,6 +408,19 @@ export {
 } from './cartSchemas';
 
 // ─── Orders ───────────────────────────────────────────────────────────────────
+
+const marketingAttributionBody = z
+  .object({
+    utmSource: z.string().trim().max(120).optional(),
+    utmMedium: z.string().trim().max(120).optional(),
+    utmCampaign: z.string().trim().max(200).optional(),
+    utmContent: z.string().trim().max(200).optional(),
+    utmTerm: z.string().trim().max(200).optional(),
+    fbclid: z.string().trim().max(200).optional(),
+    landingPath: z.string().trim().max(200).optional(),
+    capturedAt: z.string().trim().max(40).optional(),
+  })
+  .optional();
 
 export const createOrderSchema = z.object({
   body: z.object({
@@ -421,6 +443,7 @@ export const createOrderSchema = z.object({
     paymentMethod: z.enum(['razorpay', 'cod']),
     couponCode: z.string().max(40).optional(),
     notes: z.string().max(500).optional(),
+    marketingAttribution: marketingAttributionBody,
     buyNowItem: z
       .object({
         productId: z.string().min(1),

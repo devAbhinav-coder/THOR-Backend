@@ -7,7 +7,7 @@ export function sumVariantStocks(variants: { stock?: number }[] | undefined): nu
   return variants.reduce((acc, v) => acc + Math.max(0, Math.floor(Number(v.stock) || 0)), 0);
 }
 
-type ProductJsonImage = { url?: string; publicId?: string; alt?: string };
+type ProductJsonImage = { url?: string; publicId?: string; alt?: string; color?: string };
 
 export function reconcileProductJson<
   T extends { variants?: { stock?: number }[]; images?: ProductJsonImage[] },

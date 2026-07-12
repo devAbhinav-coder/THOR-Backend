@@ -9,6 +9,7 @@ import {
   orderFeesPipeline,
   taxCollectedPipeline,
 } from "./orderFinanceAggregations";
+import { getStoreVisitStats } from "./storeVisitService";
 
 const stockListProjection = {
   $project: { _id: 1, name: 1, category: 1, totalStock: "$computedTotal" },
@@ -159,6 +160,8 @@ export async function getDashboardAnalyticsData() {
     profitByMonth,
     refundsByMonth,
     inventorySummaryStats,
+    storefrontViewStats,
+    ordersByCampaignRaw,
   ] = await Promise.all([
     // ── Existing ────────────────────────────────────────────────────────────
     Order.aggregate([{ $match: PAYMENT_STATUS_GROSS }, { $group: { _id: null, total: { $sum: "$total" } } }]),
@@ -210,7 +213,11 @@ export async function getDashboardAnalyticsData() {
     Order.countDocuments({ paymentStatus: "paid" }),
     Review.countDocuments(),
     Review.countDocuments({ createdAt: { $gte: startOfMonth } }),
-    Product.find({ isActive: true }).sort({ viewCount: -1 }).limit(10).select("name slug images category viewCount price ratings").lean(),
+    Product.find({ isActive: true, viewCount: { $gt: 0 } })
+      .sort({ viewCount: -1 })
+      .limit(100)
+      .select("name slug images category viewCount price ratings")
+      .lean(),
     Order.aggregate([
       { $match: { paymentStatus: "paid" } },
       { $unwind: "$items" },
@@ -460,7 +467,37 @@ export async function getDashboardAnalyticsData() {
       { $sort: { "_id.year": 1 as const, "_id.month": 1 as const } },
     ]),
     getInventorySummaryStats(),
+    Product.aggregate([
+      { $match: { isActive: true } },
+      {
+        $group: {
+          _id: null,
+          totalPdpViews: { $sum: { $ifNull: ["$viewCount", 0] } },
+          productsWithViews: { $sum: { $cond: [{ $gt: [{ $ifNull: ["$viewCount", 0] }, 0] }, 1, 0] } },
+        },
+      },
+    ]),
+    Order.aggregate([
+      {
+        $match: {
+          paymentStatus: "paid",
+          "marketingAttribution.utmCampaign": { $exists: true, $nin: [null, ""] },
+          createdAt: { $gte: startOfDailyWindow },
+        },
+      },
+      {
+        $group: {
+          _id: "$marketingAttribution.utmCampaign",
+          orders: { $sum: 1 },
+          revenue: { $sum: "$total" },
+        },
+      },
+      { $sort: { revenue: -1 as const } },
+      { $limit: 10 },
+    ]),
   ]);
+
+  const visitStats = await getStoreVisitStats();
 
   const invSummary = inventorySummaryStats as {
     totalProducts?: number;
@@ -581,12 +618,20 @@ export async function getDashboardAnalyticsData() {
   const onlineCount = channelMap.get("online")?.count ?? 0;
   const offlineCount = channelMap.get("offline")?.count ?? 0;
 
-  // ── Revenue growth ────────────────────────────────────────────────────────
+  // ── Revenue growth (null = no last-month baseline to compare) ─────────────
   const currentMonthRevenue = monthRevenue[0]?.total || 0;
   const prevMonthRevenue = lastMonthRevenue[0]?.total || 0;
-  const revenueGrowth = prevMonthRevenue > 0
-    ? ((currentMonthRevenue - prevMonthRevenue) / prevMonthRevenue) * 100
-    : 100;
+  const revenueGrowth =
+    prevMonthRevenue > 0 ?
+      Math.round(((currentMonthRevenue - prevMonthRevenue) / prevMonthRevenue) * 1000) / 10
+    : currentMonthRevenue > 0 ?
+      null
+    : 0;
+
+  const viewStats = (storefrontViewStats as { totalPdpViews?: number; productsWithViews?: number }[])[0];
+  const totalPdpViews = viewStats?.totalPdpViews ?? 0;
+  const productsWithViews = viewStats?.productsWithViews ?? 0;
+  const firstTimeBuyers = Math.max(0, totalCustomers - repeatCustomers);
 
   type ProfitRow = {
     productRevenue?: number;
@@ -613,11 +658,25 @@ export async function getDashboardAnalyticsData() {
   const profitLinesMissingCost = plLifetime?.linesMissingCost ?? 0;
   const profitOrderLines = plLifetime?.orderLines ?? 0;
 
+  const ordersByCampaign = (
+    ordersByCampaignRaw as { _id: string; orders: number; revenue: number }[]
+  ).map((r) => ({
+    campaign: r._id,
+    orders: r.orders,
+    revenue: Math.round(r.revenue * 100) / 100,
+  }));
+
   return {
     overview: {
       totalRevenue: totalRevenue[0]?.total || 0,
       monthRevenue: currentMonthRevenue,
-      revenueGrowth: Math.round(revenueGrowth * 10) / 10,
+      revenueGrowth,
+      totalPdpViews,
+      productsWithViews,
+      firstTimeBuyers,
+      totalSiteVisits: visitStats.totalSiteVisits,
+      siteVisitsToday: visitStats.siteVisitsToday,
+      siteVisitsMtd: visitStats.siteVisitsMtd,
       totalOrders,
       monthOrders,
       totalUsers,
@@ -674,6 +733,18 @@ export async function getDashboardAnalyticsData() {
     topViewedProducts,
     revenueByCategory,
     revenueByDay,
+    visitsByDay: visitStats.visitsByDay,
+    visitInsights: {
+      byCountry: visitStats.visitsByCountry,
+      bySource: visitStats.visitsBySource,
+      byDevice: visitStats.visitsByDevice,
+      byLandingPage: visitStats.visitsByLandingPage,
+      byCampaign: visitStats.visitsByCampaign,
+      recent: visitStats.recentVisits,
+    },
+    marketingInsights: {
+      ordersByCampaign,
+    },
     paymentMethodMix: (paymentMethodMix as { _id: string; revenue: number; count: number }[]),
     ordersByHour: ordersByHourFull,
     topVariantSizes: (topVariantSizes as { _id: string; units: number; revenue: number }[]),

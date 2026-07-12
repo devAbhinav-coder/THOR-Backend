@@ -170,7 +170,7 @@ export const cartMutationService = {
       }
 
       const hasLine = (existing.items ?? []).some(
-        (line) => line.cartItemId === cartItemId,
+        (line: { cartItemId: string }) => line.cartItemId === cartItemId,
       );
       if (!hasLine) {
         await cartCacheService.invalidate(userId);

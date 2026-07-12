@@ -78,7 +78,11 @@ export interface IProduct extends Document {
   price: number;
   comparePrice?: number;
   category: string;
+  /** FK reference to Category — populated during Phase 2 migration */
+  categoryId?: Types.ObjectId;
   subcategory?: string;
+  /** FK reference to SubCategory — populated during Phase 2 migration */
+  subcategoryId?: Types.ObjectId;
   fabric?: string;
   images: IProductImage[];
   variants: IProductVariant[];
@@ -90,7 +94,7 @@ export interface IProduct extends Document {
   isGiftable: boolean;
   isCustomizable: boolean;
   minOrderQty: number;
-  giftOccasions: string[];
+  occasions: string[];
   customFields: IProductCustomField[];
   productDetails?: IProductDetail[];
   ratings: {
@@ -107,14 +111,20 @@ export interface IProduct extends Document {
   hsnCode?: string;
   seoTitle?: string;
   seoDescription?: string;
+  /** Admin-controlled sort position within a category/subcategory listing */
+  sortOrder?: number;
+  /** Old slug stored before Phase 3 slug regeneration — used for 301 redirects */
+  oldSlug?: string;
   createdAt: Date;
   updatedAt: Date;
 }
+
 
 export interface IProductImage {
   url: string;
   publicId: string;
   alt?: string;
+  color?: string;
 }
 
 export interface ICartItem {
@@ -177,6 +187,17 @@ export interface IOrder extends Document {
     source: 'stall' | 'personal_contact';
     fulfillment: 'delhivery' | 'offline_handover';
     createdByAdmin?: Types.ObjectId;
+  };
+  /** First-touch UTM / Meta click id captured at checkout */
+  marketingAttribution?: {
+    utmSource?: string;
+    utmMedium?: string;
+    utmCampaign?: string;
+    utmContent?: string;
+    utmTerm?: string;
+    fbclid?: string;
+    landingPath?: string;
+    capturedAt?: Date;
   };
   razorpayOrderId?: string;
   razorpayPaymentId?: string;

@@ -57,8 +57,8 @@ export async function sendWebPushToUser(
     body: payload.body,
     link: payload.link || "/",
     tag: payload.tag || "in-app-notification",
-    icon: "/favicon.png",
-    badge: "/favicon.png",
+    icon: "/favicon/web-app-manifest-192x192.png",
+    badge: "/favicon/favicon-96x96.png",
   });
 
   await Promise.all(

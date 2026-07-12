@@ -85,9 +85,12 @@ export const checkoutService = {
       cartCouponId = cart.coupon as mongoose.Types.ObjectId;
     }
 
-    const productIds = [...new Set(cart.items.map((i) => String(i.product)))];
-    const products = await orderRepository.findProductsByIds(productIds);
-    const productMap = new Map(products.map((p) => [String(p._id), p]));
+    const productIds = [
+      ...new Set(
+        cart.items.map((item: { product: unknown }) => String(item.product)),
+      ),
+    ];
+    const products = await orderRepository.findProductsByIds(productIds);    const productMap = new Map(products.map((p) => [String(p._id), p]));
 
     return {
       checkoutItems,
@@ -156,6 +159,7 @@ export const checkoutService = {
       couponId,
       notes,
       cartIdToDelete,
+      marketingAttribution,
     } = intentData;
 
     const intentId = new mongoose.Types.ObjectId();
@@ -189,6 +193,7 @@ export const checkoutService = {
         coupon: couponId,
         notes,
         cartIdToDelete: cartIdToDelete ?? undefined,
+        ...(marketingAttribution ? { marketingAttribution } : {}),
       },
     });
 

@@ -8,6 +8,7 @@ import { cartProductService } from "../services/cart/cartProductService";
 import {
   assertProductAvailableForCart,
   assertMinQuantity,
+  assertQuantityWithinStock,
   validateCustomFields,
   resolveVariantForCart,
   normalizeCustomFieldAnswers,
@@ -27,9 +28,18 @@ import {
   isCartMutationThrottled,
 } from "../services/cart/cartAbuseService";
 import { recordFailedCouponAttempt } from "../services/coupon/couponAbuseService";
+import {
+  evaluateCouponValidity,
+  type CouponLike,
+} from "../services/coupon/couponBusinessRules";
+import { getUserDeliveredOrderCount } from "../services/coupon/couponUserStatsService";
 import logger from "../types/utils/logger";
 import { getRequestContext } from "../types/utils/requestContext";
 import AppError from "../types/utils/AppError";
+import {
+  generateCartItemId,
+  generateCustomizationHash,
+} from "../services/cart/cartHash";
 
 function userId(req: AuthRequest): string {
   return String(req.user!._id);
@@ -94,6 +104,16 @@ export const addToCart = catchAsync(async (req: AuthRequest, res: Response) => {
 
   const productVariant = resolveVariantForCart(product, variant.sku);
 
+  const cartBefore = await cartService.getCart(uid);
+  const hash = generateCustomizationHash(parsedAnswers);
+  const cartItemId = generateCartItemId(productVariant.sku, hash);
+  const existingLine = cartBefore.items.find((i) => i.cartItemId === cartItemId);
+  assertQuantityWithinStock(
+    productVariant,
+    quantity,
+    existingLine?.quantity ?? 0,
+  );
+
   const cartDto = await cartService.addItem(
     uid,
     product,
@@ -147,9 +167,10 @@ export const updateCartItem = catchAsync(
     const cart = await cartService.getCart(uid);
     const item = assertCartItemExists(cart, cartItemId);
 
-    const product = await cartProductService.findMinQtyFields(
-      String(item.product),
-    );
+    const product = await cartProductService.findForAddToCart(String(item.product));
+    assertProductAvailableForCart(product);
+    const liveVariant = resolveVariantForCart(product, item.variant.sku);
+    assertQuantityWithinStock(liveVariant, quantity, 0);
     assertMinQuantity(product, quantity, item.productName);
 
     const updatedCart = await cartService.updateItemQty(
@@ -213,6 +234,22 @@ export const applyCoupon = catchAsync(
       await recordFailedCouponAttempt(uid, ip, normalizedCode);
       cartAnalyticsService.trackCouponApply(false, uid, normalizedCode);
       throw new AppError("Invalid coupon code.", 404);
+    }
+
+    const completedOrders = await getUserDeliveredOrderCount(uid);
+    const validity = evaluateCouponValidity(
+      coupon as CouponLike,
+      uid,
+      cart.subtotal,
+      { completedOrders },
+    );
+    if (!validity.valid) {
+      await recordFailedCouponAttempt(uid, ip, normalizedCode);
+      cartAnalyticsService.trackCouponApply(false, uid, normalizedCode);
+      throw new AppError(
+        validity.message || "Coupon is not valid for this cart.",
+        400,
+      );
     }
 
     const updatedCart = await cartService.applyCoupon(

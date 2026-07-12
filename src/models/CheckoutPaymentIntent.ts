@@ -38,6 +38,16 @@ export type CheckoutIntentSnapshot = {
   coupon?: Types.ObjectId;
   notes?: string;
   cartIdToDelete?: Types.ObjectId;
+  marketingAttribution?: {
+    utmSource?: string;
+    utmMedium?: string;
+    utmCampaign?: string;
+    utmContent?: string;
+    utmTerm?: string;
+    fbclid?: string;
+    landingPath?: string;
+    capturedAt?: Date;
+  };
 };
 
 export interface ICheckoutPaymentIntent {
@@ -117,6 +127,16 @@ const checkoutPaymentIntentSchema = new Schema<ICheckoutPaymentIntent>(
           coupon: { type: Schema.Types.ObjectId, ref: "Coupon" },
           notes: { type: String },
           cartIdToDelete: { type: Schema.Types.ObjectId, ref: "Cart" },
+          marketingAttribution: {
+            utmSource: { type: String, trim: true, maxlength: 120 },
+            utmMedium: { type: String, trim: true, maxlength: 120 },
+            utmCampaign: { type: String, trim: true, maxlength: 200 },
+            utmContent: { type: String, trim: true, maxlength: 200 },
+            utmTerm: { type: String, trim: true, maxlength: 200 },
+            fbclid: { type: String, trim: true, maxlength: 200 },
+            landingPath: { type: String, trim: true, maxlength: 200 },
+            capturedAt: { type: Date },
+          },
         },
         { _id: false },
       ),

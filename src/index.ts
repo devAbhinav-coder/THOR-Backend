@@ -42,6 +42,10 @@ import newsletterRoutes from "./routes/newsletterRoutes";
 import notificationRoutes from "./routes/notificationRoutes";
 import giftingRoutes from "./routes/giftingRoutes";
 import webhookRoutes from "./routes/webhookRoutes";
+import navigationRoutes from "./routes/navigationRoutes";
+import collectionRoutes from "./routes/collectionRoutes";
+import raniCareRoutes from "./routes/raniCareRoutes";
+
 import { runPaymentRecoveryJob } from "./services/paymentRecoveryJob";
 import {
   startEmailWorker,
@@ -384,9 +388,13 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/storefront", storefrontRoutes);
 app.use("/api/blogs", blogRoutes);
+app.use("/api/webhooks", webhookRoutes);
+app.use("/api/collections", collectionRoutes);
 app.use("/api/newsletter", newsletterRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/gifting", giftingRoutes);
+app.use("/api/navigation", navigationRoutes);
+app.use("/api/rani-care", raniCareRoutes);
 
 app.all("*", (req, _res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server.`, 404));
@@ -467,7 +475,6 @@ const shutdown = async (signal: string) => {
       }
       await mongoose.connection.close();
       await closeAllRedisConnections();
-      // Flush OpenTelemetry spans and metrics before exit
       await shutdownOtel();
       logger.info("Connections closed.");
     } catch (e) {

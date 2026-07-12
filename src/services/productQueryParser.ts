@@ -1,7 +1,7 @@
 import { Request } from "express";
 import { env } from "../config/env";
 
-export const SEARCH_MAX_LEN = 30;
+export const SEARCH_MAX_LEN = 80;
 
 /** Unicode-safe search string for storefront/admin. */
 export function normalizeSearchQuery(raw: unknown): string {
@@ -10,6 +10,8 @@ export function normalizeSearchQuery(raw: unknown): string {
     .normalize("NFC")
     .trim()
     .replace(/[\x00-\x1f]/g, "")
+    .replace(/\s*[·•|,]+\s*/g, " ")
+    .replace(/\s+/g, " ")
     .slice(0, SEARCH_MAX_LEN);
 }
 
@@ -19,12 +21,16 @@ export type ParsedProductListQuery = {
   sort: string;
   search: string;
   categories: string[];
+  subcategories: string[];
   fabrics: string[];
+  occasions: string[];
   minPrice?: number;
   maxPrice?: number;
   minRatings: number[];
   minRating?: number;
   isFeatured?: boolean;
+  /** Storefront — products where comparePrice > price */
+  onSale?: boolean;
   /** Admin catalog only — filter by active/inactive when set. */
   isActive?: boolean;
   isRandom: boolean;
@@ -91,7 +97,9 @@ export function parseProductListQuery(req: Request): ParsedProductListQuery {
     : "-createdAt";
 
   const categories = parseQueryStringList(q, "categories", "category");
+  const subcategories = parseQueryStringList(q, "subcategories", "subcategory");
   const fabrics = parseQueryStringList(q, "fabrics", "fabric");
+  const occasions = parseQueryStringList(q, "occasions", "occasion", "occasions");
   const minRatings = parseRatingList(q);
   const minRating =
     minRatings.length > 0 ? Math.min(...minRatings) : undefined;
@@ -134,6 +142,12 @@ export function parseProductListQuery(req: Request): ParsedProductListQuery {
     : sort === "featured" ? true
     : undefined;
 
+  const onSaleRaw = q.onSale;
+  const onSale =
+    onSaleRaw === "true" || onSaleRaw === true ? true
+    : onSaleRaw === "false" || onSaleRaw === false ? false
+    : undefined;
+
   const isActiveRaw = q.isActive;
   const isActive =
     isActiveRaw === "true" || isActiveRaw === true ? true
@@ -154,12 +168,15 @@ export function parseProductListQuery(req: Request): ParsedProductListQuery {
     sort,
     search,
     categories,
+    subcategories,
     fabrics,
+    occasions,
     minPrice: Number.isFinite(minPrice) ? minPrice : undefined,
     maxPrice: Number.isFinite(maxPrice) ? maxPrice : undefined,
     minRatings: resolvedMinRatings,
     minRating: resolvedMinRating,
     isFeatured,
+    onSale,
     isActive,
     isRandom,
     excludeIds,
@@ -174,17 +191,47 @@ export function mapSortToAdvanced(sort: string): {
 } {
   if (sort === "price") return { sortBy: "price", sortOrder: "asc" };
   if (sort === "-price") return { sortBy: "price", sortOrder: "desc" };
-  if (sort === "-ratings.average") {
+  if (sort === "-ratings.average" || sort === "ratings.average") {
     return { sortBy: "ratings.average", sortOrder: "desc" };
   }
-  if (sort === "-ratings.count") {
+  if (sort === "-ratings.count" || sort === "-soldCount") {
     return { sortBy: "soldCount", sortOrder: "desc" };
   }
+  if (sort === "ratings.count" || sort === "soldCount") {
+    return { sortBy: "soldCount", sortOrder: "asc" };
+  }
   if (sort === "featured" || sort === "-isFeatured") {
+    return { sortBy: "createdAt", sortOrder: "desc" };
+  }
+  if (sort === "-createdAt") {
     return { sortBy: "createdAt", sortOrder: "desc" };
   }
   if (sort.startsWith("-")) {
     return { sortBy: sort.slice(1), sortOrder: "desc" };
   }
   return { sortBy: sort || "createdAt", sortOrder: "asc" };
+}
+
+/** Normalize shop listing sort for Mongo/APIFeatures (non-search). */
+export function normalizeShopListSort(sort: string): string {
+  if (!sort || sort === "featured") return "-isFeatured,-createdAt";
+  if (sort === "-ratings.count" || sort === "ratings.count") {
+    return sort.startsWith("-") ? "-soldCount" : "soldCount";
+  }
+  return sort;
+}
+
+/** Resolve search sort from explicit sortBy/sortOrder or legacy sort param. */
+export function resolveShopSearchSort(
+  sort: string,
+  explicitSortBy?: string,
+  explicitSortOrder?: string,
+): { sortBy: string; sortOrder: "asc" | "desc" } {
+  if (
+    explicitSortBy &&
+    (explicitSortOrder === "asc" || explicitSortOrder === "desc")
+  ) {
+    return { sortBy: explicitSortBy, sortOrder: explicitSortOrder };
+  }
+  return mapSortToAdvanced(sort || explicitSortBy || "-createdAt");
 }

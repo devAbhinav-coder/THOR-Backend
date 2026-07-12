@@ -5,6 +5,11 @@ import catchAsync from "../types/utils/catchAsync";
 import AppError from "../types/utils/AppError";
 import { sendSuccess } from "../types/utils/response";
 import { categoryRepository } from "../repositories/categoryRepository";
+import { subcategoryRepository } from "../repositories/subcategoryRepository";
+import { enqueueImageDelete } from "../queues/imageQueue";
+import { buildCategoryProductCountMap } from "../services/categoryProductCountService";
+import { notifyIndexNowStorefront } from "../services/indexNowService";
+
 
 // GET /api/categories — public
 export const getAllCategories = catchAsync(
@@ -20,20 +25,11 @@ export const getAllCategories = catchAsync(
 // GET /api/categories/stats — public — returns categories with real product counts
 export const getCategoryStats = catchAsync(
   async (_req: Request, res: Response) => {
-    // Aggregate product counts per category
-    const productCounts = await Product.aggregate([
-      { $match: { isActive: true } },
-      { $group: { _id: "$category", count: { $sum: 1 } } },
-    ]);
-
-    const countMap = new Map<string, number>(
-      productCounts.map((c) => [String(c._id), c.count as number]),
-    );
-
-    // Get all active categories and merge with counts
     const categories = await Category.find({ isActive: true })
       .sort({ name: 1 })
       .lean();
+
+    const countMap = await buildCategoryProductCountMap(categories);
 
     const result = categories.map((cat) => ({
       ...cat,
@@ -44,7 +40,7 @@ export const getCategoryStats = catchAsync(
   },
 );
 
-// GET /api/categories/:id — public
+// GET /api/categories/:id — public (legacy, by ObjectId)
 export const getCategory = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const cat = await Category.findById(req.params.id);
@@ -52,6 +48,26 @@ export const getCategory = catchAsync(
     sendSuccess(res, { category: cat });
   },
 );
+
+// GET /api/categories/slug/:slug — public (new, by slug)
+export const getCategoryBySlug = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const cat = await categoryRepository.findBySlug(req.params.slug);
+    if (!cat) return next(new AppError("Category not found", 404));
+    sendSuccess(res, { category: cat });
+  },
+);
+
+// GET /api/categories/slug/:slug/subcategories — public
+export const getCategorySubcategories = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const cat = await categoryRepository.findBySlug(req.params.slug);
+    if (!cat) return next(new AppError("Category not found", 404));
+    const subcategories = await subcategoryRepository.listByCategorySlug(req.params.slug);
+    sendSuccess(res, { subcategories, category: { _id: cat._id, name: cat.name, slug: cat.slug } });
+  },
+);
+
 
 function parseSubcategories(raw: unknown): string[] {
   if (Array.isArray(raw)) return raw.map(String).filter(Boolean);
@@ -81,10 +97,14 @@ export const createCategory = catchAsync(
       isGiftCategory,
       giftType,
       minOrderQty,
+      metaTitle,
+      metaDescription,
     } = req.body;
 
-    const image =
-      (req as Request & { uploadedImage?: string }).uploadedImage || undefined;
+    const uploadedImage =
+      (req as Request & { uploadedImage?: { url: string; publicId: string } }).uploadedImage;
+    const uploadedHeroBanner =
+      (req as Request & { uploadedHeroBanner?: { url: string; publicId: string } }).uploadedHeroBanner;
 
     const category = await Category.create({
       name,
@@ -94,8 +114,18 @@ export const createCategory = catchAsync(
       isGiftCategory: String(isGiftCategory) === "true",
       giftType: giftType || undefined,
       minOrderQty: minOrderQty ? Number(minOrderQty) : 1,
-      image,
+      metaTitle: metaTitle?.trim(),
+      metaDescription: metaDescription?.trim(),
+      image: uploadedImage?.url,
+      imagePublicId: uploadedImage?.publicId,
+      heroBannerImage: uploadedHeroBanner?.url,
+      heroBannerPublicId: uploadedHeroBanner?.publicId,
     });
+    if (category.isActive !== false && category.slug) {
+      notifyIndexNowStorefront(
+        `/shop/collections/${encodeURIComponent(String(category.slug))}`,
+      );
+    }
     sendSuccess(res, { category }, "Category created", 201);
   },
 );
@@ -120,10 +150,33 @@ export const updateCategory = catchAsync(
     if (update.giftType === "") {
       update.giftType = undefined;
     }
-    if ((req as Request & { uploadedImage?: string }).uploadedImage) {
-      update.image = (
-        req as Request & { uploadedImage?: string }
-      ).uploadedImage;
+    
+    // We need the existing category to check for old images
+    const existingCategory = await Category.findById(req.params.id);
+    if (!existingCategory) return next(new AppError("Category not found", 404));
+
+    const publicIdsToDelete: string[] = [];
+
+    const uploadedImage = (req as Request & { uploadedImage?: { url: string; publicId: string } }).uploadedImage;
+    if (uploadedImage) {
+      update.image = uploadedImage.url;
+      update.imagePublicId = uploadedImage.publicId;
+      if (existingCategory.imagePublicId) {
+        publicIdsToDelete.push(existingCategory.imagePublicId);
+      }
+    }
+
+    const uploadedHeroBanner = (req as Request & { uploadedHeroBanner?: { url: string; publicId: string } }).uploadedHeroBanner;
+    if (uploadedHeroBanner) {
+      update.heroBannerImage = uploadedHeroBanner.url;
+      update.heroBannerPublicId = uploadedHeroBanner.publicId;
+      if (existingCategory.heroBannerPublicId) {
+        publicIdsToDelete.push(existingCategory.heroBannerPublicId);
+      }
+    }
+
+    if (publicIdsToDelete.length > 0) {
+      await enqueueImageDelete(publicIdsToDelete);
     }
 
     const category = await Category.findByIdAndUpdate(req.params.id, update, {
@@ -132,6 +185,11 @@ export const updateCategory = catchAsync(
     });
 
     if (!category) return next(new AppError("Category not found", 404));
+    if (category.isActive !== false && category.slug) {
+      notifyIndexNowStorefront(
+        `/shop/collections/${encodeURIComponent(String(category.slug))}`,
+      );
+    }
     sendSuccess(res, { category }, "Category updated");
   },
 );
@@ -142,10 +200,12 @@ export const deleteCategory = catchAsync(
     const category = await Category.findById(req.params.id);
     if (!category) return next(new AppError("Category not found", 404));
 
-    // Check if products exist under this category
-    const productCount = await Product.countDocuments({
-      category: category.name,
-    });
+    // Guard 1: legacy string-based product association
+    const legacyCount = await Product.countDocuments({ category: category.name });
+    // Guard 2: new FK-based product association (populated after migration)
+    const fkCount = await Product.countDocuments({ categoryId: category._id });
+    const productCount = Math.max(legacyCount, fkCount);
+
     if (productCount > 0) {
       return next(
         new AppError(
@@ -155,7 +215,15 @@ export const deleteCategory = catchAsync(
       );
     }
 
+    const publicIdsToDelete: string[] = [];
+    if (category.imagePublicId) publicIdsToDelete.push(category.imagePublicId);
+    if (category.heroBannerPublicId) publicIdsToDelete.push(category.heroBannerPublicId);
+    if (publicIdsToDelete.length > 0) {
+      await enqueueImageDelete(publicIdsToDelete);
+    }
+
     await category.deleteOne();
     res.status(204).end();
   },
 );
+

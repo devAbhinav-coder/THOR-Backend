@@ -24,14 +24,23 @@ const imageFileFilter = (
 export const uploadProductImages = multer({
   storage: memoryStorage,
   fileFilter: imageFileFilter,
-  limits: { fileSize: 12 * 1024 * 1024, files: 7 },
-}).array("images", 7);
+  limits: { fileSize: 12 * 1024 * 1024, files: 20 },
+}).array("images", 20);
 
 export const uploadAvatar = multer({
   storage: memoryStorage,
   fileFilter: imageFileFilter,
   limits: { fileSize: 2 * 1024 * 1024, files: 1 },
 }).single("avatar");
+
+export const uploadCategoryImages = multer({
+  storage: memoryStorage,
+  fileFilter: imageFileFilter,
+  limits: { fileSize: 2 * 1024 * 1024, files: 2 },
+}).fields([
+  { name: "avatar", maxCount: 1 },
+  { name: "heroBanner", maxCount: 1 }
+]);
 
 export const uploadReviewImages = multer({
   storage: memoryStorage,
@@ -147,22 +156,39 @@ export const processAvatar = async (
   }
 };
 
-export const processCategoryImage = async (
+export const processCategoryImages = async (
   req: Request,
   _res: Response,
   next: NextFunction,
 ): Promise<void> => {
   try {
-    const file = req.file;
-    if (!file) return next();
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+    if (!files) return next();
 
-    const result = await uploadToCloudinary(
-      file.buffer,
-      "house-of-rani/categories",
-      [{ width: 800, crop: "limit" }],
-    );
+    if (files["avatar"] && files["avatar"].length > 0) {
+      const result = await uploadToCloudinary(
+        files["avatar"][0].buffer,
+        "house-of-rani/categories",
+        [{ width: 800, crop: "limit" }],
+      );
+      (req as any).uploadedImage = {
+        url: result.secure_url,
+        publicId: result.public_id,
+      };
+    }
 
-    (req as any).uploadedImage = result.secure_url;
+    if (files["heroBanner"] && files["heroBanner"].length > 0) {
+      const result = await uploadToCloudinary(
+        files["heroBanner"][0].buffer,
+        "house-of-rani/categories/banners",
+        [{ width: 1920, crop: "limit" }],
+      );
+      (req as any).uploadedHeroBanner = {
+        url: result.secure_url,
+        publicId: result.public_id,
+      };
+    }
+
     next();
   } catch (err) {
     next(new AppError("Category image upload failed.", 500));
@@ -290,6 +316,9 @@ export const processStorefrontAssets = async (
       giftingSecondary: Record<string, { url: string; publicId: string }>;
       homeGiftCard: Record<string, { url: string; publicId: string }>;
       homeEditorialTile: Record<string, { url: string; publicId: string }>;
+      homeMiddleBanner?: { url: string; publicId: string };
+      homeExploreHouseSale?: { url: string; publicId: string };
+      homeExploreHouseGifting?: { url: string; publicId: string };
     } = {
       hero: {},
       giftingHero: {},
@@ -408,6 +437,36 @@ export const processStorefrontAssets = async (
           [{ width: 900, height: 1200, crop: "limit" }],
         );
         uploaded.homeEditorialTile[index] = {
+          url: result.secure_url,
+          publicId: result.public_id,
+        };
+      } else if (file.fieldname === "homeMiddleBanner") {
+        const result = await uploadToCloudinary(
+          file.buffer,
+          "house-of-rani/storefront/home-middle",
+          [{ width: 1600, height: 900, crop: "limit" }],
+        );
+        uploaded.homeMiddleBanner = {
+          url: result.secure_url,
+          publicId: result.public_id,
+        };
+      } else if (file.fieldname === "homeExploreHouseSaleImage") {
+        const result = await uploadToCloudinary(
+          file.buffer,
+          "house-of-rani/storefront/home-explore",
+          [{ width: 900, height: 1200, crop: "limit" }],
+        );
+        uploaded.homeExploreHouseSale = {
+          url: result.secure_url,
+          publicId: result.public_id,
+        };
+      } else if (file.fieldname === "homeExploreHouseGiftingImage") {
+        const result = await uploadToCloudinary(
+          file.buffer,
+          "house-of-rani/storefront/home-explore",
+          [{ width: 900, height: 1200, crop: "limit" }],
+        );
+        uploaded.homeExploreHouseGifting = {
           url: result.secure_url,
           publicId: result.public_id,
         };

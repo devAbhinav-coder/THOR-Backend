@@ -6,9 +6,10 @@ import { OFFLINE_MANUAL_PRODUCT_TAG } from "../constants/offlineOrder";
 import { LISTING_PROJECTION } from "../constants/productListing";
 import { advancedSearchService } from "./advancedSearchService";
 import {
-  mapSortToAdvanced,
   normalizeSearchQuery,
+  normalizeShopListSort,
   ParsedProductListQuery,
+  resolveShopSearchSort,
 } from "./productQueryParser";
 import {
   getCachedProductCount,
@@ -20,6 +21,8 @@ import {
   randomPoolCountKey,
 } from "./productCacheService";
 import { getCache, setCache } from "./cacheService";
+import { buildShopCollectionFilter } from "./shopCollectionFilterService";
+import { mergeOnSaleFilter } from "../constants/onSaleFilter";
 
 const RANDOM_COUNT_TTL = 300;
 
@@ -44,14 +47,28 @@ export type ProductListResult = {
   total: number;
   hasNextPage?: boolean;
   searchMethod?: string;
+  searchIntent?: import("./searchQueryParser").ParsedSearchIntent;
 };
 
 export async function listRandomProducts(
   parsed: ParsedProductListQuery,
 ): Promise<ProductListResult> {
-  const baseFilter: Record<string, unknown> = {
-    ...storefrontBaseFilter(parsed.adminScope),
-  };
+  const collectionFilter = await buildShopCollectionFilter(
+    parsed.categories,
+    parsed.subcategories,
+  );
+
+  const baseFilter: Record<string, unknown> = mergeOnSaleFilter(
+    {
+      ...storefrontBaseFilter(parsed.adminScope),
+      ...(collectionFilter ?? {}),
+      ...(parsed.occasions.length > 0 ?
+        { occasions: { $in: parsed.occasions } }
+      : {}),
+      ...(parsed.fabrics.length > 0 ? { fabric: { $in: parsed.fabrics } } : {}),
+    },
+    parsed.onSale === true,
+  );
 
   const excludeIds = parseExcludeObjectIds(parsed.excludeIds);
   if (excludeIds.length) {
@@ -122,27 +139,36 @@ export async function listProductsViaApiFeatures(
     ratingFilter["ratings.average"] = { $gte: parsed.minRating };
   }
 
-  const categoryBase: Record<string, unknown> = {
-    ...storefrontBaseFilter(parsed.adminScope),
-    ...(parsed.categories.length > 0 ?
-      { category: { $in: parsed.categories } }
-    : {}),
-    ...(parsed.fabrics.length > 0 ? { fabric: { $in: parsed.fabrics } } : {}),
-    ...(parsed.isFeatured === true ? { isFeatured: true } : {}),
-    ...(parsed.isFeatured === false ? { isFeatured: false } : {}),
-    ...(parsed.adminScope && parsed.isActive === true ?
-      { isActive: true }
-    : {}),
-    ...(parsed.adminScope && parsed.isActive === false ?
-      { isActive: false }
-    : {}),
-    ...ratingFilter,
-  };
+  const collectionFilter = await buildShopCollectionFilter(
+    parsed.categories,
+    parsed.subcategories,
+  );
+
+  const categoryBase: Record<string, unknown> = mergeOnSaleFilter(
+    {
+      ...storefrontBaseFilter(parsed.adminScope),
+      ...(collectionFilter ?? {}),
+      ...(parsed.occasions.length > 0 ?
+        { occasions: { $in: parsed.occasions } }
+      : {}),
+      ...(parsed.fabrics.length > 0 ? { fabric: { $in: parsed.fabrics } } : {}),
+      ...(parsed.isFeatured === true ? { isFeatured: true } : {}),
+      ...(parsed.isFeatured === false ? { isFeatured: false } : {}),
+      ...(parsed.adminScope && parsed.isActive === true ?
+        { isActive: true }
+      : {}),
+      ...(parsed.adminScope && parsed.isActive === false ?
+        { isActive: false }
+      : {}),
+      ...ratingFilter,
+    },
+    parsed.onSale === true,
+  );
 
   const queryString: Record<string, string | undefined> = {
     page: String(parsed.page),
     limit: String(parsed.limit),
-    sort: parsed.sort === "featured" ? "-isFeatured,-createdAt" : parsed.sort,
+    sort: normalizeShopListSort(parsed.sort),
   };
   if (parsed.search) queryString.search = parsed.search;
   if (parsed.minPrice !== undefined) {
@@ -157,7 +183,7 @@ export async function listProductsViaApiFeatures(
     queryString,
   )
     .filter()
-    .search(["name", "description", "tags", "category", "fabric"])
+    .search(["name", "description", "shortDescription", "tags", "category", "subcategory", "fabric"])
     .sort()
     .paginate();
 
@@ -192,7 +218,7 @@ export async function listProductsViaApiFeatures(
 export async function listProductsViaAdvancedSearch(
   parsed: ParsedProductListQuery,
 ): Promise<ProductListResult> {
-  const { sortBy, sortOrder } = mapSortToAdvanced(parsed.sort);
+  const { sortBy, sortOrder } = resolveShopSearchSort(parsed.sort);
 
   const searchResult = await advancedSearchService.searchProducts({
     query: parsed.search,
@@ -201,11 +227,14 @@ export async function listProductsViaAdvancedSearch(
     page: parsed.page,
     limit: parsed.limit,
     categories: parsed.categories,
+    subcategories: parsed.subcategories,
+    occasions: parsed.occasions,
     fabrics: parsed.fabrics,
     minPrice: parsed.minPrice,
     maxPrice: parsed.maxPrice,
     minRating: parsed.minRating,
     isFeatured: parsed.isFeatured,
+    onSale: parsed.onSale,
     isActive: parsed.isActive,
     adminScope: parsed.adminScope,
     useCache: true,
@@ -218,6 +247,7 @@ export async function listProductsViaAdvancedSearch(
     total: searchResult.total,
     hasNextPage: searchResult.page < searchResult.totalPages,
     searchMethod: searchResult.searchMethod,
+    searchIntent: searchResult.searchIntent,
   };
 }
 

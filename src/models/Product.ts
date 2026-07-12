@@ -1,4 +1,4 @@
-import mongoose, { Schema } from 'mongoose';
+import mongoose, { Schema, Types } from 'mongoose';
 import slugify from 'slugify';
 import { IProduct } from '../types';
 
@@ -19,6 +19,8 @@ const productImageSchema = new Schema({
   url: { type: String, required: true },
   publicId: { type: String, required: true },
   alt: String,
+  /** When set, image shows for this color on PDP (case-insensitive match). */
+  color: { type: String, trim: true },
 });
 
 const variantSchema = new Schema({
@@ -67,13 +69,25 @@ const productSchema = new Schema<IProduct>(
       required: [true, 'Category is required'],
       trim: true,
     },
+    /** FK reference to Category document — populated during Phase 2 migration */
+    categoryId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Category',
+      index: true,
+    },
     subcategory: { type: String, trim: true },
+    /** FK reference to SubCategory document — populated during Phase 2 migration */
+    subcategoryId: {
+      type: Schema.Types.ObjectId,
+      ref: 'SubCategory',
+      index: true,
+    },
     fabric: { type: String, trim: true },
     images: {
       type: [productImageSchema],
       validate: {
-        validator: (v: unknown[]) => Array.isArray(v) && v.length > 0 && v.length <= 7,
-        message: 'Product must have between 1 and 7 images',
+        validator: (v: unknown[]) => Array.isArray(v) && v.length > 0 && v.length <= 20,
+        message: 'Product must have between 1 and 20 images',
       },
     },
     variants: [variantSchema],
@@ -88,7 +102,7 @@ const productSchema = new Schema<IProduct>(
     isGiftable: { type: Boolean, default: false },
     isCustomizable: { type: Boolean, default: false },
     minOrderQty: { type: Number, default: 1, min: 1 },
-    giftOccasions: [{ type: String, trim: true }], // e.g. ["Corporate", "Wedding"]
+    occasions: [{ type: String, trim: true }], // e.g. ["Corporate", "Wedding", "Festive", "Casual"]
     customFields: [customFieldSchema],              // admin-defined user inputs
     productDetails: [productDetailSchema],
     ratings: {
@@ -101,6 +115,10 @@ const productSchema = new Schema<IProduct>(
     hsnCode: { type: String, trim: true },
     seoTitle: String,
     seoDescription: String,
+    /** Admin-controlled sort position within a category/subcategory listing */
+    sortOrder: { type: Number, default: 0 },
+    /** Stores the old slug before Phase 3 slug regeneration — used for 301 redirects */
+    oldSlug: { type: String, lowercase: true, sparse: true },
   },
   {
     timestamps: true,
@@ -168,11 +186,16 @@ productSchema.index({ isActive: 1, totalStock: 1 });      // in-stock filtering
 productSchema.index({ isActive: 1, category: 1, price: 1 }); // category filtering with price sort
 productSchema.index({ isActive: 1, isFeatured: 1, createdAt: -1 }); // featured products
 productSchema.index({ isActive: 1, 'ratings.average': -1, createdAt: -1 }); // top rated
-productSchema.index({ isActive: 1, slug: 1 }); // PDP lookups (though slug is already unique)
+// NOTE: { isActive:1, slug:1 } removed — slug is already unique-indexed, compound is redundant
 productSchema.index({ isActive: 1, createdAt: -1 }); // new arrivals
 productSchema.index({ isActive: 1, soldCount: -1 }); // best sellers
 productSchema.index({ isGiftable: 1, isActive: 1, category: 1 });
-productSchema.index({ isGiftable: 1, isActive: 1, giftOccasions: 1 });
+productSchema.index({ isGiftable: 1, isActive: 1, occasions: 1 });
+// New FK-based indexes (populated after Phase 2 migration)
+productSchema.index({ categoryId: 1, isActive: 1, price: 1 });     // FK category page
+productSchema.index({ subcategoryId: 1, isActive: 1, price: 1 });  // FK subcategory page
+productSchema.index({ categoryId: 1, subcategoryId: 1, isActive: 1 }); // combined navigation
+productSchema.index({ oldSlug: 1 }, { sparse: true });              // 301 redirect lookup
 
 const Product = mongoose.model<IProduct>('Product', productSchema);
 export default Product;

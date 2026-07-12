@@ -117,6 +117,27 @@ export function mergePromoBanner(
   return out;
 }
 
+export function mergeHomeMiddleBanner(
+  next: Record<string, unknown>,
+  uploadedImage: { url: string; publicId: string } | undefined,
+  prev: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const out = { ...next };
+  if (uploadedImage) {
+    out.image = uploadedImage.url;
+    out.imagePublicId = uploadedImage.publicId;
+  } else if (prev) {
+    const nImg = trimStr(out.image);
+    const nId = trimStr(out.imagePublicId);
+    const pImg = trimStr(prev.image);
+    const pId = trimStr(prev.imagePublicId);
+    if (nImg && !nId && pImg === nImg && pId) {
+      out.imagePublicId = pId;
+    }
+  }
+  return out;
+}
+
 export function mergeBlogBanner(
   next: Record<string, unknown>,
   uploaded:
@@ -241,6 +262,54 @@ export function mergeHomeEditorialTiles(
     }
     return tile;
   });
+}
+
+export function mergeHomeExploreHouse(
+  next: Record<string, unknown>,
+  uploaded:
+    | {
+        sale?: { url: string; publicId: string };
+        gifting?: { url: string; publicId: string };
+      }
+    | undefined,
+  prev: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const out = { ...next };
+  const sides = [
+    ["saleImage", "saleImagePublicId", uploaded?.sale] as const,
+    ["giftingImage", "giftingImagePublicId", uploaded?.gifting] as const,
+  ];
+  for (const [imgKey, idKey, up] of sides) {
+    if (up) {
+      out[imgKey] = up.url;
+      out[idKey] = up.publicId;
+      continue;
+    }
+    const nImg = trimStr(out[imgKey]);
+    const nId = trimStr(out[idKey]);
+    const pImg = trimStr(prev?.[imgKey]);
+    const pId = trimStr(prev?.[idKey]);
+    if (!nImg) {
+      out[imgKey] = "";
+      out[idKey] = "";
+      continue;
+    }
+    if (!nId && pId && pImg && (nImg === pImg || sameCloudinaryAsset(nImg, pImg))) {
+      out[idKey] = pId;
+    }
+  }
+
+  const label = (value: unknown, fallback: string) => {
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    return (trimmed || fallback).slice(0, 48);
+  };
+
+  out.saleName = label(out.saleName, "Sale");
+  out.saleSubtitle = label(out.saleSubtitle, "ON OFFER");
+  out.giftingName = label(out.giftingName, "Gifting");
+  out.giftingSubtitle = label(out.giftingSubtitle, "THE COLLECTION");
+
+  return out;
 }
 
 export function mergeHomeGiftCards(

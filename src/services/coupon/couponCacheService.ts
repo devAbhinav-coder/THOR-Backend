@@ -4,9 +4,11 @@ import { CouponLike } from './couponBusinessRules';
 const ACTIVE_COUPONS_KEY = 'cache:coupons:active';
 const COUPON_BY_CODE_PREFIX = 'cache:coupon:code:';
 const VALIDATION_PREFIX = 'cache:coupon:validate:';
+const ELIGIBLE_PREFIX = 'cache:coupon:eligible:';
 const ACTIVE_TTL = Number(process.env.COUPON_ACTIVE_CACHE_TTL_SEC || 300);
 const CODE_TTL = Number(process.env.COUPON_CODE_CACHE_TTL_SEC || 600);
 const VALIDATION_TTL = Number(process.env.COUPON_VALIDATION_CACHE_TTL_SEC || 60);
+const ELIGIBLE_TTL = Number(process.env.COUPON_ELIGIBLE_CACHE_TTL_SEC || 45);
 
 export function couponCodeCacheKey(code: string): string {
   return `${COUPON_BY_CODE_PREFIX}${code}`;
@@ -14,6 +16,29 @@ export function couponCodeCacheKey(code: string): string {
 
 export function validationCacheKey(userId: string, code: string, orderAmount: number): string {
   return `${VALIDATION_PREFIX}${userId}:${code}:${orderAmount}`;
+}
+
+export function eligibleCouponsCacheKey(userId: string, orderAmount: number): string {
+  return `${ELIGIBLE_PREFIX}${userId}:${orderAmount}`;
+}
+
+export type EligibleCouponsCachePayload = {
+  coupons: CouponLike[];
+  ineligible: Array<{ code: string; reason: string }>;
+  completedOrders: number;
+};
+
+export async function getCachedEligibleCoupons(
+  key: string,
+): Promise<EligibleCouponsCachePayload | null> {
+  return getCache<EligibleCouponsCachePayload>(key);
+}
+
+export async function setCachedEligibleCoupons(
+  key: string,
+  payload: EligibleCouponsCachePayload,
+): Promise<void> {
+  await setCache(key, payload, ELIGIBLE_TTL);
 }
 
 export async function getCachedCouponByCode(code: string): Promise<CouponLike | null> {
@@ -46,6 +71,7 @@ export async function invalidateCouponCaches(code?: string): Promise<void> {
     await deleteCache(couponCodeCacheKey(code));
   }
   await clearCachePattern(`${VALIDATION_PREFIX}*`);
+  await clearCachePattern(`${ELIGIBLE_PREFIX}*`);
   if (!code) {
     await clearCachePattern(`${COUPON_BY_CODE_PREFIX}*`);
   }

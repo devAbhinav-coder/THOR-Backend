@@ -1,6 +1,7 @@
 import axios from "axios";
 import crypto from "crypto";
 import { IOrder } from "../types";
+import { getMetaCatalogItemId } from "../utils/metaCatalogId";
 
 const PIXEL_ID = process.env.META_PIXEL_ID;
 const ACCESS_TOKEN = process.env.META_CAPI_TOKEN;
@@ -29,12 +30,15 @@ export const sendPurchaseEvent = async (
 
     // Map order items to Meta CAPI contents schema
     const contents = order.items.map((item) => {
-      const productId = typeof item.product === "object" && item.product !== null && "_id" in item.product
-        ? (item.product as any)._id.toString()
-        : (item.product as any).toString();
+      const productId =
+        typeof item.product === "object" &&
+        item.product !== null &&
+        "_id" in item.product
+          ? (item.product as { _id: { toString(): string } })._id.toString()
+          : String(item.product);
 
       return {
-        id: productId,
+        id: getMetaCatalogItemId(productId, item.variant),
         quantity: item.quantity,
         item_price: item.price,
       };
@@ -70,7 +74,7 @@ export const sendPurchaseEvent = async (
             value: order.total,
             contents: contents,
             content_ids: contents.map(c => c.id),
-            content_type: "product_group",
+            content_type: "product",
             order_id: order._id.toString(),
           },
         },

@@ -187,6 +187,9 @@ export const paymentVerificationService = {
         razorpaySignature,
         invoice: { isGenerated: true, generatedAt: new Date() },
         inventoryReserved: true,
+        ...(snap.marketingAttribution ?
+          { marketingAttribution: snap.marketingAttribution }
+        : {}),
       };
 
       const createdArr = await Order.create(

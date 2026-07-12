@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CART_LINE_QTY_MAX } from '../constants/cartLimits';
 
 const objectIdString = z
   .string()
@@ -18,13 +19,13 @@ export const addToCartBodySchema = z.object({
     colorCode: z.string().trim().max(20).optional(),
     sku: z.string().trim().min(1).max(120),
   }),
-  quantity: z.coerce.number().int().min(1).max(10),
+  quantity: z.coerce.number().int().min(1).max(CART_LINE_QTY_MAX),
   customFieldAnswers: z.array(customFieldAnswerSchema).max(20).optional(),
   idempotencyKey: z.string().trim().min(8).max(128).optional(),
 });
 
 export const updateCartItemBodySchema = z.object({
-  quantity: z.coerce.number().int().min(1).max(10),
+  quantity: z.coerce.number().int().min(1).max(CART_LINE_QTY_MAX),
   idempotencyKey: z.string().trim().min(8).max(128).optional(),
 });
 

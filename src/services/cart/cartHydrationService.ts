@@ -44,7 +44,25 @@ async function hydrateTotals(
           discountValue: couponDoc.discountValue,
           appliedDiscount: discount,
         };
+      } else if (cart._id) {
+        Cart.updateOne(
+          { _id: cart._id },
+          { $unset: { coupon: '' }, $set: { subtotal, discount: 0, total: subtotal } },
+        )
+          .maxTimeMS(CART_QUERY_MAX_MS)
+          .exec()
+          .then(() => cartCacheService.invalidate(userId))
+          .catch(() => {});
       }
+    } else if (cart._id) {
+      Cart.updateOne(
+        { _id: cart._id },
+        { $unset: { coupon: '' }, $set: { subtotal, discount: 0, total: subtotal } },
+      )
+        .maxTimeMS(CART_QUERY_MAX_MS)
+        .exec()
+        .then(() => cartCacheService.invalidate(userId))
+        .catch(() => {});
     }
   }
 
@@ -64,7 +82,7 @@ async function hydrateTotals(
     subtotal,
     discount,
     total,
-    coupon: couponInfo ?? cart.coupon,
+    coupon: couponInfo,
   });
 
   return hydrated;

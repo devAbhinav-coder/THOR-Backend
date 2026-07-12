@@ -10,12 +10,13 @@ import {
 } from "./couponBusinessRules";
 import {
   getCachedCouponByCode,
-  getCachedActiveCoupons,
   getCachedValidationResult,
-  setCachedActiveCoupons,
   setCachedCouponByCode,
   setCachedValidationResult,
   validationCacheKey,
+  eligibleCouponsCacheKey,
+  getCachedEligibleCoupons,
+  setCachedEligibleCoupons,
 } from "./couponCacheService";
 import { getUserDeliveredOrderCount } from "./couponUserStatsService";
 import { recordCouponMetric } from "./couponMetricsService";
@@ -128,24 +129,27 @@ export const couponValidationService = {
     const now = new Date();
     recordCouponMetric("coupon.eligible.fetch");
 
-    let coupons = await getCachedActiveCoupons();
-    if (!coupons) {
-      coupons = await Coupon.find({
-        ...ACTIVE_COUPON_DB_FILTER,
-        startDate: { $lte: now },
-        expiryDate: { $gt: now },
-        $or: [
-          { usageLimit: { $exists: false } },
-          { usageLimit: null },
-          { $expr: { $lt: ["$usedCount", "$usageLimit"] } },
-        ],
-      })
-        .select("-usedBy")
-        .sort("-createdAt")
-        .maxTimeMS(COUPON_QUERY_MAX_MS)
-        .lean<CouponLike[]>();
-      await setCachedActiveCoupons(coupons);
+    const userCacheKey = eligibleCouponsCacheKey(userId, orderAmount);
+    const cached = await getCachedEligibleCoupons(userCacheKey);
+    if (cached) {
+      recordCouponMetric("coupon.eligible.fetch", { cached: true });
+      return cached;
     }
+
+    const coupons = await Coupon.find({
+      ...ACTIVE_COUPON_DB_FILTER,
+      startDate: { $lte: now },
+      expiryDate: { $gt: now },
+      $or: [
+        { usageLimit: { $exists: false } },
+        { usageLimit: null },
+        { $expr: { $lt: ["$usedCount", "$usageLimit"] } },
+      ],
+    })
+      .select("+usedBy")
+      .sort("-createdAt")
+      .maxTimeMS(COUPON_QUERY_MAX_MS)
+      .lean<CouponLike[]>();
 
     const completedOrders = await getUserDeliveredOrderCount(userId);
     const eligible: CouponLike[] = [];
@@ -164,7 +168,9 @@ export const couponValidationService = {
         });
     }
 
-    return { coupons: eligible, ineligible, completedOrders };
+    const payload = { coupons: eligible, ineligible, completedOrders };
+    await setCachedEligibleCoupons(userCacheKey, payload);
+    return payload;
   },
 
   async evaluateCouponForOrder(
@@ -176,6 +182,29 @@ export const couponValidationService = {
   ): Promise<{ discount: number; couponId?: mongoose.Types.ObjectId }> {
     if (couponCode) {
       const coupon = await this.findCouponByCode(couponCode);
+      if (!coupon) {
+        throw new AppError("Invalid coupon code.", 404);
+      }
+      const completedOrders = await getUserDeliveredOrderCount(userId);
+      const validity = evaluateCouponValidity(
+        coupon,
+        userId,
+        checkoutSubtotal,
+        { completedOrders },
+      );
+      if (!validity.valid) {
+        throw new AppError(validity.message || "Coupon is not valid.", 400);
+      }
+      return {
+        discount: calculateCouponDiscount(coupon, checkoutSubtotal),
+        couponId: coupon._id as mongoose.Types.ObjectId,
+      };
+    }
+    if (cartCouponId && cartCouponDiscount !== undefined && cartCouponDiscount > 0) {
+      const coupon = await Coupon.findById(cartCouponId)
+        .select("+usedBy")
+        .maxTimeMS(COUPON_QUERY_MAX_MS)
+        .lean<CouponLike>();
       if (coupon) {
         const completedOrders = await getUserDeliveredOrderCount(userId);
         const validity = evaluateCouponValidity(
@@ -187,14 +216,11 @@ export const couponValidationService = {
         if (validity.valid) {
           return {
             discount: calculateCouponDiscount(coupon, checkoutSubtotal),
-            couponId: coupon._id as mongoose.Types.ObjectId,
+            couponId: cartCouponId,
           };
         }
       }
       return { discount: 0 };
-    }
-    if (cartCouponId && cartCouponDiscount !== undefined) {
-      return { discount: cartCouponDiscount, couponId: cartCouponId };
     }
     return { discount: 0 };
   },

@@ -23,7 +23,7 @@ export function normalizeCustomFieldAnswers(
 }
 
 export function getGiftMinQtyFromRecord(product: CartProductRecord): number {
-  const isCorporateGift = ((product.giftOccasions as string[]) || []).some(
+  const isCorporateGift = ((product.occasions as string[]) || []).some(
     (o) => String(o).trim().toLowerCase() === "corporate",
   );
   const baseMin = Math.max(Number(product.minOrderQty || 1), 1);
@@ -83,6 +83,24 @@ export function resolveVariantForCart(
   return variant;
 }
 
+export function assertQuantityWithinStock(
+  variant: { stock: number },
+  quantity: number,
+  existingQty = 0,
+): void {
+  const stock = Math.max(0, Number(variant.stock) || 0);
+  const nextTotal = existingQty + quantity;
+  if (nextTotal > stock) {
+    const remaining = Math.max(0, stock - existingQty);
+    throw new AppError(
+      remaining > 0 ?
+        `Only ${remaining} more can be added (${stock} in stock${existingQty > 0 ? `, ${existingQty} already in cart` : ""}).`
+      : `Only ${stock} item(s) available in stock.`,
+      400,
+    );
+  }
+}
+
 export function assertMinQuantity(
   product: CartProductRecord | null,
   quantity: number,
@@ -117,7 +135,7 @@ export async function findCouponByCode(
   const normalized = normalizeCouponCode(code);
   if (!normalized) return null;
   return Coupon.findOne({ code: normalized })
-    .select(COUPON_LOOKUP_SELECT)
+    .select(`+usedBy ${COUPON_LOOKUP_SELECT}`)
     .maxTimeMS(CART_QUERY_MAX_MS)
     .lean<Record<string, unknown>>();
 }
@@ -132,6 +150,9 @@ export function assertCouponAppliedToCart(
   cart: CartDto,
   expectedCode: string,
 ): void {
+  if ((cart.discount ?? 0) <= 0) {
+    throw new AppError("Coupon is not valid for this cart.", 400);
+  }
   const coupon = cart.coupon;
   if (!coupon || typeof coupon !== "object" || !("code" in coupon)) {
     throw new AppError("Coupon is not valid for this cart.", 400);

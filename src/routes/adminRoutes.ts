@@ -93,6 +93,17 @@ import {
   deleteCategory,
   getAllCategories,
 } from '../controllers/categoryController';
+import {
+  listSubcategories,
+  getSubcategory,
+  createSubcategory,
+  updateSubcategory,
+  deleteSubcategory,
+  reorderSubcategories,
+  listSubcategoriesByCategory,
+} from '../controllers/admin/adminSubcategoryController';
+import { getMegaMenu } from '../controllers/navigationController';
+
 import { protect, restrictTo } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import {
@@ -123,8 +134,8 @@ import {
   marketingAudiencePreviewQuerySchema,
 } from '../validation/schemas';
 import {
-  uploadAvatar,
-  processCategoryImage,
+  uploadCategoryImages,
+  processCategoryImages,
   uploadStorefrontAssets,
   processStorefrontAssets,
 } from '../middleware/upload';
@@ -296,9 +307,19 @@ router.delete('/invoices/:id', adminSensitiveLimiter, deleteSalesInvoice);
 
 // Category management
 router.get('/categories', getAllCategories);
-router.post('/categories', uploadAvatar, processCategoryImage, validate(createCategorySchema), createCategory);
-router.patch('/categories/:id', uploadAvatar, processCategoryImage, updateCategory);
+router.post('/categories', uploadCategoryImages, processCategoryImages, validate(createCategorySchema), createCategory);
+router.patch('/categories/:id', uploadCategoryImages, processCategoryImages, updateCategory);
 router.delete('/categories/:id', deleteCategory);
+router.get('/categories/:id/subcategories', listSubcategoriesByCategory);
+
+// SubCategory management
+router.get('/subcategories', listSubcategories);
+router.post('/subcategories', adminSensitiveLimiter, uploadCategoryImages, processCategoryImages, createSubcategory);
+router.patch('/subcategories/reorder', adminSensitiveLimiter, reorderSubcategories);
+router.get('/subcategories/:id', getSubcategory);
+router.patch('/subcategories/:id', adminSensitiveLimiter, uploadCategoryImages, processCategoryImages, updateSubcategory);
+router.delete('/subcategories/:id', adminSensitiveLimiter, deleteSubcategory);
+
 
 // ─── Inventory Management ─────────────────────────────────────────────────────
 router.get('/inventory', validate(inventoryOverviewQuerySchema), getInventoryOverview);

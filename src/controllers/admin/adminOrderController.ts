@@ -37,6 +37,19 @@ export const getAllOrders = catchAsync(async (req: Request, res: Response) => {
   );
   const skip = (page - 1) * limit;
 
+  const SORT_MAP: Record<string, string> = {
+    newest: "-createdAt",
+    oldest: "createdAt",
+    value_high: "-total",
+    value_low: "total",
+    "-createdAt": "-createdAt",
+    createdAt: "createdAt",
+    "-total": "-total",
+    total: "total",
+  };
+  const sortKey = String(req.query.sort || "newest").trim();
+  const mongoSort = SORT_MAP[sortKey] || "-createdAt";
+
   const ALLOWED_STATUSES = [
     "pending",
     "confirmed",
@@ -92,7 +105,7 @@ export const getAllOrders = catchAsync(async (req: Request, res: Response) => {
 
   const [orders, total] = await Promise.all([
     Order.find(filter)
-      .sort("-createdAt")
+      .sort(mongoSort)
       .skip(skip)
       .limit(limit)
       .select(

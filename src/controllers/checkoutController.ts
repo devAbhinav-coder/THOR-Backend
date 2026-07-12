@@ -15,6 +15,7 @@ import { computeOrderTotals } from "../services/orderService";
 import { checkoutService } from "../services/checkoutService";
 import { enqueueOrderEvent } from "../queues/orderQueue";
 import { OrderEventType } from "../events/orderEvents";
+import { sanitizeMarketingAttribution } from "../utils/marketingAttribution";
 
 export const createOrder = catchAsync(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -45,8 +46,10 @@ export const createOrder = catchAsync(
     }
 
     try {
-      const { shippingAddress, paymentMethod, couponCode, notes, buyNowItem } =
+      const { shippingAddress, paymentMethod, couponCode, notes, buyNowItem, marketingAttribution: rawAttribution } =
         req.body;
+
+      const marketingAttribution = sanitizeMarketingAttribution(rawAttribution);
 
       let checkoutItems,
         checkoutSubtotal,
@@ -114,6 +117,7 @@ export const createOrder = catchAsync(
         total,
         coupon: couponId,
         notes,
+        ...(marketingAttribution ? { marketingAttribution } : {}),
       };
 
       if (paymentMethod === "razorpay") {
@@ -130,6 +134,7 @@ export const createOrder = catchAsync(
           couponId,
           notes,
           cartIdToDelete,
+          marketingAttribution,
         };
 
         const { intentId, razorpayOrder } =

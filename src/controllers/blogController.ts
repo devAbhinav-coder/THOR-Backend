@@ -20,6 +20,7 @@ import {
 } from "../types/utils/blogContent";
 import { findRelatedBlogs } from "../services/ai/blogRagContextBuilder";
 import { syncBlogEmbedding } from "../services/ai/vectorIndexService";
+import { notifyIndexNowStorefront } from "../services/indexNowService";
 import { Types } from "mongoose";
 
 type BlogBroadcastPayload = { _id: unknown; title: string; slug: string };
@@ -311,6 +312,9 @@ export const createBlog = catchAsync(
       broadcastNewBlog(blog).catch((err: unknown) =>
         logger.error("Blog broadcast failed", { err }),
       );
+      if (blog.slug) {
+        notifyIndexNowStorefront(`/blog/${encodeURIComponent(String(blog.slug))}`);
+      }
     }
 
     sendSuccess(res, { blog }, "Blog created", 201);
@@ -437,6 +441,12 @@ export const updateBlog = catchAsync(
     if (updateData.isPublished && !blog.isPublished && updatedBlog) {
       broadcastNewBlog(updatedBlog).catch((err: unknown) =>
         logger.error("Blog publish broadcast failed", { err }),
+      );
+    }
+
+    if (updatedBlog?.isPublished && updatedBlog.slug) {
+      notifyIndexNowStorefront(
+        `/blog/${encodeURIComponent(String(updatedBlog.slug))}`,
       );
     }
 

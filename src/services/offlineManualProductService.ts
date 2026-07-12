@@ -32,7 +32,7 @@ export async function getOrCreateOfflineManualProduct() {
     isGiftable: false,
     isCustomizable: false,
     minOrderQty: 1,
-    giftOccasions: [],
+    occasions: [],
     customFields: [],
     totalStock: 999_999,
   });

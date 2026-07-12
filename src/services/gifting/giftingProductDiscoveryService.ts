@@ -26,7 +26,7 @@ function buildGiftableFilter(params: {
 }): Record<string, unknown> {
   const filter: Record<string, unknown> = { isGiftable: true, isActive: true };
   if (params.giftOccasion)
-    filter.giftOccasions = { $in: [params.giftOccasion] };
+    filter.occasions = { $in: [params.giftOccasion] };
   if (params.category) filter.category = params.category;
   if (params.search?.trim()) {
     filter.$text = { $search: params.search.trim() };

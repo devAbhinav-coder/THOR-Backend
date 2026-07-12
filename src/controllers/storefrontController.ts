@@ -14,6 +14,8 @@ import {
   mergeHomeGiftCards,
   mergePromoBanner,
   mergeShopBanner,
+  mergeHomeMiddleBanner,
+  mergeHomeExploreHouse,
 } from "../types/utils/storefrontImageMerge";
 import { sendSuccess } from "../types/utils/response";
 
@@ -67,6 +69,24 @@ const FALLBACK_SETTINGS = {
     ctaLink: "",
     isActive: true,
     tiles: [],
+  },
+  homeMiddleBanner: {
+    image: "https://images.unsplash.com/photo-1544441893-675973e31985?w=1600&q=80&auto=format&fit=crop",
+    title: "Timeless Craftsmanship",
+    subtitle: "A modern homage to our cultural legacy.",
+    linkText: "Discover the Story",
+    linkUrl: "/about",
+    isActive: true,
+  },
+  homeExploreHouse: {
+    saleImage:
+      "https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=600&q=85",
+    saleName: "Sale",
+    saleSubtitle: "ON OFFER",
+    giftingImage:
+      "https://images.unsplash.com/photo-1549465220-1a8b9238cd48?w=600&q=85",
+    giftingName: "Gifting",
+    giftingSubtitle: "THE COLLECTION",
   },
   giftingHeroBanners: [
     {
@@ -175,6 +195,8 @@ type StorefrontPayload = {
   giftingSecondaryBanners?: Record<string, unknown>[];
   homeGiftShowcase?: Record<string, unknown>;
   homeEditorialGallery?: Record<string, unknown>;
+  homeMiddleBanner?: Record<string, unknown>;
+  homeExploreHouse?: Record<string, unknown>;
   announcementMessages?: string[];
   footer?: Record<string, unknown>;
 };
@@ -277,6 +299,10 @@ const getSettingsDoc = async () => {
       settings.homeGiftShowcase || FALLBACK_SETTINGS.homeGiftShowcase,
     homeEditorialGallery:
       settings.homeEditorialGallery || FALLBACK_SETTINGS.homeEditorialGallery,
+    homeMiddleBanner:
+      settings.homeMiddleBanner || FALLBACK_SETTINGS.homeMiddleBanner,
+    homeExploreHouse:
+      settings.homeExploreHouse || FALLBACK_SETTINGS.homeExploreHouse,
     footer: settings.footer || FALLBACK_SETTINGS.footer,
   };
   const giftShowcase = payload.homeGiftShowcase as {
@@ -331,6 +357,9 @@ export const updateStorefrontSettings = catchAsync(
           giftingSecondary: Record<string, { url: string; publicId: string }>;
           homeGiftCard: Record<string, { url: string; publicId: string }>;
           homeEditorialTile: Record<string, { url: string; publicId: string }>;
+          homeMiddleBanner?: { url: string; publicId: string };
+          homeExploreHouseSale?: { url: string; publicId: string };
+          homeExploreHouseGifting?: { url: string; publicId: string };
         };
       }
     ).uploadedStorefrontImages;
@@ -379,6 +408,27 @@ export const updateStorefrontSettings = catchAsync(
         }
       : undefined,
       prevBlog,
+    );
+
+    const prevHomeMiddleBanner = previous?.homeMiddleBanner as Record<string, unknown> | undefined;
+    const nextHomeMiddleBanner = mergeHomeMiddleBanner(
+      { ...(payload.homeMiddleBanner || {}) },
+      uploaded?.homeMiddleBanner,
+      prevHomeMiddleBanner
+    );
+
+    const prevHomeExploreHouse = previous?.homeExploreHouse as
+      | Record<string, unknown>
+      | undefined;
+    const nextHomeExploreHouse = mergeHomeExploreHouse(
+      { ...(payload.homeExploreHouse || {}) },
+      uploaded ?
+        {
+          sale: uploaded.homeExploreHouseSale,
+          gifting: uploaded.homeExploreHouseGifting,
+        }
+      : undefined,
+      prevHomeExploreHouse,
     );
 
     const prevGiftingHero = previous?.giftingHeroBanners as
@@ -490,6 +540,24 @@ export const updateStorefrontSettings = catchAsync(
     ) {
       usedPublicIds.add(nextBlogBanner.sideImagePublicId);
     }
+    if (
+      typeof nextHomeMiddleBanner.imagePublicId === "string" &&
+      nextHomeMiddleBanner.imagePublicId.trim()
+    ) {
+      usedPublicIds.add(nextHomeMiddleBanner.imagePublicId);
+    }
+    if (
+      typeof nextHomeExploreHouse.saleImagePublicId === "string" &&
+      nextHomeExploreHouse.saleImagePublicId.trim()
+    ) {
+      usedPublicIds.add(nextHomeExploreHouse.saleImagePublicId);
+    }
+    if (
+      typeof nextHomeExploreHouse.giftingImagePublicId === "string" &&
+      nextHomeExploreHouse.giftingImagePublicId.trim()
+    ) {
+      usedPublicIds.add(nextHomeExploreHouse.giftingImagePublicId);
+    }
     for (const banner of nextGiftingHero) {
       if (
         typeof banner.backgroundImagePublicId === "string" &&
@@ -555,6 +623,22 @@ export const updateStorefrontSettings = catchAsync(
       if (maybeBlog.sideImagePublicId)
         oldPublicIds.push(maybeBlog.sideImagePublicId);
     }
+    if (previous?.homeMiddleBanner && typeof previous.homeMiddleBanner === "object") {
+      const maybeHomeMiddle = previous.homeMiddleBanner as { imagePublicId?: string };
+      if (maybeHomeMiddle.imagePublicId) oldPublicIds.push(maybeHomeMiddle.imagePublicId);
+    }
+    if (previous?.homeExploreHouse && typeof previous.homeExploreHouse === "object") {
+      const maybeExplore = previous.homeExploreHouse as {
+        saleImagePublicId?: string;
+        giftingImagePublicId?: string;
+      };
+      if (maybeExplore.saleImagePublicId) {
+        oldPublicIds.push(maybeExplore.saleImagePublicId);
+      }
+      if (maybeExplore.giftingImagePublicId) {
+        oldPublicIds.push(maybeExplore.giftingImagePublicId);
+      }
+    }
     if (previous?.giftingHeroBanners?.length) {
       for (const banner of previous.giftingHeroBanners as Array<{
         backgroundImagePublicId?: string;
@@ -605,6 +689,8 @@ export const updateStorefrontSettings = catchAsync(
         giftingSecondaryBanners: nextGiftingSecondary,
         homeGiftShowcase: nextHomeGiftShowcase,
         homeEditorialGallery: nextHomeEditorialGallery,
+        homeMiddleBanner: nextHomeMiddleBanner,
+        homeExploreHouse: nextHomeExploreHouse,
         footer: payload.footer || {},
       },
       {

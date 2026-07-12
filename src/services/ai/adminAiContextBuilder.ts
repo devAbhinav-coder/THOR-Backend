@@ -426,7 +426,7 @@ export function buildSmartActionSummary(
   if (o.ordersToday != null && o.revenueToday != null) {
     bullets.push(`Today: ${o.ordersToday} orders, ₹${fmt(o.revenueToday)} revenue`);
   }
-  if (o.monthRevenue != null && o.revenueGrowth != null) {
+  if (o.monthRevenue != null && o.revenueGrowth != null && o.revenueGrowth !== undefined) {
     const g = o.revenueGrowth;
     bullets.push(`MTD revenue ₹${fmt(o.monthRevenue)} (${g >= 0 ? '+' : ''}${g}% vs last month)`);
   }

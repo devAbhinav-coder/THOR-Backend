@@ -193,6 +193,40 @@ const homeGiftShowcaseSchema = new Schema(
   { _id: false }
 );
 
+const homeMiddleBannerSchema = new Schema(
+  {
+    image: { type: String, trim: true },
+    imagePublicId: { type: String, trim: true },
+    title: { type: String, trim: true, maxlength: 120 },
+    subtitle: { type: String, trim: true, maxlength: 120 },
+    linkText: { type: String, trim: true, maxlength: 60 },
+    linkUrl: { type: String, trim: true },
+    textAlignment: { type: String, enum: ['left', 'center', 'right'], default: 'center' },
+    textColor: { type: String, enum: ['light', 'dark'], default: 'light' },
+    isActive: { type: Boolean, default: true },
+  },
+  { _id: false }
+);
+
+const homeExploreHouseSchema = new Schema(
+  {
+    saleImage: { type: String, trim: true },
+    saleImagePublicId: { type: String, trim: true },
+    saleName: { type: String, trim: true, maxlength: 48, default: 'Sale' },
+    saleSubtitle: { type: String, trim: true, maxlength: 48, default: 'ON OFFER' },
+    giftingImage: { type: String, trim: true },
+    giftingImagePublicId: { type: String, trim: true },
+    giftingName: { type: String, trim: true, maxlength: 48, default: 'Gifting' },
+    giftingSubtitle: {
+      type: String,
+      trim: true,
+      maxlength: 48,
+      default: 'THE COLLECTION',
+    },
+  },
+  { _id: false },
+);
+
 const storefrontSettingsSchema = new Schema(
   {
     key: { type: String, unique: true, default: 'default' },
@@ -201,6 +235,8 @@ const storefrontSettingsSchema = new Schema(
     shopBanner: shopBannerSchema,
     promoBanner: promoBannerSchema,
     blogBanner: blogBannerSchema,
+    homeMiddleBanner: homeMiddleBannerSchema,
+    homeExploreHouse: homeExploreHouseSchema,
     giftingHeroBanners: [giftingHeroBannerSchema],
     giftingSecondaryBanners: [giftingSecondaryBannerSchema],
     homeGiftShowcase: homeGiftShowcaseSchema,

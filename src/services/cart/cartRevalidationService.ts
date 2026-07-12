@@ -23,7 +23,7 @@ export const cartRevalidationService = {
     const products = await Product.find({
       _id: { $in: productIds.map((id) => new mongoose.Types.ObjectId(id)) },
     })
-      .select("name isActive variants minOrderQty giftOccasions price")
+      .select("name isActive variants minOrderQty occasions price")
       .maxTimeMS(CART_QUERY_MAX_MS)
       .lean<Record<string, unknown>[]>();
 
@@ -64,6 +64,13 @@ export const cartRevalidationService = {
       if (variant.stock < 1) {
         throw new AppError(
           `"${item.productName}" is currently out of stock.`,
+          400,
+        );
+      }
+
+      if (item.quantity > variant.stock) {
+        throw new AppError(
+          `"${item.productName}" — only ${variant.stock} in stock (you have ${item.quantity} in cart). Update quantity and try again.`,
           400,
         );
       }

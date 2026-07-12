@@ -29,7 +29,7 @@ export const productRepository = {
       .sort(sortParams as Parameters<typeof query.sort>[0])
       .skip(skip)
       .limit(limit)
-      .select("name slug price comparePrice images category description shortDescription tags giftOccasions isFeatured isActive minOrderQty isCustomizable customFields productDetails variants")
+      .select("name slug price comparePrice images category description shortDescription tags occasions isFeatured isActive minOrderQty isCustomizable customFields productDetails variants")
       .lean<Record<string, unknown>[]>();
   },
 };

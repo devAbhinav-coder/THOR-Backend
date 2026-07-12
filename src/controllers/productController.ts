@@ -1,5 +1,8 @@
 import { Request, Response, NextFunction } from "express";
+import mongoose from "mongoose";
 import Product from "../models/Product";
+import Category from "../models/Category";
+import SubCategory from "../models/SubCategory";
 import AppError from "../types/utils/AppError";
 import catchAsync from "../types/utils/catchAsync";
 import APIFeatures from "../types/utils/apiFeatures";
@@ -18,9 +21,18 @@ import { advancedSearchService } from "../services/advancedSearchService";
 import {
   normalizeSearchQuery,
   parseProductListQuery,
-  mapSortToAdvanced,
+  resolveShopSearchSort,
 } from "../services/productQueryParser";
 import { listProducts } from "../services/productListService";
+import { notifyIndexNowStorefront } from "../services/indexNowService";
+import {
+  buildImagesFromMeta,
+  countNewImageMetaSlots,
+  distinctVariantColors,
+  MAX_PRODUCT_IMAGES,
+  parseImagesMeta,
+  validateImagesMetaForVariants,
+} from "../services/productImageService";
 import {
   invalidateProductCaches,
   pdpCacheKey,
@@ -31,6 +43,7 @@ import {
 import { getCachedProductCount } from "../services/productCountService";
 import { LISTING_PROJECTION } from "../constants/productListing";
 import { OFFLINE_MANUAL_PRODUCT_TAG } from "../constants/offlineOrder";
+import { mergeOccasionOptions } from "../constants/productCatalog";
 import { invalidateGiftingProductCache } from "../services/gifting/giftingProductDiscoveryService";
 const PDP_CACHE_TTL = 600;
 const FILTERS_CACHE_TTL = 300;
@@ -70,6 +83,7 @@ export const getAllProducts = catchAsync(
       {
         products: result.products.map(leanProduct),
         ...(result.searchMethod ? { searchMethod: result.searchMethod } : {}),
+        ...(result.searchIntent ? { searchIntent: result.searchIntent } : {}),
       },
       {
         page: result.page,
@@ -91,10 +105,10 @@ export const searchProducts = catchAsync(
     const fabrics = parsedSearch.fabrics;
     const page = parsedSearch.page;
     const limit = parsedSearch.limit;
-    const { sortBy, sortOrder } = mapSortToAdvanced(
-      typeof req.query.sortBy === "string" ? req.query.sortBy
-      : typeof req.query.sort === "string" ? req.query.sort
-      : "relevance",
+    const { sortBy, sortOrder } = resolveShopSearchSort(
+      typeof req.query.sort === "string" ? req.query.sort : "-createdAt",
+      typeof req.query.sortBy === "string" ? req.query.sortBy : undefined,
+      typeof req.query.sortOrder === "string" ? req.query.sortOrder : undefined,
     );
 
     const searchResult = await advancedSearchService.searchProducts({
@@ -104,11 +118,14 @@ export const searchProducts = catchAsync(
       page,
       limit,
       categories,
+      subcategories: parsedSearch.subcategories,
+      occasions: parsedSearch.occasions,
       fabrics,
       minPrice: parsedSearch.minPrice,
       maxPrice: parsedSearch.maxPrice,
       minRating: parsedSearch.minRating,
       isFeatured: parsedSearch.isFeatured,
+      onSale: parsedSearch.onSale,
       adminScope: false,
       useCache: true,
     });
@@ -119,6 +136,7 @@ export const searchProducts = catchAsync(
         products: searchResult.products.map(leanProduct),
         searchMethod: searchResult.searchMethod,
         cached: searchResult.cached,
+        searchIntent: searchResult.searchIntent,
       },
       {
         page: searchResult.page,
@@ -140,7 +158,13 @@ export const autocompleteSearch = catchAsync(
     }
 
     const suggestions = await advancedSearchService.autocomplete(q, limit);
-    sendSuccess(res, { suggestions, query: q });
+    sendSuccess(res, {
+      suggestions: suggestions.suggestions,
+      query: q,
+      searchIntent: suggestions.intent,
+      querySuggestions: suggestions.querySuggestions,
+      didYouMean: suggestions.intent.didYouMean,
+    });
   },
 );
 
@@ -291,12 +315,24 @@ export const getFilterOptions = catchAsync(
   async (req: Request, res: Response) => {
     const categoryParam =
       typeof req.query.category === "string" ? req.query.category.trim() : "";
+    const categoryIdParam =
+      typeof req.query.categoryId === "string" ? req.query.categoryId.trim() : "";
+    const subcategoryIdParam =
+      typeof req.query.subcategoryId === "string" ? req.query.subcategoryId.trim() : "";
 
     const v = await getProductCacheVersion();
-    const cacheKey = filtersCacheKey(v, categoryParam || undefined);
+    const cacheKey = filtersCacheKey(v, `${categoryParam || 'all'}-${categoryIdParam || 'all'}-${subcategoryIdParam || 'all'}`);
     const cached = await getCache<{
       categories: string[];
       fabrics: string[];
+      subcategories: string[];
+      occasions: string[];
+      tags: string[];
+      categoryTree: Array<{
+        name: string;
+        slug: string;
+        subcategories: Array<{ name: string; slug: string }>;
+      }>;
       priceRange: { minPrice: number; maxPrice: number };
     }>(cacheKey);
     if (cached) return sendSuccess(res, cached);
@@ -307,14 +343,17 @@ export const getFilterOptions = catchAsync(
       tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
     };
 
-    const scopedMatch: Record<string, unknown> =
-      categoryParam ?
-        { ...shopMatch, category: categoryParam }
-      : shopMatch;
+    const scopedMatch: Record<string, unknown> = { ...shopMatch };
+    if (categoryParam) scopedMatch.category = categoryParam;
+    if (categoryIdParam) scopedMatch.categoryId = new mongoose.Types.ObjectId(categoryIdParam);
+    if (subcategoryIdParam) scopedMatch.subcategoryId = new mongoose.Types.ObjectId(subcategoryIdParam);
 
     const [facet] = await Product.aggregate<{
       allCategories: { categories: string[] }[];
       allFabrics: { fabrics: string[] }[];
+      allSubcategories: { subcategories: string[] }[];
+      allTags: { tags: string[] }[];
+      allOccasions: { occasions: string[] }[];
       scopedPrice: {
         minPrice: number;
         maxPrice: number;
@@ -340,6 +379,35 @@ export const getFilterOptions = catchAsync(
               },
             },
           ],
+          allSubcategories: [
+            { $match: { ...shopMatch, subcategory: { $exists: true, $ne: "" } } },
+            {
+              $group: {
+                _id: null,
+                subcategories: { $addToSet: "$subcategory" },
+              },
+            },
+          ],
+          allTags: [
+            { $match: shopMatch },
+            { $unwind: "$tags" },
+            {
+              $group: {
+                _id: null,
+                tags: { $addToSet: "$tags" },
+              },
+            },
+          ],
+          allOccasions: [
+            { $match: shopMatch },
+            { $unwind: "$occasions" },
+            {
+              $group: {
+                _id: null,
+                occasions: { $addToSet: "$occasions" },
+              },
+            },
+          ],
           scopedPrice: [
             { $match: scopedMatch },
             {
@@ -356,13 +424,69 @@ export const getFilterOptions = catchAsync(
 
     const allFabrics = facet?.allFabrics?.[0];
     const allCategories = facet?.allCategories?.[0];
+    const allSubcategories = facet?.allSubcategories?.[0];
+    const allTags = facet?.allTags?.[0];
+    const allOccasions = facet?.allOccasions?.[0];
     const scopedPrice = facet?.scopedPrice?.[0];
+
+    const productCategoryNames = new Set(
+      (allCategories?.categories ?? []).filter(Boolean) as string[],
+    );
+    const productSubcategoryNames = new Set(
+      (allSubcategories?.subcategories ?? []).filter(Boolean) as string[],
+    );
+
+    const [dbCategories, dbSubcategories] = await Promise.all([
+      Category.find({ isActive: true, isGiftCategory: { $ne: true } })
+        .sort({ sortOrder: 1, name: 1 })
+        .select("name slug sortOrder")
+        .lean(),
+      SubCategory.find({ isActive: true })
+        .sort({ sortOrder: 1, name: 1 })
+        .select("name slug categorySlug categoryId sortOrder productCount")
+        .lean(),
+    ]);
+
+    const categoryTree = dbCategories
+      .filter((cat) => cat.name !== "Gifting" && productCategoryNames.has(cat.name))
+      .map((cat) => {
+        const catId = String(cat._id);
+        const subs = dbSubcategories
+          .filter(
+            (sub) =>
+              sub.categorySlug === cat.slug ||
+              String(sub.categoryId) === catId,
+          )
+          .filter(
+            (sub) =>
+              (sub.productCount ?? 0) > 0 || productSubcategoryNames.has(sub.name),
+          )
+          .map((sub) => ({ name: sub.name, slug: sub.slug }));
+        return {
+          name: cat.name,
+          slug: cat.slug,
+          subcategories: subs,
+        };
+      })
+      .filter(
+        (cat) =>
+          cat.subcategories.length > 0 || productCategoryNames.has(cat.name),
+      );
 
     const result = {
       categories: (allCategories?.categories ?? [])
         .filter(Boolean)
+        .filter((c) => c !== "Gifting")
         .sort() as string[],
       fabrics: (allFabrics?.fabrics ?? []).filter(Boolean).sort() as string[],
+      subcategories: (allSubcategories?.subcategories ?? [])
+        .filter(Boolean)
+        .sort() as string[],
+      occasions: mergeOccasionOptions(
+        (allOccasions?.occasions ?? []).filter(Boolean) as string[],
+      ),
+      tags: (allTags?.tags ?? []).filter(Boolean).sort() as string[],
+      categoryTree,
       priceRange: {
         minPrice: scopedPrice?.minPrice ?? 0,
         maxPrice: scopedPrice?.maxPrice ?? 100000,
@@ -380,26 +504,89 @@ export const createProduct = catchAsync(
       req as Request & { uploadedImages?: { url: string; publicId: string }[] }
     ).uploadedImages;
 
-    if (!uploadedImages?.length) {
-      return next(
-        new AppError("Please upload at least one product image.", 400),
-      );
-    }
-    if (uploadedImages.length > 7) {
-      return next(new AppError("A product can have at most 7 images.", 400));
-    }
-
-    const images = uploadedImages.map((img, index) => ({
-      url: img.url,
-      publicId: img.publicId,
-      alt: `${req.body.name} - Image ${index + 1}`,
-    }));
+    const imagesMeta = parseImagesMeta(req.body.imagesMeta);
+    const hasMeta = imagesMeta.length > 0;
 
     const variantsParsed = safeJsonParse(
       req.body.variants,
       req.body.variants,
       "variants",
     );
+    const isMultiColor = distinctVariantColors(variantsParsed).length >= 2;
+
+    if (!hasMeta && uploadedImages?.length && isMultiColor) {
+      return next(
+        new AppError(
+          "Multi-color products need per-shade image tags. Refresh the admin form and save again.",
+          400,
+        ),
+      );
+    }
+
+    if (!hasMeta && !uploadedImages?.length) {
+      return next(
+        new AppError("Please upload at least one product image.", 400),
+      );
+    }
+    if (uploadedImages && uploadedImages.length > MAX_PRODUCT_IMAGES) {
+      return next(
+        new AppError(
+          `A product can have at most ${MAX_PRODUCT_IMAGES} images.`,
+          400,
+        ),
+      );
+    }
+    if (hasMeta && imagesMeta.length > MAX_PRODUCT_IMAGES) {
+      return next(
+        new AppError(
+          `A product can have at most ${MAX_PRODUCT_IMAGES} images.`,
+          400,
+        ),
+      );
+    }
+
+    const expectedNewUploads = hasMeta ? countNewImageMetaSlots(imagesMeta) : 0;
+    const receivedUploads = uploadedImages?.length ?? 0;
+    if (hasMeta && expectedNewUploads !== receivedUploads) {
+      return next(
+        new AppError(
+          `Image upload mismatch: form expects ${expectedNewUploads} new file(s) but received ${receivedUploads}. Refresh the page and try again.`,
+          400,
+        ),
+      );
+    }
+
+    if (hasMeta) {
+      const metaErr = validateImagesMetaForVariants(imagesMeta, variantsParsed);
+      if (metaErr) return next(new AppError(metaErr, 400));
+    }
+
+    const images =
+      hasMeta ?
+        buildImagesFromMeta(
+          imagesMeta,
+          uploadedImages || [],
+          req.body.name,
+        )
+      : (uploadedImages || []).map((img, index) => ({
+          url: img.url,
+          publicId: img.publicId,
+          alt: `${req.body.name} - Image ${index + 1}`,
+        }));
+
+    if (!images.length) {
+      return next(
+        new AppError("Please upload at least one product image.", 400),
+      );
+    }
+    if (hasMeta && images.length !== imagesMeta.length) {
+      return next(
+        new AppError(
+          `Image sync failed: expected ${imagesMeta.length} image(s) but assembled ${images.length}. Refresh the edit form and save again.`,
+          400,
+        ),
+      );
+    }
 
     const productData = {
       ...req.body,
@@ -417,10 +604,10 @@ export const createProduct = catchAsync(
       isCustomizable:
         req.body.isCustomizable === "true" || req.body.isCustomizable === true,
       minOrderQty: req.body.minOrderQty ? Number(req.body.minOrderQty) : 1,
-      giftOccasions: safeJsonParse(
-        req.body.giftOccasions,
-        req.body.giftOccasions || [],
-        "giftOccasions",
+      occasions: safeJsonParse(
+        req.body.occasions,
+        req.body.occasions || [],
+        "occasions",
       ),
       customFields: safeJsonParse(
         req.body.customFields,
@@ -455,6 +642,10 @@ export const createProduct = catchAsync(
         new AppError("Product created but could not be retrieved.", 500),
       );
     }
+    if (lean.isActive !== false) {
+      const slug = String(lean.slug || "");
+      if (slug) notifyIndexNowStorefront(`/shop/${encodeURIComponent(slug)}`);
+    }
     sendSuccess(res, { product: leanProduct(lean) }, "Product created", 201);
   },
 );
@@ -472,12 +663,83 @@ export const updateProduct = catchAsync(
     const uploadedImages = (
       req as Request & { uploadedImages?: { url: string; publicId: string }[] }
     ).uploadedImages;
-    if (uploadedImages?.length) {
-      const combined = currentProduct.images.length + uploadedImages.length;
-      if (combined > 7) {
+    const imagesMeta = parseImagesMeta(req.body.imagesMeta);
+    const hasMeta = imagesMeta.length > 0;
+
+    const variantsForColorCheck =
+      req.body.variants && typeof req.body.variants === "string" ?
+        safeJsonParse(req.body.variants, req.body.variants, "variants")
+      : currentProduct.variants;
+    const isMultiColor =
+      distinctVariantColors(variantsForColorCheck).length >= 2;
+
+    if (!hasMeta && uploadedImages?.length && isMultiColor) {
+      return next(
+        new AppError(
+          "Multi-color products need per-shade image tags. Refresh the admin form and save again.",
+          400,
+        ),
+      );
+    }
+
+    if (hasMeta) {
+      if (imagesMeta.length > MAX_PRODUCT_IMAGES) {
         return next(
           new AppError(
-            `Cannot add ${uploadedImages.length} image(s): product already has ${currentProduct.images.length} (max 7 total).`,
+            `A product can have at most ${MAX_PRODUCT_IMAGES} images.`,
+            400,
+          ),
+        );
+      }
+      const expectedNewUploads = countNewImageMetaSlots(imagesMeta);
+      const receivedUploads = uploadedImages?.length ?? 0;
+      if (expectedNewUploads !== receivedUploads) {
+        return next(
+          new AppError(
+            `Image upload mismatch: form expects ${expectedNewUploads} new file(s) but received ${receivedUploads}. Refresh the page and try again.`,
+            400,
+          ),
+        );
+      }
+
+      const variantsForMeta =
+        req.body.variants && typeof req.body.variants === "string" ?
+          safeJsonParse(req.body.variants, req.body.variants, "variants")
+        : (updateData.variants as { color?: string }[] | undefined) ||
+          currentProduct.variants;
+
+      const metaErr = validateImagesMetaForVariants(
+        imagesMeta,
+        variantsForMeta,
+      );
+      if (metaErr) return next(new AppError(metaErr, 400));
+
+      const built = buildImagesFromMeta(
+        imagesMeta,
+        uploadedImages || [],
+        req.body.name || currentProduct.name,
+        currentProduct.images,
+      );
+      if (!built.length) {
+        return next(
+          new AppError("Product must have at least one image.", 400),
+        );
+      }
+      if (built.length !== imagesMeta.length) {
+        return next(
+          new AppError(
+            `Image sync failed: expected ${imagesMeta.length} image(s) but assembled ${built.length}. Refresh the edit form and save again.`,
+            400,
+          ),
+        );
+      }
+      updateData.images = built;
+    } else if (uploadedImages?.length) {
+      const combined = currentProduct.images.length + uploadedImages.length;
+      if (combined > MAX_PRODUCT_IMAGES) {
+        return next(
+          new AppError(
+            `Cannot add ${uploadedImages.length} image(s): product already has ${currentProduct.images.length} (max ${MAX_PRODUCT_IMAGES} total).`,
             400,
           ),
         );
@@ -503,16 +765,6 @@ export const updateProduct = catchAsync(
         req.body.variants,
         req.body.variants,
         "variants",
-      );
-    }
-    if (req.body.tags && typeof req.body.tags === "string") {
-      updateData.tags = safeJsonParse(req.body.tags, req.body.tags, "tags");
-    }
-    if (req.body.giftOccasions !== undefined) {
-      updateData.giftOccasions = safeJsonParse(
-        req.body.giftOccasions,
-        req.body.giftOccasions,
-        "giftOccasions",
       );
     }
     if (req.body.customFields !== undefined) {
@@ -550,11 +802,43 @@ export const updateProduct = catchAsync(
       updateData.price = Number(req.body.price);
     }
     if (req.body.comparePrice !== undefined) {
-      updateData.comparePrice = Number(req.body.comparePrice);
+      const cp = String(req.body.comparePrice ?? "").trim();
+      updateData.comparePrice = cp ? Number(cp) : undefined;
+    }
+
+    for (const key of [
+      "shortDescription",
+      "subcategory",
+      "fabric",
+      "seoTitle",
+      "seoDescription",
+    ] as const) {
+      if (req.body[key] !== undefined) {
+        const val = String(req.body[key] ?? "").trim();
+        updateData[key] = val || "";
+      }
+    }
+
+    if (req.body.tags !== undefined) {
+      if (typeof req.body.tags === "string") {
+        const raw = req.body.tags.trim();
+        updateData.tags =
+          raw ? safeJsonParse(req.body.tags, req.body.tags, "tags") : [];
+      }
+    }
+    if (req.body.occasions !== undefined) {
+      if (typeof req.body.occasions === "string") {
+        const raw = req.body.occasions.trim();
+        updateData.occasions =
+          raw ?
+            safeJsonParse(req.body.occasions, req.body.occasions, "occasions")
+          : [];
+      }
     }
 
     delete updateData.updatedAt;
     delete updateData.totalStock;
+    delete updateData.imagesMeta;
     if (
       updateData.category === "Gifting" ||
       currentProduct.category === "Gifting"
@@ -595,6 +879,10 @@ export const updateProduct = catchAsync(
       currentProduct.isGiftable ||
       currentProduct.category === "Gifting";
     if (giftable) invalidateGiftingProductCache();
+
+    if (updatedProduct.isActive !== false) {
+      notifyIndexNowStorefront(`/shop/${encodeURIComponent(slug)}`);
+    }
 
     sendSuccess(
       res,

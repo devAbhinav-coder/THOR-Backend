@@ -1,5 +1,6 @@
 import mongoose, { Schema } from 'mongoose';
 import { ICart } from '../types';
+import { CART_LINE_QTY_MAX } from '../constants/cartLimits';
 
 const cartItemSchema = new Schema({
   cartItemId: { type: String, required: true, index: true },
@@ -23,7 +24,7 @@ const cartItemSchema = new Schema({
     type: Number,
     required: true,
     min: [1, 'Quantity must be at least 1'],
-    max: [10, 'Cannot add more than 10 of same item'],
+    max: [CART_LINE_QTY_MAX, `Cannot add more than ${CART_LINE_QTY_MAX} of same item`],
   },
   price: {
     type: Number,
