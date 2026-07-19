@@ -114,6 +114,10 @@ export const updateSubcategory = catchAsync(async (req: Request, res: Response, 
   }
   if (update.isActive !== undefined) update.isActive = String(update.isActive) === 'true';
   if (update.sortOrder !== undefined) update.sortOrder = Number(update.sortOrder);
+  if (typeof update.metaTitle === 'string') update.metaTitle = update.metaTitle.trim();
+  if (typeof update.metaDescription === 'string') {
+    update.metaDescription = update.metaDescription.trim();
+  }
   const uploadedImage = (req as any).uploadedImage as { url: string; publicId: string } | undefined;
   if (uploadedImage) {
     update.image = uploadedImage.url;

@@ -46,8 +46,15 @@ export const createOrder = catchAsync(
     }
 
     try {
-      const { shippingAddress, paymentMethod, couponCode, notes, buyNowItem, marketingAttribution: rawAttribution } =
-        req.body;
+      const {
+        shippingAddress,
+        paymentMethod,
+        couponCode,
+        notes,
+        buyNowItem,
+        marketingAttribution: rawAttribution,
+        metaBrowser,
+      } = req.body;
 
       const marketingAttribution = sanitizeMarketingAttribution(rawAttribution);
 
@@ -192,8 +199,8 @@ export const createOrder = catchAsync(
         paymentMethod: codOrder.paymentMethod,
         ip: req.ip,
         userAgent: req.headers["user-agent"],
-        fbpCookie: req.cookies?._fbp,
-        fbcCookie: req.cookies?._fbc,
+        fbpCookie: metaBrowser?.fbp || req.cookies?._fbp,
+        fbcCookie: metaBrowser?.fbc || req.cookies?._fbc,
       });
 
       const codBody = {

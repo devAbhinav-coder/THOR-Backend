@@ -67,7 +67,7 @@ const footerSchema = new Schema(
     twitterUrl: { type: String, trim: true, maxlength: 240 },
     youtubeUrl: { type: String, trim: true, maxlength: 240 },
     quickLinks: [linkSchema],
-    categoryLimit: { type: Number, default: 7, min: 1, max: 20 },
+    categoryLimit: { type: Number, default: 5, min: 1, max: 20 },
   },
   { _id: false }
 );

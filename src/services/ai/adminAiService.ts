@@ -138,6 +138,7 @@ export function getAiStatus() {
       "explain-user",
       "explain-returns",
       "draft-product",
+      "draft-catalog-seo",
       "draft-review-reply",
       "draft-marketing-email",
       "draft-blog",
@@ -398,6 +399,102 @@ ${JSON.stringify(base)}`;
     tags: norm.tags.length ? norm.tags : undefined,
     productDetailKeys: norm.productDetailKeys || undefined,
     productDetailValues: norm.productDetailValues || undefined,
+  };
+
+  setCache(cacheKey, payload, aiConfig.draftCacheTtlSec).catch(() => {});
+  return payload;
+}
+
+export type CatalogSeoDraftPayload = AiResultPayload & {
+  metaTitle?: string;
+  metaDescription?: string;
+};
+
+function normalizeCatalogSeoDraft(raw: string): {
+  metaTitle: string;
+  metaDescription: string;
+} {
+  const parsed = parseJsonFromModel<{
+    metaTitle?: string;
+    metaDescription?: string;
+    seoTitle?: string;
+    seoDescription?: string;
+  }>(raw);
+  const metaTitle = String(parsed?.metaTitle || parsed?.seoTitle || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 70);
+  const metaDescription = String(
+    parsed?.metaDescription || parsed?.seoDescription || "",
+  )
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+  return { metaTitle, metaDescription };
+}
+
+/** Tier 2 — Category / subcategory SERP meta from collection name */
+export async function draftCatalogSeo(body: {
+  kind: "category" | "subcategory";
+  name: string;
+  parentCategoryName?: string;
+  description?: string;
+}): Promise<CatalogSeoDraftPayload> {
+  const name = body.name?.trim();
+  if (!name) throw new AppError("Collection name is required.", 400);
+  const kind = body.kind === "subcategory" ? "subcategory" : "category";
+  const parent = String(body.parentCategoryName || "").trim();
+  const description = String(body.description || "").trim();
+
+  const input = { kind, name, parentCategoryName: parent || undefined, description: description || undefined };
+  const cacheKey = `ai:admin:draft:catalog-seo:v2:${blogAiConfig.provider}:${cacheHash(JSON.stringify(input))}`;
+  const cached = await getCache<CatalogSeoDraftPayload>(cacheKey);
+  if (cached?.metaTitle && cached?.metaDescription) {
+    return { ...cached, cached: true };
+  }
+
+  const pageLabel = kind === "subcategory" ? "subcategory collection page" : "category collection page";
+  const prompt = `Write unique SEO meta for a ${pageLabel} on The House of Rani (premium Indian ethnic wear ecommerce, India).
+
+Return ONLY valid JSON:
+{
+  "metaTitle": "50-60 chars — include the exact collection name + Online India intent. Do NOT include the brand name The House of Rani (site template appends it).",
+  "metaDescription": "140-160 chars — unique, benefit-led, India shoppers, mention free delivery over ₹1,099 or 5-day returns once max"
+}
+
+Rules:
+- metaTitle MUST mention "${name}" clearly (unique per collection — never reuse a generic "Premium Sarees Collection" line)
+- If parentCategoryName is set, weave it naturally once in title or description
+- No clickbait, no ALL CAPS, no pipe/brand suffix
+- ${AI_ENGLISH_ONLY_RULE}
+
+INPUT JSON:
+${JSON.stringify(input)}`;
+
+  // Same LLM path as blog drafts — Gemini when GEMINI_API_KEY is set, else Groq.
+  const { text, model } = await blogChatCompletion(prompt, {
+    systemExtra:
+      "JSON only. Unique India ecommerce SEO meta. English only. No brand name in metaTitle.",
+    maxTokens: 512,
+    jsonObject: true,
+  });
+
+  const norm = normalizeCatalogSeoDraft(text);
+  if (!norm.metaTitle || !norm.metaDescription) {
+    throw new AppError(
+      "AI could not generate SEO meta. Check the name and retry.",
+      502,
+    );
+  }
+
+  const payload: CatalogSeoDraftPayload = {
+    text: norm.metaTitle,
+    bullets: [],
+    cached: false,
+    generatedAt: new Date().toISOString(),
+    model,
+    metaTitle: norm.metaTitle,
+    metaDescription: norm.metaDescription,
   };
 
   setCache(cacheKey, payload, aiConfig.draftCacheTtlSec).catch(() => {});

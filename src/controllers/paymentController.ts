@@ -43,6 +43,9 @@ async function sendVerifiedOrderSideEffects(
   req: AuthRequest,
   razorpayPaymentId: string,
 ) {
+  const metaBrowser = req.body?.metaBrowser as
+    | { fbp?: string; fbc?: string }
+    | undefined;
   const notifyOnce = await tryClaimPaymentPlacedNotification(razorpayPaymentId);
   if (notifyOnce) {
     await enqueueOrderEvent({
@@ -57,8 +60,8 @@ async function sendVerifiedOrderSideEffects(
       razorpayPaymentId,
       ip: req.ip,
       userAgent: req.headers["user-agent"],
-      fbpCookie: req.cookies?._fbp,
-      fbcCookie: req.cookies?._fbc,
+      fbpCookie: metaBrowser?.fbp || req.cookies?._fbp,
+      fbcCookie: metaBrowser?.fbc || req.cookies?._fbc,
     });
   }
 }

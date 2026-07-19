@@ -330,7 +330,7 @@ export const emailTemplates = {
       : "Order update",
       `Hi ${name},<br/><br/>Your order <b>${orderNumber}</b> is now <b>${status}</b>.<br/><br/>
        ${status === "shipped" && opts?.carrier ? `<b>Courier:</b> ${opts.carrier}<br/>${opts.awb ? `<b>AWB:</b> ${opts.awb}<br/>` : ""}${opts?.trackingUrl ? `<b><a href="${opts.trackingUrl}" style="color:#b45309;">Track your shipment →</a></b><br/>` : ""}<br/>` : ""}
-       ${status === "delivered" ? "We hope you love your purchase! If you have any issues, please reach out within 7 days." : ""}
+       ${status === "delivered" ? "We hope you love your purchase! If you have any issues, please reach out within 5 days." : ""}
        ${status === "cancelled" ? "If you did not request this, please contact our support team immediately." : ""}`,
       "View order",
       `${frontendUrl}/dashboard/orders`,

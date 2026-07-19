@@ -422,6 +422,13 @@ const marketingAttributionBody = z
   })
   .optional();
 
+const metaBrowserBody = z
+  .object({
+    fbp: z.string().trim().min(1).max(255).optional(),
+    fbc: z.string().trim().min(1).max(255).optional(),
+  })
+  .optional();
+
 export const createOrderSchema = z.object({
   body: z.object({
     shippingAddress: z.object({
@@ -444,6 +451,7 @@ export const createOrderSchema = z.object({
     couponCode: z.string().max(40).optional(),
     notes: z.string().max(500).optional(),
     marketingAttribution: marketingAttributionBody,
+    metaBrowser: metaBrowserBody,
     buyNowItem: z
       .object({
         productId: z.string().min(1),
@@ -481,6 +489,7 @@ export const verifyPaymentSchema = z.object({
         .string()
         .regex(/^[a-fA-F0-9]{24}$/, 'Invalid checkout intent id')
         .optional(),
+      metaBrowser: metaBrowserBody,
     })
     .refine((b) => Boolean(b.orderId || b.checkoutIntentId), {
       message: 'Either orderId or checkoutIntentId is required',

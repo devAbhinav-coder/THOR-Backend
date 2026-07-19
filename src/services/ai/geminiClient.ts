@@ -147,6 +147,9 @@ export async function geminiChatCompletion(
   userPrompt: string,
   options?: {
     systemExtra?: string;
+    /** Override the default blog system base. Pass a custom base (e.g. for
+     *  Rani Care support) so the blog voice/rules are not injected. */
+    systemBase?: string;
     maxTokens?: number;
     jsonObject?: boolean;
     maxPromptChars?: number;
@@ -160,10 +163,11 @@ export async function geminiChatCompletion(
   }
 
   const maxPrompt = options?.maxPromptChars ?? (options?.jsonObject ? 28000 : 8000);
+  const base = options?.systemBase !== undefined ? options.systemBase : BLOG_SYSTEM_BASE;
   const systemText =
     options?.systemExtra ?
-      `${BLOG_SYSTEM_BASE}\n\n${options.systemExtra}`
-    : BLOG_SYSTEM_BASE;
+      base ? `${base}\n\n${options.systemExtra}` : options.systemExtra
+    : base;
   const userText = trimPrompt(userPrompt, maxPrompt, options?.jsonObject);
 
   return callGemini(systemText, userText, options?.maxTokens, options?.jsonObject);

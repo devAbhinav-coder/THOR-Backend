@@ -10,6 +10,7 @@ import {
   taxCollectedPipeline,
 } from "./orderFinanceAggregations";
 import { getStoreVisitStats } from "./storeVisitService";
+import { getMetaTrackingStatus } from "./metaCapiService";
 
 const stockListProjection = {
   $project: { _id: 1, name: 1, category: 1, totalStock: "$computedTotal" },
@@ -162,6 +163,9 @@ export async function getDashboardAnalyticsData() {
     inventorySummaryStats,
     storefrontViewStats,
     ordersByCampaignRaw,
+    ordersBySourceRaw,
+    attributedOrdersAgg,
+    fbclidOrdersAgg,
   ] = await Promise.all([
     // ── Existing ────────────────────────────────────────────────────────────
     Order.aggregate([{ $match: PAYMENT_STATUS_GROSS }, { $group: { _id: null, total: { $sum: "$total" } } }]),
@@ -495,6 +499,38 @@ export async function getDashboardAnalyticsData() {
       { $sort: { revenue: -1 as const } },
       { $limit: 10 },
     ]),
+    Order.aggregate([
+      {
+        $match: {
+          paymentStatus: "paid",
+          "marketingAttribution.utmSource": { $exists: true, $nin: [null, ""] },
+          createdAt: { $gte: startOfDailyWindow },
+        },
+      },
+      {
+        $group: {
+          _id: "$marketingAttribution.utmSource",
+          orders: { $sum: 1 },
+          revenue: { $sum: "$total" },
+        },
+      },
+      { $sort: { revenue: -1 as const } },
+      { $limit: 8 },
+    ]),
+    Order.countDocuments({
+      paymentStatus: "paid",
+      createdAt: { $gte: startOfDailyWindow },
+      $or: [
+        { "marketingAttribution.utmCampaign": { $exists: true, $nin: [null, ""] } },
+        { "marketingAttribution.utmSource": { $exists: true, $nin: [null, ""] } },
+        { "marketingAttribution.fbclid": { $exists: true, $nin: [null, ""] } },
+      ],
+    }),
+    Order.countDocuments({
+      paymentStatus: "paid",
+      createdAt: { $gte: startOfDailyWindow },
+      "marketingAttribution.fbclid": { $exists: true, $nin: [null, ""] },
+    }),
   ]);
 
   const visitStats = await getStoreVisitStats();
@@ -666,6 +702,16 @@ export async function getDashboardAnalyticsData() {
     revenue: Math.round(r.revenue * 100) / 100,
   }));
 
+  const ordersBySource = (
+    ordersBySourceRaw as { _id: string; orders: number; revenue: number }[]
+  ).map((r) => ({
+    source: r._id,
+    orders: r.orders,
+    revenue: Math.round(r.revenue * 100) / 100,
+  }));
+
+  const metaTracking = getMetaTrackingStatus();
+
   return {
     overview: {
       totalRevenue: totalRevenue[0]?.total || 0,
@@ -743,7 +789,11 @@ export async function getDashboardAnalyticsData() {
       recent: visitStats.recentVisits,
     },
     marketingInsights: {
+      metaTracking,
+      attributedOrders: Number(attributedOrdersAgg) || 0,
+      fbclidOrders: Number(fbclidOrdersAgg) || 0,
       ordersByCampaign,
+      ordersBySource,
     },
     paymentMethodMix: (paymentMethodMix as { _id: string; revenue: number; count: number }[]),
     ordersByHour: ordersByHourFull,

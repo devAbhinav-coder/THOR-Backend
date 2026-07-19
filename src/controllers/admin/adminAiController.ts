@@ -6,6 +6,7 @@ import { aiConfig, blogAiConfig } from "../../config/ai";
 import {
   askStore,
   draftBlogPost,
+  draftCatalogSeo,
   draftMarketingEmail,
   draftProductCopy,
   draftReviewReply,
@@ -101,6 +102,14 @@ export const draftAdminProductCopy = [
   catchAsync(async (req: Request, res: Response) => {
     const data = await draftProductCopy(req.body);
     sendSuccess(res, data, "Product copy drafted.");
+  }),
+];
+
+export const draftAdminCatalogSeo = [
+  ensureBlogAiEnabled,
+  catchAsync(async (req: Request, res: Response) => {
+    const data = await draftCatalogSeo(req.body);
+    sendSuccess(res, data, "Catalog SEO drafted.");
   }),
 ];
 

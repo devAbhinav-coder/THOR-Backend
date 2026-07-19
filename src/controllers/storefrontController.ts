@@ -182,7 +182,7 @@ const FALLBACK_SETTINGS = {
       { label: "Shipping", href: "/shipping" },
       { label: "Returns", href: "/returns" },
     ],
-    categoryLimit: 7,
+    categoryLimit: 5,
   },
 };
 

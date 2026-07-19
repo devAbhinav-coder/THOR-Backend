@@ -50,6 +50,15 @@ export const adminAiProductDraftSchema = z.object({
   }),
 });
 
+export const adminAiCatalogSeoDraftSchema = z.object({
+  body: z.object({
+    kind: z.enum(['category', 'subcategory']),
+    name: z.string().min(2).max(120),
+    parentCategoryName: z.string().max(120).optional(),
+    description: z.string().max(500).optional(),
+  }),
+});
+
 export const adminAiMarketingDraftSchema = z.object({
   body: z.object({
     adminBrief: z.string().min(10).max(3000),

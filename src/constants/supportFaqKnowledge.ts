@@ -59,7 +59,7 @@ export const SUPPORT_FAQ_ENTRIES = [
   {
     id: "returns_window",
     q: "What is the return window?",
-    a: "Delivered orders can be returned within 7 days of delivery if unused, unworn, with tags, and no return already in progress.",
+    a: "Delivered orders can be returned within 5 days of delivery if unused, unworn, with tags, and no return already in progress.",
   },
   {
     id: "refund_shipping",

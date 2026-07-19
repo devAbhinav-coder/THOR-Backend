@@ -157,6 +157,7 @@ import {
   explainAdminUser,
   explainAdminReturns,
   draftAdminProductCopy,
+  draftAdminCatalogSeo,
   draftAdminReviewReply,
   draftAdminMarketingEmail,
   draftAdminBlogPost,
@@ -169,6 +170,7 @@ import {
   adminAiUserIdSchema,
   adminAiReviewIdSchema,
   adminAiProductDraftSchema,
+  adminAiCatalogSeoDraftSchema,
   adminAiMarketingDraftSchema,
   adminAiBlogDraftSchema,
   adminAiBlogCalendarSchema,
@@ -203,6 +205,7 @@ router.get('/ai/explain/order/:orderId', adminAiLimiter, validate(adminAiOrderId
 router.get('/ai/explain/user/:userId', adminAiLimiter, validate(adminAiUserIdSchema), ...explainAdminUser);
 router.get('/ai/explain/returns', adminAiLimiter, ...explainAdminReturns);
 router.post('/ai/draft/product', adminAiLimiter, validate(adminAiProductDraftSchema), ...draftAdminProductCopy);
+router.post('/ai/draft/catalog-seo', adminAiLimiter, validate(adminAiCatalogSeoDraftSchema), ...draftAdminCatalogSeo);
 router.post('/ai/draft/review/:reviewId', adminAiLimiter, validate(adminAiReviewIdSchema), ...draftAdminReviewReply);
 router.post('/ai/draft/marketing-email', adminAiLimiter, validate(adminAiMarketingDraftSchema), ...draftAdminMarketingEmail);
 router.post('/ai/draft/blog', adminAiLimiter, validate(adminAiBlogDraftSchema), ...draftAdminBlogPost);

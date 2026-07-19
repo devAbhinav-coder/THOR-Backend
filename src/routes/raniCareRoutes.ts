@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { createAdaptiveLimiter } from "../middleware/adaptiveRateLimit";
 import { validate } from "../middleware/validate";
+import { optionalProtect } from "../middleware/auth";
 import {
   getRaniCareStatus,
   postRaniCareChat,
@@ -17,6 +18,12 @@ const chatLimiter = createAdaptiveLimiter({
 });
 
 router.get("/status", getRaniCareStatus);
-router.post("/chat", chatLimiter, validate(raniCareChatSchema), postRaniCareChat);
+router.post(
+  "/chat",
+  optionalProtect,
+  chatLimiter,
+  validate(raniCareChatSchema),
+  postRaniCareChat,
+);
 
 export default router;

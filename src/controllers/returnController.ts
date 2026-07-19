@@ -6,6 +6,7 @@ import { sendSuccess } from "../types/utils/response";
 import Order from "../models/Order";
 import { enqueueOrderEvent } from "../queues/orderQueue";
 import { OrderEventType } from "../events/orderEvents";
+import { RETURN_WINDOW_DAYS } from "../constants/returnPolicy";
 
 export const requestReturn = catchAsync(
   async (req: AuthRequest, res: Response) => {
@@ -42,8 +43,11 @@ export const requestReturn = catchAsync(
     const daysSinceDelivery =
       (Date.now() - new Date(order.deliveredAt).getTime()) /
       (1000 * 60 * 60 * 24);
-    if (daysSinceDelivery > 7) {
-      throw new AppError("Return window of 7 days has expired", 400);
+    if (daysSinceDelivery > RETURN_WINDOW_DAYS) {
+      throw new AppError(
+        `Return window of ${RETURN_WINDOW_DAYS} days has expired`,
+        400,
+      );
     }
 
     let finalRefundMethod:
