@@ -6,6 +6,10 @@ import { getCache, setCache } from "./cacheService";
 import { getCachedProductCount } from "./productCountService";
 import { getProductCacheVersion } from "./productCacheService";
 import { normalizeSearchQuery } from "./productQueryParser";
+
+function escapeRegExp(string: string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); // $& means the whole matched string
+}
 import {
   mergeSearchIntentWithFilters,
   normalizeIntentCategory,
@@ -326,7 +330,7 @@ export class AdvancedSearchService {
       fabric: string;
     },
     intentHints?: {
-      fabrics?: string[];
+      colors?: string[];
       categories?: string[];
     },
   ): number {
@@ -395,15 +399,14 @@ export class AdvancedSearchService {
       }
     }
 
-    if (intentHints?.fabrics?.length) {
-      const productFabric = product.fabric?.toLowerCase() ?? "";
+    if (intentHints?.colors?.length) {
+      const productText = [product.name, product.description, ...product.tags].join(" ").toLowerCase();
       const productName = product.name.toLowerCase();
-      for (const fabric of intentHints.fabrics) {
-        const needle = fabric.toLowerCase();
+      for (const color of intentHints.colors) {
+        const needle = color.toLowerCase();
         if (
-          productFabric.includes(needle) ||
-          productName.includes(needle) ||
-          (product.tags || []).some((tag) => tag.toLowerCase().includes(needle))
+          productText.includes(needle) ||
+          productName.includes(needle)
         ) {
           score += 20;
         }
@@ -495,7 +498,7 @@ export class AdvancedSearchService {
     categories?: string[];
     subcategories?: string[];
     occasions?: string[];
-    fabrics?: string[];
+    colors?: string[];
     minPrice?: number;
     maxPrice?: number;
     minRating?: number;
@@ -524,7 +527,7 @@ export class AdvancedSearchService {
       categories = [],
       subcategories = [],
       occasions = [],
-      fabrics = [],
+      colors = [],
       minPrice,
       maxPrice,
       minRating,
@@ -538,18 +541,18 @@ export class AdvancedSearchService {
     const safeQuery = normalizeSearchQuery(query);
     const intent = parseSearchQueryIntent(safeQuery);
     const merged = mergeSearchIntentWithFilters(intent, {
-      fabrics,
+      colors,
       categories,
       subcategories,
       minPrice,
       maxPrice,
     });
     const effectiveQuery = merged.query;
-    const effectiveFabrics = merged.fabrics;
+    const effectiveColors = merged.colors;
     const effectiveCategories = merged.categories;
     const effectiveSubcategories = merged.subcategories;
     const textSearchQuery =
-      effectiveFabrics.length > 0 || effectiveCategories.length > 0 ?
+      effectiveColors.length > 0 || effectiveCategories.length > 0 ?
         merged.residualQuery
       : effectiveQuery;
     const effectiveMinPrice = merged.minPrice;
@@ -576,7 +579,7 @@ export class AdvancedSearchService {
       limit,
       categories: effectiveCategories,
       subcategories: effectiveSubcategories,
-      fabrics: effectiveFabrics,
+      colors,
       minPrice: effectiveMinPrice,
       maxPrice: effectiveMaxPrice,
       minRating,
@@ -628,8 +631,7 @@ export class AdvancedSearchService {
         categories: effectiveCategories,
         subcategories: effectiveSubcategories,
         occasions,
-        fabrics: effectiveFabrics,
-        colors: merged.colors,
+        colors,
         minPrice: effectiveMinPrice,
         maxPrice: effectiveMaxPrice,
         minRating,
@@ -648,7 +650,7 @@ export class AdvancedSearchService {
         categories: effectiveCategories,
         subcategories: effectiveSubcategories,
         occasions,
-        fabrics: effectiveFabrics,
+        colors,
         minPrice: effectiveMinPrice,
         maxPrice: effectiveMaxPrice,
         minRating,
@@ -689,6 +691,19 @@ export class AdvancedSearchService {
     };
   }
 
+  private buildColorFilter(colors: string[]): Record<string, unknown> | null {
+    if (!colors.length) return null;
+
+    return {
+      $or: colors.flatMap((color) => {
+        const regexStr = escapeRegExp(color);
+        return [
+          { "variants.color": { $regex: new RegExp(`^${regexStr}$`, "i") } },
+        ];
+      }),
+    };
+  }
+
   private buildFabricFilter(fabrics: string[]): Record<string, unknown> | null {
     if (!fabrics.length) return null;
     return {
@@ -717,7 +732,6 @@ export class AdvancedSearchService {
     categories?: string[];
     subcategories?: string[];
     occasions?: string[];
-    fabrics?: string[];
     colors?: string[];
     minPrice?: number;
     maxPrice?: number;
@@ -743,7 +757,6 @@ export class AdvancedSearchService {
       categories = [],
       subcategories = [],
       occasions = [],
-      fabrics = [],
       colors = [],
       minPrice,
       maxPrice,
@@ -838,10 +851,6 @@ export class AdvancedSearchService {
     if (colorFilter) {
       andClauses.push(colorFilter);
     }
-    const fabricFilter = this.buildFabricFilter(fabrics);
-    if (fabricFilter) {
-      andClauses.push(fabricFilter);
-    }
     if (safeQuery.trim()) {
       const regexMatches = [...fuzzyPatternMatches, ...wordMatches];
       if (regexMatches.length > 0) {
@@ -881,7 +890,6 @@ export class AdvancedSearchService {
           fabric: product.fabric as string,
         },
         {
-          fabrics: fabrics.length > 0 ? fabrics : undefined,
           categories: categories.length > 0 ? categories : undefined,
         },
       );
@@ -959,7 +967,7 @@ export class AdvancedSearchService {
     categories?: string[];
     subcategories?: string[];
     occasions?: string[];
-    fabrics?: string[];
+    colors?: string[];
     minPrice?: number;
     maxPrice?: number;
     minRating?: number;
@@ -983,7 +991,7 @@ export class AdvancedSearchService {
       categories = [],
       subcategories = [],
       occasions = [],
-      fabrics = [],
+      colors = [],
       minPrice,
       maxPrice,
       minRating,
@@ -1048,9 +1056,9 @@ export class AdvancedSearchService {
       }
     });
 
-    const fabricFilter = this.buildFabricFilter(fabrics);
+    const colorFilter = this.buildColorVariantFilter(colors);
     const finalBasicFilter =
-      fabricFilter ? { $and: [baseFilter, fabricFilter] } : baseFilter;
+      colorFilter ? { $and: [baseFilter, colorFilter] } : baseFilter;
 
     // Build sort
     const sort = this.buildSort(sortBy, sortOrder, "");
@@ -1116,7 +1124,7 @@ export class AdvancedSearchService {
     const intent = parseSearchQueryIntent(safeQuery);
     const merged = mergeSearchIntentWithFilters(intent, {});
     const textSearchQuery =
-      merged.fabrics.length > 0 || merged.categories.length > 0 ?
+      merged.colors.length > 0 || merged.categories.length > 0 ?
         merged.residualQuery
       : merged.query;
     const searchText =
@@ -1175,14 +1183,14 @@ export class AdvancedSearchService {
       andClauses.push(collectionFilter);
     }
 
-    const fabricFilter = this.buildFabricFilter(merged.fabrics);
-    if (fabricFilter) {
-      andClauses.push(fabricFilter);
-    }
-
-    const colorFilter = this.buildColorVariantFilter(merged.colors);
+    const colorFilter = this.buildColorFilter(merged.colors);
     if (colorFilter) {
       andClauses.push(colorFilter);
+    }
+
+    const colorVariantFilter = this.buildColorVariantFilter(merged.colors);
+    if (colorVariantFilter) {
+      andClauses.push(colorVariantFilter);
     }
 
     if (merged.maxPrice !== undefined || merged.minPrice !== undefined) {
@@ -1235,7 +1243,7 @@ export class AdvancedSearchService {
           fabric: product.fabric,
         },
         {
-          fabrics: merged.fabrics.length > 0 ? merged.fabrics : undefined,
+          colors: merged.colors.length > 0 ? merged.colors : undefined,
           categories: merged.categories.length > 0 ? merged.categories : undefined,
         },
       );

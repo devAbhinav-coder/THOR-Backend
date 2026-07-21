@@ -79,12 +79,13 @@ export const searchAdminProducts = catchAsync(
         : [String(req.query.categories)]
       : [];
 
-    const fabrics =
-      req.query.fabric ? [String(req.query.fabric)]
-      : req.query.fabrics ?
-        Array.isArray(req.query.fabrics) ?
-          (req.query.fabrics as string[])
-        : [String(req.query.fabrics)]
+
+    const colors =
+      req.query.color ? [String(req.query.color)]
+      : req.query.colors ?
+        Array.isArray(req.query.colors) ?
+          (req.query.colors as string[])
+        : [String(req.query.colors)]
       : [];
 
     const { sortBy, sortOrder } = mapSortToAdvanced(
@@ -100,7 +101,7 @@ export const searchAdminProducts = catchAsync(
       page: listParsed.page,
       limit: listParsed.limit,
       categories,
-      fabrics,
+      colors,
       minPrice: req.query.minPrice ? Number(req.query.minPrice) : undefined,
       maxPrice: req.query.maxPrice ? Number(req.query.maxPrice) : undefined,
       minRating: req.query.minRating ? Number(req.query.minRating) : undefined,

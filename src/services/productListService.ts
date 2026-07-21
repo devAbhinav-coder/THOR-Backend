@@ -65,7 +65,7 @@ export async function listRandomProducts(
       ...(parsed.occasions.length > 0 ?
         { occasions: { $in: parsed.occasions } }
       : {}),
-      ...(parsed.fabrics.length > 0 ? { fabric: { $in: parsed.fabrics } } : {}),
+      ...(parsed.colors.length > 0 ? { "variants.color": { $in: parsed.colors.map((c) => new RegExp(`^${c.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}$`, 'i')) } } : {}),
     },
     parsed.onSale === true,
   );
@@ -151,7 +151,7 @@ export async function listProductsViaApiFeatures(
       ...(parsed.occasions.length > 0 ?
         { occasions: { $in: parsed.occasions } }
       : {}),
-      ...(parsed.fabrics.length > 0 ? { fabric: { $in: parsed.fabrics } } : {}),
+      ...(parsed.colors.length > 0 ? { "variants.color": { $in: parsed.colors.map((c) => new RegExp(`^${c.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}$`, 'i')) } } : {}),
       ...(parsed.isFeatured === true ? { isFeatured: true } : {}),
       ...(parsed.isFeatured === false ? { isFeatured: false } : {}),
       ...(parsed.adminScope && parsed.isActive === true ?
@@ -229,7 +229,7 @@ export async function listProductsViaAdvancedSearch(
     categories: parsed.categories,
     subcategories: parsed.subcategories,
     occasions: parsed.occasions,
-    fabrics: parsed.fabrics,
+    colors: parsed.colors,
     minPrice: parsed.minPrice,
     maxPrice: parsed.maxPrice,
     minRating: parsed.minRating,

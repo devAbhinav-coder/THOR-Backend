@@ -11,7 +11,7 @@ export async function getFilterOptionsForCategory(categoryId: string, subcategor
   const cacheKey = filtersCacheKey(v, `${categoryId}-${subcategoryId || 'all'}`);
   const cached = await getCache<{
     categories: string[];
-    fabrics: string[];
+    colors: string[];
     subcategories: string[];
     tags: string[];
     priceRange: { minPrice: number; maxPrice: number };
@@ -32,7 +32,7 @@ export async function getFilterOptionsForCategory(categoryId: string, subcategor
   }
 
   const [facet] = await Product.aggregate<{
-    allFabrics: { fabrics: string[] }[];
+    allColors: { colors: string[] }[];
     allTags: { tags: string[] }[];
     scopedPrice: {
       minPrice: number;
@@ -41,12 +41,14 @@ export async function getFilterOptionsForCategory(categoryId: string, subcategor
   }>([
     {
       $facet: {
-        allFabrics: [
+        allColors: [
           { $match: shopMatch },
+          { $unwind: '$variants' },
+          { $match: { 'variants.color': { $exists: true, $ne: '' } } },
           {
             $group: {
               _id: null,
-              fabrics: { $addToSet: '$fabric' },
+              colors: { $addToSet: '$variants.color' },
             },
           },
         ],
@@ -74,13 +76,13 @@ export async function getFilterOptionsForCategory(categoryId: string, subcategor
     },
   ]).option({ maxTimeMS: 4000 });
 
-  const allFabrics = facet?.allFabrics?.[0];
+  const allColors = facet?.allColors?.[0];
   const allTags = facet?.allTags?.[0];
   const scopedPrice = facet?.scopedPrice?.[0];
 
   const result = {
     categories: [], // Not needed for sub-pages typically, but keeping interface
-    fabrics: (allFabrics?.fabrics ?? []).filter(Boolean).sort() as string[],
+    colors: (allColors?.colors ?? []).filter(Boolean).sort() as string[],
     subcategories: [], // Handled by collection hierarchy now
     tags: (allTags?.tags ?? []).filter(Boolean).sort() as string[],
     priceRange: {

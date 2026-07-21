@@ -102,7 +102,7 @@ export const searchProducts = catchAsync(
     const q = normalizeSearchQuery(req.query.q);
     const parsedSearch = parseProductListQuery(req);
     const categories = parsedSearch.categories;
-    const fabrics = parsedSearch.fabrics;
+    const colors = parsedSearch.colors;
     const page = parsedSearch.page;
     const limit = parsedSearch.limit;
     const { sortBy, sortOrder } = resolveShopSearchSort(
@@ -120,7 +120,7 @@ export const searchProducts = catchAsync(
       categories,
       subcategories: parsedSearch.subcategories,
       occasions: parsedSearch.occasions,
-      fabrics,
+      colors: parsedSearch.colors,
       minPrice: parsedSearch.minPrice,
       maxPrice: parsedSearch.maxPrice,
       minRating: parsedSearch.minRating,
@@ -324,7 +324,7 @@ export const getFilterOptions = catchAsync(
     const cacheKey = filtersCacheKey(v, `${categoryParam || 'all'}-${categoryIdParam || 'all'}-${subcategoryIdParam || 'all'}`);
     const cached = await getCache<{
       categories: string[];
-      fabrics: string[];
+      colors: string[];
       subcategories: string[];
       occasions: string[];
       tags: string[];
@@ -350,7 +350,7 @@ export const getFilterOptions = catchAsync(
 
     const [facet] = await Product.aggregate<{
       allCategories: { categories: string[] }[];
-      allFabrics: { fabrics: string[] }[];
+      allColors: { colors: string[] }[];
       allSubcategories: { subcategories: string[] }[];
       allTags: { tags: string[] }[];
       allOccasions: { occasions: string[] }[];
@@ -370,12 +370,14 @@ export const getFilterOptions = catchAsync(
               },
             },
           ],
-          allFabrics: [
+          allColors: [
             { $match: shopMatch },
+            { $unwind: "$variants" },
+            { $match: { "variants.color": { $exists: true, $ne: "" } } },
             {
               $group: {
                 _id: null,
-                fabrics: { $addToSet: "$fabric" },
+                colors: { $addToSet: "$variants.color" },
               },
             },
           ],
@@ -422,8 +424,8 @@ export const getFilterOptions = catchAsync(
       },
     ]).option({ maxTimeMS: 4000 });
 
-    const allFabrics = facet?.allFabrics?.[0];
     const allCategories = facet?.allCategories?.[0];
+    const allColors = facet?.allColors?.[0];
     const allSubcategories = facet?.allSubcategories?.[0];
     const allTags = facet?.allTags?.[0];
     const allOccasions = facet?.allOccasions?.[0];
@@ -478,7 +480,7 @@ export const getFilterOptions = catchAsync(
         .filter(Boolean)
         .filter((c) => c !== "Gifting")
         .sort() as string[],
-      fabrics: (allFabrics?.fabrics ?? []).filter(Boolean).sort() as string[],
+      colors: (allColors?.colors ?? []).filter(Boolean).sort() as string[],
       subcategories: (allSubcategories?.subcategories ?? [])
         .filter(Boolean)
         .sort() as string[],

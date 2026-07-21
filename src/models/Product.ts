@@ -195,7 +195,6 @@ productSchema.index({ isGiftable: 1, isActive: 1, occasions: 1 });
 productSchema.index({ categoryId: 1, isActive: 1, price: 1 });     // FK category page
 productSchema.index({ subcategoryId: 1, isActive: 1, price: 1 });  // FK subcategory page
 productSchema.index({ categoryId: 1, subcategoryId: 1, isActive: 1 }); // combined navigation
-productSchema.index({ oldSlug: 1 }, { sparse: true });              // 301 redirect lookup
 
 const Product = mongoose.model<IProduct>('Product', productSchema);
 export default Product;

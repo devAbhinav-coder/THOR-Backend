@@ -61,18 +61,18 @@ test("parses chanderi saree intent", () => {
 test("merge applies parsed fabric and category intent as filters", () => {
   const intent = parseSearchQueryIntent("chanderi saree");
   const merged = mergeSearchIntentWithFilters(intent, {});
-  assert.ok(merged.fabrics.includes("Chanderi"));
+  assert.ok(merged.colors.includes("Chanderi"));
   assert.ok(merged.categories.includes("Sarees"));
 });
 
 test("explicit URL filters merge with parsed intent", () => {
   const intent = parseSearchQueryIntent("cotton saree");
   const merged = mergeSearchIntentWithFilters(intent, {
-    fabrics: ["Silk"],
+    colors: ["Silk"],
     categories: ["Lehengas"],
   });
-  assert.ok(merged.fabrics.includes("Cotton"));
-  assert.ok(merged.fabrics.includes("Silk"));
+  assert.ok(merged.colors.includes("Cotton"));
+  assert.ok(merged.colors.includes("Silk"));
   assert.ok(merged.categories.includes("Sarees"));
   assert.ok(merged.categories.includes("Lehengas"));
 });

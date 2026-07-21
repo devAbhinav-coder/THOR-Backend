@@ -673,7 +673,7 @@ export function formatIntentAsQuery(intent: ParsedSearchIntent): string {
 export function mergeSearchIntentWithFilters(
   intent: ParsedSearchIntent,
   filters: {
-    fabrics?: string[];
+    colors?: string[];
     categories?: string[];
     subcategories?: string[];
     minPrice?: number;
@@ -682,20 +682,19 @@ export function mergeSearchIntentWithFilters(
 ): {
   query: string;
   residualQuery: string;
-  fabrics: string[];
+  colors: string[];
   categories: string[];
   minPrice?: number;
   maxPrice?: number;
-  colors: string[];
   subcategories: string[];
   tags: string[];
 } {
-  const fabricSet = new Set<string>();
-  for (const fabric of intent.fabrics ?? []) {
-    fabricSet.add(titleCase(fabric));
+  const colorSet = new Set<string>();
+  for (const color of intent.colors ?? []) {
+    colorSet.add(titleCase(color));
   }
-  for (const fabric of filters.fabrics ?? []) {
-    fabricSet.add(titleCase(fabric));
+  for (const color of filters.colors ?? []) {
+    colorSet.add(titleCase(color));
   }
 
   const categorySet = new Set<string>();
@@ -713,11 +712,10 @@ export function mergeSearchIntentWithFilters(
   return {
     query: intent.textQuery || intent.rawQuery,
     residualQuery: buildResidualTextQuery(intent),
-    fabrics: [...fabricSet],
+    colors: [...colorSet],
     categories: [...categorySet],
     minPrice: filters.minPrice ?? intent.minPrice,
     maxPrice: filters.maxPrice ?? intent.maxPrice,
-    colors: intent.colors,
     subcategories: Array.from(subcategorySet),
     tags: intent.tags,
   };

@@ -59,7 +59,8 @@ export const getCollectionProducts = catchAsync(async (req: Request, res: Respon
     page: parsedSearch.page,
     limit: parsedSearch.limit,
     categories: parsedSearch.categories,
-    fabrics: parsedSearch.fabrics,
+    occasions: parsedSearch.occasions,
+    colors: parsedSearch.colors,
     minPrice: parsedSearch.minPrice,
     maxPrice: parsedSearch.maxPrice,
     minRating: parsedSearch.minRating,
@@ -157,7 +158,7 @@ export const getSubcollectionProducts = catchAsync(async (req: Request, res: Res
     limit: parsedSearch.limit,
     categories: [subcategory.categoryId.toString()],
     subcategories: [subcategory._id.toString()], // We need to add this
-    fabrics: parsedSearch.fabrics,
+    colors: parsedSearch.colors,
     minPrice: parsedSearch.minPrice,
     maxPrice: parsedSearch.maxPrice,
     minRating: parsedSearch.minRating,

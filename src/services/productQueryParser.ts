@@ -22,7 +22,7 @@ export type ParsedProductListQuery = {
   search: string;
   categories: string[];
   subcategories: string[];
-  fabrics: string[];
+  colors: string[];
   occasions: string[];
   minPrice?: number;
   maxPrice?: number;
@@ -98,7 +98,7 @@ export function parseProductListQuery(req: Request): ParsedProductListQuery {
 
   const categories = parseQueryStringList(q, "categories", "category");
   const subcategories = parseQueryStringList(q, "subcategories", "subcategory");
-  const fabrics = parseQueryStringList(q, "fabrics", "fabric");
+  const colors = parseQueryStringList(q, "colors", "color");
   const occasions = parseQueryStringList(q, "occasions", "occasion", "occasions");
   const minRatings = parseRatingList(q);
   const minRating =
@@ -169,7 +169,7 @@ export function parseProductListQuery(req: Request): ParsedProductListQuery {
     search,
     categories,
     subcategories,
-    fabrics,
+    colors,
     occasions,
     minPrice: Number.isFinite(minPrice) ? minPrice : undefined,
     maxPrice: Number.isFinite(maxPrice) ? maxPrice : undefined,
