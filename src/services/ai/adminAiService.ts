@@ -472,10 +472,11 @@ INPUT JSON:
 ${JSON.stringify(input)}`;
 
   // Same LLM path as blog drafts — Gemini when GEMINI_API_KEY is set, else Groq.
+  // Gemini 2.5 needs headroom: thinking tokens count toward maxOutputTokens.
   const { text, model } = await blogChatCompletion(prompt, {
     systemExtra:
       "JSON only. Unique India ecommerce SEO meta. English only. No brand name in metaTitle.",
-    maxTokens: 512,
+    maxTokens: blogAiConfig.provider === "gemini" ? 2048 : 512,
     jsonObject: true,
   });
 

@@ -41,6 +41,13 @@ async function callGeminiOnce(
         temperature: geminiConfig.temperature,
         maxOutputTokens: maxTokens ?? geminiConfig.maxTokens,
         ...(jsonObject ? { responseMimeType: "application/json" } : {}),
+        // Gemini 2.5 counts thinking tokens against maxOutputTokens. Low/medium
+        // caps (catalog SEO, short JSON) burn the budget on thoughts → empty or
+        // truncated output with finishReason MAX_TOKENS. Long drafts (≥4096)
+        // keep default thinking.
+        ...(maxTokens != null && maxTokens <= 2048 ?
+          { thinkingConfig: { thinkingBudget: 0 } }
+        : {}),
       },
       safetySettings: [
         { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
