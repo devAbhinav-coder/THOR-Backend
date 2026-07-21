@@ -13,6 +13,7 @@
     "check": "npm run typecheck",
     "backfill:delivered-at": "ts-node --transpile-only scripts/backfill-delivered-at.ts",
     "backfill:review-fields": "ts-node --transpile-only scripts/backfill-review-fields.ts",
+    "normalize:product-colors": "ts-node --transpile-only scripts/normalize-product-colors.ts",
     "backfill:blog-seo": "ts-node --transpile-only scripts/backfill-blog-seo-fields.ts",
     "indexnow:bootstrap": "ts-node --transpile-only scripts/submit-indexnow-bootstrap.ts",
     "sync:embeddings": "ts-node --transpile-only scripts/sync-content-embeddings.ts",

@@ -23,8 +23,30 @@ import {
 import { getCache, setCache } from "./cacheService";
 import { buildShopCollectionFilter } from "./shopCollectionFilterService";
 import { mergeOnSaleFilter } from "../constants/onSaleFilter";
+import { colorFlexibleRegex } from "../utils/catalogAttributes";
 
 const RANDOM_COUNT_TTL = 300;
+
+function buildColorMongoFilter(
+  colors: string[],
+): Record<string, unknown> | null {
+  if (!colors.length) return null;
+  return {
+    "variants.color": { $in: colors.map((c) => colorFlexibleRegex(c)) },
+  };
+}
+
+function buildFabricMongoFilter(
+  fabrics: string[],
+): Record<string, unknown> | null {
+  if (!fabrics.length) return null;
+  return {
+    $or: fabrics.map((fabric) => {
+      const escaped = fabric.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return { fabric: new RegExp(`^${escaped}$`, "i") };
+    }),
+  };
+}
 
 /** Shop catalog excludes gifting; admin shop catalog does too unless `category` overrides below. */
 export function storefrontBaseFilter(
@@ -58,6 +80,9 @@ export async function listRandomProducts(
     parsed.subcategories,
   );
 
+  const colorFilter = buildColorMongoFilter(parsed.colors);
+  const fabricFilter = buildFabricMongoFilter(parsed.fabrics);
+
   const baseFilter: Record<string, unknown> = mergeOnSaleFilter(
     {
       ...storefrontBaseFilter(parsed.adminScope),
@@ -65,7 +90,8 @@ export async function listRandomProducts(
       ...(parsed.occasions.length > 0 ?
         { occasions: { $in: parsed.occasions } }
       : {}),
-      ...(parsed.colors.length > 0 ? { "variants.color": { $in: parsed.colors.map((c) => new RegExp(`^${c.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}$`, 'i')) } } : {}),
+      ...(colorFilter ?? {}),
+      ...(fabricFilter ?? {}),
     },
     parsed.onSale === true,
   );
@@ -144,6 +170,9 @@ export async function listProductsViaApiFeatures(
     parsed.subcategories,
   );
 
+  const colorFilter = buildColorMongoFilter(parsed.colors);
+  const fabricFilter = buildFabricMongoFilter(parsed.fabrics);
+
   const categoryBase: Record<string, unknown> = mergeOnSaleFilter(
     {
       ...storefrontBaseFilter(parsed.adminScope),
@@ -151,7 +180,8 @@ export async function listProductsViaApiFeatures(
       ...(parsed.occasions.length > 0 ?
         { occasions: { $in: parsed.occasions } }
       : {}),
-      ...(parsed.colors.length > 0 ? { "variants.color": { $in: parsed.colors.map((c) => new RegExp(`^${c.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}$`, 'i')) } } : {}),
+      ...(colorFilter ?? {}),
+      ...(fabricFilter ?? {}),
       ...(parsed.isFeatured === true ? { isFeatured: true } : {}),
       ...(parsed.isFeatured === false ? { isFeatured: false } : {}),
       ...(parsed.adminScope && parsed.isActive === true ?
@@ -230,6 +260,7 @@ export async function listProductsViaAdvancedSearch(
     subcategories: parsed.subcategories,
     occasions: parsed.occasions,
     colors: parsed.colors,
+    fabrics: parsed.fabrics,
     minPrice: parsed.minPrice,
     maxPrice: parsed.maxPrice,
     minRating: parsed.minRating,

@@ -20,6 +20,7 @@ import { env } from "../config/env";
 import logger from "../types/utils/logger";
 import { buildShopCollectionFilter } from "./shopCollectionFilterService";
 import { mergeOnSaleFilter } from "../constants/onSaleFilter";
+import { colorFlexibleRegex } from "../utils/catalogAttributes";
 
 /**
  * Advanced MongoDB search service with fuzzy matching and keyword similarity.
@@ -499,6 +500,7 @@ export class AdvancedSearchService {
     subcategories?: string[];
     occasions?: string[];
     colors?: string[];
+    fabrics?: string[];
     minPrice?: number;
     maxPrice?: number;
     minRating?: number;
@@ -528,6 +530,7 @@ export class AdvancedSearchService {
       subcategories = [],
       occasions = [],
       colors = [],
+      fabrics = [],
       minPrice,
       maxPrice,
       minRating,
@@ -544,15 +547,19 @@ export class AdvancedSearchService {
       colors,
       categories,
       subcategories,
+      fabrics,
       minPrice,
       maxPrice,
     });
     const effectiveQuery = merged.query;
     const effectiveColors = merged.colors;
+    const effectiveFabrics = merged.fabrics;
     const effectiveCategories = merged.categories;
     const effectiveSubcategories = merged.subcategories;
     const textSearchQuery =
-      effectiveColors.length > 0 || effectiveCategories.length > 0 ?
+      effectiveColors.length > 0 ||
+      effectiveCategories.length > 0 ||
+      effectiveFabrics.length > 0 ?
         merged.residualQuery
       : effectiveQuery;
     const effectiveMinPrice = merged.minPrice;
@@ -579,7 +586,8 @@ export class AdvancedSearchService {
       limit,
       categories: effectiveCategories,
       subcategories: effectiveSubcategories,
-      colors,
+      colors: effectiveColors,
+      fabrics: effectiveFabrics,
       minPrice: effectiveMinPrice,
       maxPrice: effectiveMaxPrice,
       minRating,
@@ -631,7 +639,8 @@ export class AdvancedSearchService {
         categories: effectiveCategories,
         subcategories: effectiveSubcategories,
         occasions,
-        colors,
+        colors: effectiveColors,
+        fabrics: effectiveFabrics,
         minPrice: effectiveMinPrice,
         maxPrice: effectiveMaxPrice,
         minRating,
@@ -650,7 +659,8 @@ export class AdvancedSearchService {
         categories: effectiveCategories,
         subcategories: effectiveSubcategories,
         occasions,
-        colors,
+        colors: effectiveColors,
+        fabrics: effectiveFabrics,
         minPrice: effectiveMinPrice,
         maxPrice: effectiveMaxPrice,
         minRating,
@@ -679,13 +689,10 @@ export class AdvancedSearchService {
     if (!colors.length) return null;
     return {
       $or: colors.flatMap((color) => {
-        const escaped = color.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const re = new RegExp(escaped, "i");
+        const re = colorFlexibleRegex(color);
         return [
           { "variants.color": re },
           { "images.color": re },
-          { name: re },
-          { tags: re },
         ];
       }),
     };
@@ -695,26 +702,19 @@ export class AdvancedSearchService {
     if (!colors.length) return null;
 
     return {
-      $or: colors.flatMap((color) => {
-        const regexStr = escapeRegExp(color);
-        return [
-          { "variants.color": { $regex: new RegExp(`^${regexStr}$`, "i") } },
-        ];
-      }),
+      $or: colors.map((color) => ({
+        "variants.color": { $regex: colorFlexibleRegex(color) },
+      })),
     };
   }
 
   private buildFabricFilter(fabrics: string[]): Record<string, unknown> | null {
     if (!fabrics.length) return null;
     return {
-      $or: fabrics.flatMap((fabric) => {
+      $or: fabrics.map((fabric) => {
         const escaped = fabric.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const re = new RegExp(escaped, "i");
-        return [
-          { fabric: re },
-          { subcategory: re },
-          { tags: re },
-        ];
+        const re = new RegExp(`^${escaped}$`, "i");
+        return { fabric: re };
       }),
     };
   }
@@ -733,6 +733,7 @@ export class AdvancedSearchService {
     subcategories?: string[];
     occasions?: string[];
     colors?: string[];
+    fabrics?: string[];
     minPrice?: number;
     maxPrice?: number;
     minRating?: number;
@@ -758,6 +759,7 @@ export class AdvancedSearchService {
       subcategories = [],
       occasions = [],
       colors = [],
+      fabrics = [],
       minPrice,
       maxPrice,
       minRating,
@@ -850,6 +852,10 @@ export class AdvancedSearchService {
     const colorFilter = this.buildColorVariantFilter(colors);
     if (colorFilter) {
       andClauses.push(colorFilter);
+    }
+    const fabricFilter = this.buildFabricFilter(fabrics);
+    if (fabricFilter) {
+      andClauses.push(fabricFilter);
     }
     if (safeQuery.trim()) {
       const regexMatches = [...fuzzyPatternMatches, ...wordMatches];
@@ -968,6 +974,7 @@ export class AdvancedSearchService {
     subcategories?: string[];
     occasions?: string[];
     colors?: string[];
+    fabrics?: string[];
     minPrice?: number;
     maxPrice?: number;
     minRating?: number;
@@ -992,6 +999,7 @@ export class AdvancedSearchService {
       subcategories = [],
       occasions = [],
       colors = [],
+      fabrics = [],
       minPrice,
       maxPrice,
       minRating,
@@ -1057,8 +1065,15 @@ export class AdvancedSearchService {
     });
 
     const colorFilter = this.buildColorVariantFilter(colors);
+    const fabricFilter = this.buildFabricFilter(fabrics);
+    const extraFilters = [colorFilter, fabricFilter].filter(Boolean) as Record<
+      string,
+      unknown
+    >[];
     const finalBasicFilter =
-      colorFilter ? { $and: [baseFilter, colorFilter] } : baseFilter;
+      extraFilters.length > 0 ?
+        { $and: [baseFilter, ...extraFilters] }
+      : baseFilter;
 
     // Build sort
     const sort = this.buildSort(sortBy, sortOrder, "");

@@ -51,7 +51,7 @@ export function distinctVariantColors(
   const out: string[] = [];
   for (const v of variants || []) {
     const c = String(v.color ?? '').trim();
-    const key = c.toLowerCase();
+    const key = c.toLowerCase().replace(/[^a-z0-9]/g, '');
     if (!key || seen.has(key)) continue;
     seen.add(key);
     out.push(c);

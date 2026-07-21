@@ -23,6 +23,7 @@ export type ParsedProductListQuery = {
   categories: string[];
   subcategories: string[];
   colors: string[];
+  fabrics: string[];
   occasions: string[];
   minPrice?: number;
   maxPrice?: number;
@@ -59,8 +60,8 @@ function parseQueryStringList(
   const seen = new Set<string>();
   const unique: string[] = [];
   for (const value of values) {
-    const dedupeKey = value.toLowerCase();
-    if (seen.has(dedupeKey)) continue;
+    const dedupeKey = value.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (!dedupeKey || seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
     unique.push(value);
   }
@@ -99,6 +100,7 @@ export function parseProductListQuery(req: Request): ParsedProductListQuery {
   const categories = parseQueryStringList(q, "categories", "category");
   const subcategories = parseQueryStringList(q, "subcategories", "subcategory");
   const colors = parseQueryStringList(q, "colors", "color");
+  const fabrics = parseQueryStringList(q, "fabrics", "fabric");
   const occasions = parseQueryStringList(q, "occasions", "occasion", "occasions");
   const minRatings = parseRatingList(q);
   const minRating =
@@ -170,6 +172,7 @@ export function parseProductListQuery(req: Request): ParsedProductListQuery {
     categories,
     subcategories,
     colors,
+    fabrics,
     occasions,
     minPrice: Number.isFinite(minPrice) ? minPrice : undefined,
     maxPrice: Number.isFinite(maxPrice) ? maxPrice : undefined,

@@ -676,6 +676,7 @@ export function mergeSearchIntentWithFilters(
     colors?: string[];
     categories?: string[];
     subcategories?: string[];
+    fabrics?: string[];
     minPrice?: number;
     maxPrice?: number;
   },
@@ -683,6 +684,7 @@ export function mergeSearchIntentWithFilters(
   query: string;
   residualQuery: string;
   colors: string[];
+  fabrics: string[];
   categories: string[];
   minPrice?: number;
   maxPrice?: number;
@@ -695,6 +697,14 @@ export function mergeSearchIntentWithFilters(
   }
   for (const color of filters.colors ?? []) {
     colorSet.add(titleCase(color));
+  }
+
+  const fabricSet = new Set<string>();
+  for (const fabric of intent.fabrics ?? []) {
+    fabricSet.add(titleCase(fabric));
+  }
+  for (const fabric of filters.fabrics ?? []) {
+    fabricSet.add(titleCase(fabric));
   }
 
   const categorySet = new Set<string>();
@@ -713,6 +723,7 @@ export function mergeSearchIntentWithFilters(
     query: intent.textQuery || intent.rawQuery,
     residualQuery: buildResidualTextQuery(intent),
     colors: [...colorSet],
+    fabrics: [...fabricSet],
     categories: [...categorySet],
     minPrice: filters.minPrice ?? intent.minPrice,
     maxPrice: filters.maxPrice ?? intent.maxPrice,

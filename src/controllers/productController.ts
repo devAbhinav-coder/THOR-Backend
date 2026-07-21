@@ -43,7 +43,14 @@ import {
 import { getCachedProductCount } from "../services/productCountService";
 import { LISTING_PROJECTION } from "../constants/productListing";
 import { OFFLINE_MANUAL_PRODUCT_TAG } from "../constants/offlineOrder";
-import { mergeOccasionOptions } from "../constants/productCatalog";
+import {
+  mergeFabricOptions,
+  mergeOccasionOptions,
+} from "../constants/productCatalog";
+import {
+  canonicalizeVariantColors,
+  dedupeCatalogLabels,
+} from "../utils/catalogAttributes";
 import { invalidateGiftingProductCache } from "../services/gifting/giftingProductDiscoveryService";
 const PDP_CACHE_TTL = 600;
 const FILTERS_CACHE_TTL = 300;
@@ -121,6 +128,7 @@ export const searchProducts = catchAsync(
       subcategories: parsedSearch.subcategories,
       occasions: parsedSearch.occasions,
       colors: parsedSearch.colors,
+      fabrics: parsedSearch.fabrics,
       minPrice: parsedSearch.minPrice,
       maxPrice: parsedSearch.maxPrice,
       minRating: parsedSearch.minRating,
@@ -325,6 +333,7 @@ export const getFilterOptions = catchAsync(
     const cached = await getCache<{
       categories: string[];
       colors: string[];
+      fabrics: string[];
       subcategories: string[];
       occasions: string[];
       tags: string[];
@@ -351,6 +360,7 @@ export const getFilterOptions = catchAsync(
     const [facet] = await Product.aggregate<{
       allCategories: { categories: string[] }[];
       allColors: { colors: string[] }[];
+      allFabrics: { fabrics: string[] }[];
       allSubcategories: { subcategories: string[] }[];
       allTags: { tags: string[] }[];
       allOccasions: { occasions: string[] }[];
@@ -378,6 +388,15 @@ export const getFilterOptions = catchAsync(
               $group: {
                 _id: null,
                 colors: { $addToSet: "$variants.color" },
+              },
+            },
+          ],
+          allFabrics: [
+            { $match: { ...shopMatch, fabric: { $exists: true, $ne: "" } } },
+            {
+              $group: {
+                _id: null,
+                fabrics: { $addToSet: "$fabric" },
               },
             },
           ],
@@ -426,6 +445,7 @@ export const getFilterOptions = catchAsync(
 
     const allCategories = facet?.allCategories?.[0];
     const allColors = facet?.allColors?.[0];
+    const allFabrics = facet?.allFabrics?.[0];
     const allSubcategories = facet?.allSubcategories?.[0];
     const allTags = facet?.allTags?.[0];
     const allOccasions = facet?.allOccasions?.[0];
@@ -480,7 +500,12 @@ export const getFilterOptions = catchAsync(
         .filter(Boolean)
         .filter((c) => c !== "Gifting")
         .sort() as string[],
-      colors: (allColors?.colors ?? []).filter(Boolean).sort() as string[],
+      colors: dedupeCatalogLabels(
+        (allColors?.colors ?? []).filter(Boolean) as string[],
+      ),
+      fabrics: mergeFabricOptions(
+        (allFabrics?.fabrics ?? []).filter(Boolean) as string[],
+      ),
       subcategories: (allSubcategories?.subcategories ?? [])
         .filter(Boolean)
         .sort() as string[],
@@ -509,10 +534,20 @@ export const createProduct = catchAsync(
     const imagesMeta = parseImagesMeta(req.body.imagesMeta);
     const hasMeta = imagesMeta.length > 0;
 
-    const variantsParsed = safeJsonParse(
-      req.body.variants,
-      req.body.variants,
-      "variants",
+    const variantsParsed = canonicalizeVariantColors(
+      safeJsonParse(
+        req.body.variants,
+        req.body.variants,
+        "variants",
+      ) as Array<{
+        sku?: string;
+        size?: string;
+        color?: string;
+        colorCode?: string;
+        stock?: number;
+        costPrice?: number;
+        price?: number;
+      }>,
     );
     const isMultiColor = distinctVariantColors(variantsParsed).length >= 2;
 
@@ -763,10 +798,20 @@ export const updateProduct = catchAsync(
         req.body.isActive !== "false" && req.body.isActive !== false;
     }
     if (req.body.variants && typeof req.body.variants === "string") {
-      updateData.variants = safeJsonParse(
-        req.body.variants,
-        req.body.variants,
-        "variants",
+      updateData.variants = canonicalizeVariantColors(
+        safeJsonParse(
+          req.body.variants,
+          req.body.variants,
+          "variants",
+        ) as Array<{
+          sku?: string;
+          size?: string;
+          color?: string;
+          colorCode?: string;
+          stock?: number;
+          costPrice?: number;
+          price?: number;
+        }>,
       );
     }
     if (req.body.customFields !== undefined) {
