@@ -85,12 +85,32 @@ export const createOrder = catchAsync(
         } = await checkoutService.processCartItems(userId));
       }
 
+      const couponLines = (checkoutItems as Array<{
+        product: unknown;
+        price: number;
+        quantity: number;
+      }>).map((item) => {
+        const productId = String(item.product);
+        const product = productMap.get(productId) as
+          | { categoryId?: unknown; subcategoryId?: unknown }
+          | undefined;
+        return {
+          productId,
+          categoryId: product?.categoryId ? String(product.categoryId) : null,
+          subcategoryId: product?.subcategoryId
+            ? String(product.subcategoryId)
+            : null,
+          lineTotal: Number(item.price) * Number(item.quantity),
+        };
+      });
+
       const { discount, couponId } = await checkoutService.evaluateCoupon(
         userId,
         checkoutSubtotal,
         couponCode,
         cartCouponId,
         cartCouponDiscount,
+        couponLines,
       );
 
       const { shippingCharge, tax, total, codFee } = computeOrderTotals(

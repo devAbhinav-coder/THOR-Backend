@@ -18,6 +18,7 @@ import { writeAdminAudit } from "../services/adminAuditService";
 import { onOrderMarkedDelivered } from "../services/coupon/couponUserStatsService";
 import { emailTemplates } from "../services/emailService";
 import { enqueueEmail } from "../queues/emailQueue";
+import { reviewInviteService } from "../services/reviewInvite/reviewInviteService";
 import {
   notifyAdmins,
   notifyUser,
@@ -517,6 +518,16 @@ export const createOfflineOrder = catchAsync(
           subject: userTemplate.subject,
           html: userTemplate.html,
         });
+
+        // Secure review+story invite (catalog lines only) — fail soft if none
+        try {
+          await reviewInviteService.sendInviteEmail(
+            String(order._id),
+            req.user?._id ? String(req.user._id) : undefined,
+          );
+        } catch {
+          /* no catalog products / email issues — admin can generate later */
+        }
       }
 
       const adminTemplate = emailTemplates.adminNewOrder(

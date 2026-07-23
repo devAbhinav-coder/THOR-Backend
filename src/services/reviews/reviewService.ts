@@ -1,4 +1,5 @@
 import mongoose, { Types } from "mongoose";
+import crypto from "crypto";
 import Review from "../../models/Review";
 import { IReview } from "../../types";
 import Order from "../../models/Order";
@@ -7,6 +8,7 @@ import User from "../../models/User";
 import AppError from "../../types/utils/AppError";
 import { runInTransaction } from "../../types/utils/mongoTransaction";
 import { getCache, setCache } from "../cacheService";
+import { OFFLINE_MANUAL_PRODUCT_TAG } from "../../constants/offlineOrder";
 import {
   PUBLIC_REVIEW_FILTER,
   REVIEW_EDIT_WINDOW_DAYS,
@@ -28,6 +30,7 @@ import {
   enqueueModerationReview,
 } from "./reviewModerationService";
 import { recordProductReviewAnalytics } from "./reviewAnalyticsService";
+import { testimonialService } from "../testimonialService";
 import type { ReportReason } from "./reviewConstants";
 
 function isDuplicateKeyError(err: unknown): boolean {
@@ -592,5 +595,138 @@ export const reviewService = {
     });
 
     return { reportCount };
+  },
+
+  /**
+   * Public share-link review (no login). Goes to pending_moderation until admin approves,
+   * then appears on the product page. Optionally also creates a homepage testimonial.
+   */
+  async createShareLinkReview(input: {
+    productId: string;
+    rating: number;
+    title?: string;
+    comment: string;
+    displayName?: string;
+    isAnonymous?: boolean;
+    images?: { url: string; publicId: string }[];
+    alsoAsStory?: boolean;
+  }): Promise<{
+    reviewId: string;
+    status: string;
+    testimonialId?: string;
+  }> {
+    const productId = String(input.productId || "").trim();
+    if (!mongoose.Types.ObjectId.isValid(productId)) {
+      throw new AppError("Invalid product.", 400);
+    }
+
+    const product = await Product.findOne({
+      _id: productId,
+      isActive: true,
+      tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
+    })
+      .select("_id name")
+      .lean()
+      .maxTimeMS(REVIEW_QUERY_MAX_MS);
+
+    if (!product) {
+      throw new AppError("Product not found or not available for review.", 404);
+    }
+
+    const comment = normalizeWhitespace(input.comment);
+    if (comment.length < 10) {
+      throw new AppError("Please write at least 10 characters.", 400);
+    }
+    const title = input.title ? normalizeWhitespace(input.title) : undefined;
+    const rating = Number(input.rating);
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      throw new AppError("Rating must be between 1 and 5.", 400);
+    }
+
+    const anonymous =
+      Boolean(input.isAnonymous) || !String(input.displayName || "").trim();
+    const displayName = anonymous
+      ? "Anonymous"
+      : String(input.displayName).trim().slice(0, 80);
+
+    const images =
+      input.images && input.images.length > 0
+        ? input.images.slice(0, 5)
+        : undefined;
+
+    if (input.alsoAsStory && (!images || images.length < 1)) {
+      throw new AppError(
+        "At least one photo is required to also share as a homepage story.",
+        400,
+      );
+    }
+
+    const guestEmail = `share_${crypto.randomBytes(12).toString("hex")}@review.local`;
+    const guestPassword = crypto.randomBytes(24).toString("base64url");
+
+    const guestUser = await User.create({
+      name: displayName.slice(0, 50),
+      email: guestEmail,
+      password: guestPassword,
+    });
+
+    let reviewId = "";
+    try {
+      const [review] = await Review.create([
+        {
+          product: productId,
+          user: guestUser._id,
+          rating,
+          title,
+          comment,
+          images,
+          isVerifiedPurchase: false,
+          source: "share_link",
+          status: "pending_moderation",
+          userSnapshot: { name: displayName },
+          helpfulCount: 0,
+        },
+      ]);
+      applyModerationToReview(review, title, comment);
+      // Always keep share-link reviews pending until admin approve
+      review.status = "pending_moderation";
+      await review.save();
+      reviewId = String(review._id);
+    } catch (err) {
+      await User.deleteOne({ _id: guestUser._id }).catch(() => {});
+      if (isDuplicateKeyError(err)) {
+        throw new AppError("You have already reviewed this product.", 409);
+      }
+      throw err;
+    }
+
+    reviewCacheService.scheduleInvalidateProduct(productId);
+    recordReviewMetric("review.created", { productId, rating, source: "share_link" });
+    emitReviewEvent({
+      type: "review.created",
+      reviewId,
+      productId,
+      userId: String(guestUser._id),
+      meta: { rating, source: "share_link" },
+    });
+
+    let testimonialId: string | undefined;
+    if (input.alsoAsStory) {
+      const story = await testimonialService.submitFromPublicLink({
+        displayName: anonymous ? "" : displayName,
+        isAnonymous: anonymous,
+        quote: comment.slice(0, 1200),
+        rating,
+        images: images!,
+        productId,
+      });
+      testimonialId = String(story._id);
+    }
+
+    return {
+      reviewId,
+      status: "pending_moderation",
+      ...(testimonialId ? { testimonialId } : {}),
+    };
   },
 };

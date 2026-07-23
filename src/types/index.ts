@@ -264,7 +264,8 @@ export interface IReview extends Document {
   _id: Types.ObjectId;
   product: Types.ObjectId;
   user: Types.ObjectId;
-  order: Types.ObjectId;
+  order?: Types.ObjectId;
+  source?: 'purchase' | 'share_link' | 'invite';
   rating: number;
   title?: string;
   comment: string;
@@ -289,6 +290,8 @@ export interface IReview extends Document {
   updatedAt: Date;
 }
 
+export type PromoScopeType = 'all' | 'categories' | 'subcategories' | 'products';
+
 export interface ICoupon extends Document {
   _id: Types.ObjectId;
   isValid: (
@@ -299,7 +302,11 @@ export interface ICoupon extends Document {
   calculateDiscount: (orderAmount: number) => number;
   code: string;
   description?: string;
-  discountType: 'percentage' | 'flat';
+  displayTitle?: string;
+  imageUrl?: string;
+  imagePublicId?: string;
+  showOnStorefront: boolean;
+  discountType: 'percentage' | 'flat' | 'fixed';
   discountValue: number;
   minOrderAmount?: number;
   maxDiscountAmount?: number;
@@ -312,10 +319,38 @@ export interface ICoupon extends Document {
   isActive: boolean;
   deletedAt?: Date | null;
   archivedAt?: Date | null;
+  scopeType: PromoScopeType;
   applicableCategories: string[];
+  applicableCategoryIds: Types.ObjectId[];
+  applicableSubcategoryIds: Types.ObjectId[];
+  applicableProductIds: Types.ObjectId[];
   eligibilityType: 'all' | 'first_order' | 'returning';
   minCompletedOrders: number;
   maxCompletedOrders?: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ISaleCampaign extends Document {
+  _id: Types.ObjectId;
+  name: string;
+  description?: string;
+  badgeText?: string;
+  discountType: 'percentage' | 'flat' | 'fixed';
+  discountValue: number;
+  maxDiscountPerItem?: number;
+  imageUrl?: string;
+  imagePublicId?: string;
+  showOnStorefront?: boolean;
+  scopeType: PromoScopeType;
+  categoryIds: Types.ObjectId[];
+  subcategoryIds: Types.ObjectId[];
+  productIds: Types.ObjectId[];
+  startDate: Date;
+  endDate: Date;
+  isActive: boolean;
+  deletedAt?: Date | null;
+  archivedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }

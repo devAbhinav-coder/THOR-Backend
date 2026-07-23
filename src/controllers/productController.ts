@@ -24,6 +24,8 @@ import {
   resolveShopSearchSort,
 } from "../services/productQueryParser";
 import { listProducts } from "../services/productListService";
+import { getActiveSaleCampaigns } from "../services/sale/saleCacheService";
+import { enrichProductsWithSalePricing } from "../services/sale/saleProductEnrichment";
 import { notifyIndexNowStorefront } from "../services/indexNowService";
 import {
   buildImagesFromMeta,
@@ -231,15 +233,29 @@ export const getProduct = catchAsync(
       const recheck = await getCache<Record<string, unknown>>(cacheKey);
       if (recheck) return recheck;
 
-      const dbProduct = await Product.findOne({
-        slug,
-        isActive: true,
-        tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
-      }).lean<Record<string, unknown>>();
+      const byId =
+        mongoose.Types.ObjectId.isValid(slug) && String(slug).length === 24;
+      const dbProduct = await Product.findOne(
+        byId
+          ? {
+              _id: slug,
+              isActive: true,
+              tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
+            }
+          : {
+              slug,
+              isActive: true,
+              tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
+            },
+      ).lean<Record<string, unknown>>();
 
       if (!dbProduct) return null;
 
-      const transformed = leanProduct(dbProduct);
+      const [enriched] = enrichProductsWithSalePricing(
+        [leanProduct(dbProduct) as Record<string, unknown>],
+        await getActiveSaleCampaigns(),
+      );
+      const transformed = enriched;
       setCache(cacheKey, transformed, PDP_CACHE_TTL).catch(() => {});
       return transformed;
     });
@@ -254,7 +270,11 @@ export const getProduct = catchAsync(
       if (!dbProduct) {
         return next(new AppError("No product found with that slug.", 404));
       }
-      return sendSuccess(res, { product: leanProduct(dbProduct) });
+      const [enriched] = enrichProductsWithSalePricing(
+        [leanProduct(dbProduct) as Record<string, unknown>],
+        await getActiveSaleCampaigns(),
+      );
+      return sendSuccess(res, { product: enriched });
     }
 
     sendSuccess(res, { product });

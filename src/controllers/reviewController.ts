@@ -152,3 +152,49 @@ export const reportReview = catchAsync(
     }
   },
 );
+
+/** Public share-link — no login. Pending until admin approves → then on PDP. */
+export const submitPublicReview = catchAsync(
+  async (req: AuthRequest, res: Response) => {
+    const body = req.body as {
+      productId: string;
+      rating: number;
+      title?: string;
+      comment: string;
+      displayName?: string;
+      isAnonymous?: boolean | string;
+      alsoAsStory?: boolean | string;
+    };
+    const uploadedImages = (
+      req as AuthRequest & {
+        uploadedImages?: { url: string; publicId: string }[];
+      }
+    ).uploadedImages;
+
+    const result = await reviewService.createShareLinkReview({
+      productId: body.productId,
+      rating: Number(body.rating),
+      title: body.title,
+      comment: String(body.comment || ""),
+      displayName: body.displayName,
+      isAnonymous: body.isAnonymous === true || body.isAnonymous === "true",
+      alsoAsStory: body.alsoAsStory === true || body.alsoAsStory === "true",
+      images:
+        uploadedImages && uploadedImages.length > 0
+          ? uploadedImages.map((img) => ({
+              url: img.url,
+              publicId: img.publicId,
+            }))
+          : undefined,
+    });
+
+    sendSuccess(
+      res,
+      result,
+      result.testimonialId
+        ? "Thank you! Product review and story submitted for approval."
+        : "Thank you! Your product review was submitted and will appear after approval.",
+      201,
+    );
+  },
+);

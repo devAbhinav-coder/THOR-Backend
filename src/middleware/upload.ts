@@ -42,11 +42,75 @@ export const uploadCategoryImages = multer({
   { name: "heroBanner", maxCount: 1 }
 ]);
 
+export const uploadCouponBanner = multer({
+  storage: memoryStorage,
+  fileFilter: imageFileFilter,
+  limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+}).single("image");
+
 export const uploadReviewImages = multer({
   storage: memoryStorage,
   fileFilter: imageFileFilter,
-  limits: { fileSize: 12 * 1024 * 1024, files: 3 },
-}).array("images", 3);
+  limits: { fileSize: 30 * 1024 * 1024, files: 5 },
+}).array("images", 5);
+
+export const processCouponBanner = async (
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const file = req.file;
+    if (!file) return next();
+
+    const result = await uploadToCloudinary(file.buffer, "house-of-rani/coupons", [
+      { width: 900, height: 1200, crop: "limit", quality: "auto:good" },
+    ]);
+
+    (
+      req as Request & { uploadedCouponImage?: { url: string; publicId: string } }
+    ).uploadedCouponImage = {
+      url: result.secure_url,
+      publicId: result.public_id,
+    };
+
+    next();
+  } catch {
+    next(new AppError("Coupon image upload failed.", 500));
+  }
+};
+
+export const uploadSaleBanner = multer({
+  storage: memoryStorage,
+  fileFilter: imageFileFilter,
+  limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+}).single("image");
+
+export const processSaleBanner = async (
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const file = req.file;
+    if (!file) return next();
+
+    const result = await uploadToCloudinary(file.buffer, "house-of-rani/sales", [
+      { width: 900, height: 1200, crop: "limit", quality: "auto:good" },
+    ]);
+
+    (
+      req as Request & { uploadedSaleImage?: { url: string; publicId: string } }
+    ).uploadedSaleImage = {
+      url: result.secure_url,
+      publicId: result.public_id,
+    };
+
+    next();
+  } catch {
+    next(new AppError("Sale image upload failed.", 500));
+  }
+};
 
 export const uploadGiftingImages = multer({
   storage: memoryStorage,
@@ -206,7 +270,7 @@ export const processReviewImages = async (
 
     const uploadPromises = files.map((file) =>
       uploadToCloudinary(file.buffer, "house-of-rani/reviews", [
-        { width: 600, height: 600, crop: "limit" },
+        { width: 2000, height: 2000, crop: "limit", quality: "auto:good" },
       ]),
     );
 

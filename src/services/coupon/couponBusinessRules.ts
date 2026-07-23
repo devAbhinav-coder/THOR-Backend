@@ -2,11 +2,17 @@ import mongoose from 'mongoose';
 
 export const COUPON_QUERY_MAX_MS = Number(process.env.COUPON_QUERY_MAX_MS || 5000);
 
+export type PromoScopeType = 'all' | 'categories' | 'subcategories' | 'products';
+
 export type CouponLike = {
   _id?: mongoose.Types.ObjectId | string;
   code: string;
   description?: string;
-  discountType: 'percentage' | 'flat';
+  displayTitle?: string;
+  imageUrl?: string;
+  imagePublicId?: string;
+  showOnStorefront?: boolean;
+  discountType: 'percentage' | 'flat' | 'fixed';
   discountValue: number;
   minOrderAmount?: number;
   maxDiscountAmount?: number;
@@ -22,6 +28,19 @@ export type CouponLike = {
   maxCompletedOrders?: number;
   deletedAt?: Date | null;
   archivedAt?: Date | null;
+  scopeType?: PromoScopeType;
+  applicableCategories?: string[];
+  applicableCategoryIds?: (mongoose.Types.ObjectId | string)[];
+  applicableSubcategoryIds?: (mongoose.Types.ObjectId | string)[];
+  applicableProductIds?: (mongoose.Types.ObjectId | string)[];
+};
+
+/** Cart/checkout line used for scope matching. */
+export type CouponLineScope = {
+  productId: string;
+  categoryId?: string | null;
+  subcategoryId?: string | null;
+  lineTotal: number;
 };
 
 export function normalizeCouponCode(raw: string): string {
@@ -46,12 +65,92 @@ export function countUserCouponUsage(
   return usedBy.filter((u) => String(u.user) === userId).length;
 }
 
+function idSet(ids?: (mongoose.Types.ObjectId | string)[]): Set<string> {
+  return new Set((ids || []).map((id) => String(id)).filter(Boolean));
+}
+
+export function lineMatchesCouponScope(
+  coupon: CouponLike,
+  line: CouponLineScope
+): boolean {
+  const scope = coupon.scopeType || 'all';
+  if (scope === 'all') return true;
+  if (scope === 'products') {
+    return idSet(coupon.applicableProductIds).has(String(line.productId));
+  }
+  if (scope === 'categories') {
+    if (!line.categoryId) return false;
+    return idSet(coupon.applicableCategoryIds).has(String(line.categoryId));
+  }
+  if (scope === 'subcategories') {
+    if (!line.subcategoryId) return false;
+    return idSet(coupon.applicableSubcategoryIds).has(String(line.subcategoryId));
+  }
+  return true;
+}
+
+export function computeEligibleSubtotal(
+  coupon: CouponLike,
+  lines: CouponLineScope[]
+): { eligibleSubtotal: number; matchedLineCount: number } {
+  const scope = coupon.scopeType || 'all';
+  if (scope === 'all' || lines.length === 0) {
+    const total = lines.reduce((sum, l) => sum + Math.max(0, l.lineTotal), 0);
+    return { eligibleSubtotal: total, matchedLineCount: lines.length };
+  }
+  let eligibleSubtotal = 0;
+  let matchedLineCount = 0;
+  for (const line of lines) {
+    if (lineMatchesCouponScope(coupon, line)) {
+      eligibleSubtotal += Math.max(0, line.lineTotal);
+      matchedLineCount += 1;
+    }
+  }
+  return { eligibleSubtotal, matchedLineCount };
+}
+
+/**
+ * Amount used for min-order check and discount math.
+ * Scoped coupons use eligible lines only; `all` uses full order amount
+ * (or eligible total when lines are provided).
+ */
+export function resolveDiscountBaseAmount(
+  coupon: CouponLike,
+  orderAmount: number,
+  lines?: CouponLineScope[]
+): { amount: number; matchedLineCount: number; message?: string } {
+  const scope = coupon.scopeType || 'all';
+  if (!lines || lines.length === 0) {
+    if (scope !== 'all') {
+      return {
+        amount: 0,
+        matchedLineCount: 0,
+        message: 'This coupon does not apply to any items in your cart',
+      };
+    }
+    return { amount: orderAmount, matchedLineCount: 0 };
+  }
+  const { eligibleSubtotal, matchedLineCount } = computeEligibleSubtotal(coupon, lines);
+  if (scope !== 'all' && matchedLineCount === 0) {
+    return {
+      amount: 0,
+      matchedLineCount: 0,
+      message: 'This coupon does not apply to any items in your cart',
+    };
+  }
+  return { amount: eligibleSubtotal, matchedLineCount };
+}
+
 export function evaluateCouponValidity(
   coupon: CouponLike,
   userId: string,
   orderAmount: number,
-  opts?: { completedOrders?: number; now?: Date }
-): { valid: boolean; message?: string } {
+  opts?: {
+    completedOrders?: number;
+    now?: Date;
+    lines?: CouponLineScope[];
+  }
+): { valid: boolean; message?: string; eligibleAmount?: number } {
   const now = opts?.now ?? new Date();
   const completedOrders = opts?.completedOrders ?? 0;
 
@@ -64,8 +163,16 @@ export function evaluateCouponValidity(
   if (coupon.usageLimit != null && coupon.usedCount >= coupon.usageLimit) {
     return { valid: false, message: 'This coupon has reached its usage limit' };
   }
-  if (coupon.minOrderAmount && orderAmount < coupon.minOrderAmount) {
-    return { valid: false, message: `Minimum order amount of ₹${coupon.minOrderAmount} required` };
+
+  const base = resolveDiscountBaseAmount(coupon, orderAmount, opts?.lines);
+  if (base.message) return { valid: false, message: base.message, eligibleAmount: 0 };
+
+  if (coupon.minOrderAmount && base.amount < coupon.minOrderAmount) {
+    return {
+      valid: false,
+      message: `Minimum order amount of ₹${coupon.minOrderAmount} required`,
+      eligibleAmount: base.amount,
+    };
   }
 
   const userUsage = countUserCouponUsage(coupon.usedBy, userId);
@@ -90,7 +197,7 @@ export function evaluateCouponValidity(
     return { valid: false, message: 'You are not eligible for this coupon' };
   }
 
-  return { valid: true };
+  return { valid: true, eligibleAmount: base.amount };
 }
 
 export function calculateCouponDiscount(coupon: CouponLike, orderAmount: number): number {
@@ -100,6 +207,9 @@ export function calculateCouponDiscount(coupon: CouponLike, orderAmount: number)
     if (coupon.maxDiscountAmount) {
       discount = Math.min(discount, coupon.maxDiscountAmount);
     }
+  } else if (coupon.discountType === 'fixed') {
+    // Eligible cart pays this exact amount (e.g. ₹1150)
+    discount = Math.max(0, orderAmount - coupon.discountValue);
   } else {
     discount = coupon.discountValue;
   }
@@ -107,7 +217,7 @@ export function calculateCouponDiscount(coupon: CouponLike, orderAmount: number)
 }
 
 export function assertCouponBusinessRules(input: {
-  discountType: 'percentage' | 'flat';
+  discountType: 'percentage' | 'flat' | 'fixed';
   discountValue: number;
   startDate: Date;
   expiryDate: Date;
@@ -115,6 +225,10 @@ export function assertCouponBusinessRules(input: {
   userUsageLimit?: number;
   minCompletedOrders?: number;
   maxCompletedOrders?: number;
+  scopeType?: PromoScopeType;
+  applicableCategoryIds?: unknown[];
+  applicableSubcategoryIds?: unknown[];
+  applicableProductIds?: unknown[];
 }): void {
   if (input.discountValue < 0) throw new Error('Discount value cannot be negative');
   if (input.discountType === 'percentage' && input.discountValue > 100) {
@@ -135,6 +249,16 @@ export function assertCouponBusinessRules(input: {
     input.maxCompletedOrders < input.minCompletedOrders
   ) {
     throw new Error('maxCompletedOrders cannot be less than minCompletedOrders');
+  }
+  const scope = input.scopeType || 'all';
+  if (scope === 'categories' && !(input.applicableCategoryIds?.length)) {
+    throw new Error('Select at least one category for this coupon');
+  }
+  if (scope === 'subcategories' && !(input.applicableSubcategoryIds?.length)) {
+    throw new Error('Select at least one subcategory for this coupon');
+  }
+  if (scope === 'products' && !(input.applicableProductIds?.length)) {
+    throw new Error('Select at least one product for this coupon');
   }
 }
 

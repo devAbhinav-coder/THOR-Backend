@@ -13,6 +13,10 @@ import { recordCouponMetric } from "./couponMetricsService";
 
 const ALLOWED_UPDATE_FIELDS = [
   "description",
+  "displayTitle",
+  "imageUrl",
+  "imagePublicId",
+  "showOnStorefront",
   "discountType",
   "discountValue",
   "minOrderAmount",
@@ -24,6 +28,10 @@ const ALLOWED_UPDATE_FIELDS = [
   "isActive",
   "applicableProducts",
   "applicableCategories",
+  "applicableCategoryIds",
+  "applicableSubcategoryIds",
+  "applicableProductIds",
+  "scopeType",
   "firstOrderOnly",
   "minCompletedOrders",
   "eligibilityType",
@@ -46,6 +54,15 @@ export const couponAdminService = {
     if (update.startDate) {
       update.startDate = new Date(update.startDate as string);
     }
+    // Clear storefront banner
+    if (
+      body.clearImage === true ||
+      body.clearImage === "true" ||
+      update.imageUrl === ""
+    ) {
+      update.imageUrl = "";
+      update.imagePublicId = "";
+    }
     return update;
   },
 
@@ -55,7 +72,7 @@ export const couponAdminService = {
     const expiryDate = normalizeExpiryDate(new Date(data.expiryDate as string));
 
     assertCouponBusinessRules({
-      discountType: data.discountType as "percentage" | "flat",
+      discountType: data.discountType as "percentage" | "flat" | "fixed",
       discountValue: Number(data.discountValue),
       startDate,
       expiryDate,
@@ -63,6 +80,17 @@ export const couponAdminService = {
       userUsageLimit: data.userUsageLimit as number | undefined,
       minCompletedOrders: data.minCompletedOrders as number | undefined,
       maxCompletedOrders: data.maxCompletedOrders as number | undefined,
+      scopeType: data.scopeType as
+        | "all"
+        | "categories"
+        | "subcategories"
+        | "products"
+        | undefined,
+      applicableCategoryIds: data.applicableCategoryIds as unknown[] | undefined,
+      applicableSubcategoryIds: data.applicableSubcategoryIds as
+        | unknown[]
+        | undefined,
+      applicableProductIds: data.applicableProductIds as unknown[] | undefined,
     });
 
     const coupon = await Coupon.create({
@@ -142,7 +170,7 @@ export const couponAdminService = {
     const update = this.buildUpdatePayload(body);
     if (update.discountType && update.discountValue !== undefined) {
       assertCouponBusinessRules({
-        discountType: update.discountType as "percentage" | "flat",
+        discountType: update.discountType as "percentage" | "flat" | "fixed",
         discountValue: Number(update.discountValue),
         startDate:
           update.startDate ? new Date(update.startDate as string) : new Date(),

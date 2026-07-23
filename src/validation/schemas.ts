@@ -227,6 +227,7 @@ export const productListQuerySchema = z.object({
       minRating: z.coerce.number().int().min(1).max(5).optional(),
       isFeatured: z.enum(['true', 'false']).optional(),
       onSale: z.enum(['true', 'false']).optional(),
+      hasOffer: z.enum(['true', 'false']).optional(),
       isActive: z.enum(['true', 'false']).optional(),
       isRandom: z.enum(['true', 'false']).optional(),
       excludeIds: z.string().max(4000).optional(),
@@ -250,6 +251,7 @@ export const productSearchQuerySchema = z.object({
     minRating: z.coerce.number().int().min(1).max(5).optional(),
     isFeatured: z.enum(['true', 'false']).optional(),
     onSale: z.enum(['true', 'false']).optional(),
+    hasOffer: z.enum(['true', 'false']).optional(),
     isActive: z.enum(['true', 'false']).optional(),
   }),
 });
@@ -519,7 +521,11 @@ export const createCouponSchema = z.object({
     .object({
       code: couponCodeField,
       description: z.string().max(500).optional(),
-      discountType: z.enum(['percentage', 'flat']),
+      displayTitle: z.string().max(120).optional(),
+      imageUrl: z.string().max(2000).optional(),
+      imagePublicId: z.string().max(500).optional(),
+      showOnStorefront: optionalBooleanFromString,
+      discountType: z.enum(['percentage', 'flat', 'fixed']),
       discountValue: z.coerce.number().positive(),
       minOrderAmount: z.coerce.number().min(0).optional(),
       maxDiscountAmount: z.coerce.number().positive().optional(),
@@ -530,9 +536,14 @@ export const createCouponSchema = z.object({
       maxCompletedOrders: z.coerce.number().int().min(0).optional(),
       startDate: z.string().min(1, 'Start date is required'),
       expiryDate: z.string().min(1, 'Expiry date is required'),
+      scopeType: z.enum(['all', 'categories', 'subcategories', 'products']).default('all'),
       applicableCategories: jsonStringToArray(z.string()).optional(),
+      applicableCategoryIds: jsonStringToArray(mongoObjectId).optional(),
+      applicableSubcategoryIds: jsonStringToArray(mongoObjectId).optional(),
+      applicableProductIds: jsonStringToArray(mongoObjectId).optional(),
       isActive: optionalBooleanFromString,
       sendAnnouncement: z.coerce.boolean().optional(),
+      clearImage: optionalBooleanFromString,
     })
     .superRefine((data, ctx) => {
       const start = new Date(data.startDate);
@@ -563,6 +574,27 @@ export const createCouponSchema = z.object({
           path: ['maxCompletedOrders'],
         });
       }
+      if (data.scopeType === 'categories' && !(data.applicableCategoryIds?.length)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Select at least one category',
+          path: ['applicableCategoryIds'],
+        });
+      }
+      if (data.scopeType === 'subcategories' && !(data.applicableSubcategoryIds?.length)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Select at least one subcategory',
+          path: ['applicableSubcategoryIds'],
+        });
+      }
+      if (data.scopeType === 'products' && !(data.applicableProductIds?.length)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Select at least one product',
+          path: ['applicableProductIds'],
+        });
+      }
     }),
 });
 
@@ -570,6 +602,16 @@ export const validateCouponSchema = z.object({
   body: z.object({
     code: couponCodeField,
     orderAmount: z.coerce.number().min(0),
+    items: z
+      .array(
+        z.object({
+          productId: mongoObjectId,
+          price: z.coerce.number().min(0),
+          quantity: z.coerce.number().int().positive(),
+        }),
+      )
+      .max(100)
+      .optional(),
   }),
 });
 
@@ -592,7 +634,11 @@ export const updateCouponSchema = z.object({
   body: z
     .object({
       description: z.string().max(500).optional(),
-      discountType: z.enum(['percentage', 'flat']).optional(),
+      displayTitle: z.string().max(120).optional(),
+      imageUrl: z.string().max(2000).optional(),
+      imagePublicId: z.string().max(500).optional(),
+      showOnStorefront: optionalBooleanFromString,
+      discountType: z.enum(['percentage', 'flat', 'fixed']).optional(),
       discountValue: z.coerce.number().positive().optional(),
       minOrderAmount: z.coerce.number().min(0).optional(),
       maxDiscountAmount: z.coerce.number().positive().optional(),
@@ -603,10 +649,15 @@ export const updateCouponSchema = z.object({
       maxCompletedOrders: z.coerce.number().int().min(0).optional(),
       startDate: z.string().min(1).optional(),
       expiryDate: z.string().min(1).optional(),
+      scopeType: z.enum(['all', 'categories', 'subcategories', 'products']).optional(),
       applicableCategories: jsonStringToArray(z.string()).optional(),
+      applicableCategoryIds: jsonStringToArray(mongoObjectId).optional(),
+      applicableSubcategoryIds: jsonStringToArray(mongoObjectId).optional(),
+      applicableProductIds: jsonStringToArray(mongoObjectId).optional(),
       isActive: optionalBooleanFromString,
       firstOrderOnly: z.coerce.boolean().optional(),
-      applicableProducts: z.array(mongoObjectId).optional(),
+      applicableProducts: jsonStringToArray(mongoObjectId).optional(),
+      clearImage: optionalBooleanFromString,
     })
     .refine((b) => Object.keys(b).length > 0, { message: 'At least one field is required' }),
 });

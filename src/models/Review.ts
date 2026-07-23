@@ -17,7 +17,13 @@ const reviewSchema = new Schema<IReview>(
     order: {
       type: Schema.Types.ObjectId,
       ref: 'Order',
-      required: true,
+      required: false,
+    },
+    /** purchase = logged-in verified order; share_link = public form; invite = secure order link */
+    source: {
+      type: String,
+      enum: ['purchase', 'share_link', 'invite'],
+      default: 'purchase',
     },
     rating: {
       type: Number,

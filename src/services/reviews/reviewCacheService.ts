@@ -106,10 +106,13 @@ export const reviewCacheService = {
         error: err.message,
       });
     });
+    deleteCache("cache:testimonials:home:v3").catch(() => {});
   },
 
   async invalidateProduct(productId: string): Promise<void> {
     await deleteCache(productRatingSummaryCacheKey(productId));
+    await deleteCache(FEATURED_REVIEWS_CACHE_KEY);
+    await deleteCache("cache:testimonials:home:v3");
     if (!redisEnabled) return;
     const pattern = `cache:reviews:product:${productId}:*`;
     try {

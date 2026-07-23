@@ -1,6 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import AppError from "../types/utils/AppError";
-import { REVIEW_MAX_IMAGES } from "../services/reviews/reviewConstants";
+import {
+  REVIEW_MAX_IMAGES,
+  REVIEW_MAX_IMAGE_BYTES,
+} from "../services/reviews/reviewConstants";
 
 const ALLOWED_MIME_TYPES = new Set([
   "image/jpeg",
@@ -42,9 +45,9 @@ export function assertReviewUploadSecurity(
     if (ext && !ALLOWED_EXTENSIONS.has(ext)) {
       return next(new AppError("Invalid image file extension.", 400));
     }
-    if (file.size > 3 * 1024 * 1024) {
+    if (file.size > REVIEW_MAX_IMAGE_BYTES) {
       return next(
-        new AppError("Each review image must be 3MB or smaller.", 400),
+        new AppError("Each review image must be 30MB or smaller.", 400),
       );
     }
   }

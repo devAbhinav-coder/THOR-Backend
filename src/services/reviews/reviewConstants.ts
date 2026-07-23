@@ -12,7 +12,10 @@ export const PRODUCT_RATING_SUMMARY_CACHE_TTL_SEC = 300;
 export const REVIEW_EVENT_CHANNEL_PREFIX = 'events:reviews:';
 
 /** Max images per review (matches multer). */
-export const REVIEW_MAX_IMAGES = 3;
+export const REVIEW_MAX_IMAGES = 5;
+
+/** Max review image size in bytes (matches multer). */
+export const REVIEW_MAX_IMAGE_BYTES = 30 * 1024 * 1024;
 
 /** Days after creation when user may still edit rating/title/comment. */
 export const REVIEW_EDIT_WINDOW_DAYS = 30;

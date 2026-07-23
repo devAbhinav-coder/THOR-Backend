@@ -32,6 +32,7 @@ import {
   evaluateCouponValidity,
   type CouponLike,
 } from "../services/coupon/couponBusinessRules";
+import { buildCouponLinesFromCartItems } from "../services/coupon/couponLineScopeService";
 import { getUserDeliveredOrderCount } from "../services/coupon/couponUserStatsService";
 import logger from "../types/utils/logger";
 import { getRequestContext } from "../types/utils/requestContext";
@@ -237,11 +238,18 @@ export const applyCoupon = catchAsync(
     }
 
     const completedOrders = await getUserDeliveredOrderCount(uid);
+    const lines = await buildCouponLinesFromCartItems(
+      (cart.items || []).map((item) => ({
+        product: item.product,
+        price: item.price,
+        quantity: item.quantity,
+      })),
+    );
     const validity = evaluateCouponValidity(
       coupon as CouponLike,
       uid,
       cart.subtotal,
-      { completedOrders },
+      { completedOrders, lines },
     );
     if (!validity.valid) {
       await recordFailedCouponAttempt(uid, ip, normalizedCode);

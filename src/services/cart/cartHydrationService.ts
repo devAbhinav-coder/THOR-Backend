@@ -6,6 +6,7 @@ import {
   evaluateCouponValidity,
   COUPON_QUERY_MAX_MS,
 } from '../coupon/couponBusinessRules';
+import { buildCouponLinesFromCartItems } from '../coupon/couponLineScopeService';
 import { getUserDeliveredOrderCount } from '../coupon/couponUserStatsService';
 import { cartCacheService } from './cartCacheService';
 import { serializeCartDto, emptyCartDto, type CartDto, type CartCouponDto } from './cartDto';
@@ -33,10 +34,16 @@ async function hydrateTotals(
       .lean();
     if (couponDoc) {
       const completedOrders = await getUserDeliveredOrderCount(userId);
-      const validity = evaluateCouponValidity(couponDoc, userId, subtotal, { completedOrders });
+      const lines = await buildCouponLinesFromCartItems(items);
+      const validity = evaluateCouponValidity(couponDoc, userId, subtotal, {
+        completedOrders,
+        lines,
+      });
 
       if (validity.valid) {
-        discount = calculateCouponDiscount(couponDoc, subtotal);
+        const eligible =
+          validity.eligibleAmount !== undefined ? validity.eligibleAmount : subtotal;
+        discount = calculateCouponDiscount(couponDoc, eligible);
         total = subtotal - discount;
         couponInfo = {
           code: couponDoc.code,

@@ -11,10 +11,22 @@ import { getRequestContext } from "../types/utils/requestContext";
 import logger from "../types/utils/logger";
 
 export const createCoupon = catchAsync(async (_req: Request, res: Response) => {
-  const req = _req as AuthRequest;
-  const coupon = await couponAdminService.createCoupon(req.body);
+  const req = _req as AuthRequest & {
+    uploadedCouponImage?: { url: string; publicId: string };
+  };
+  const body = { ...(req.body as Record<string, unknown>) };
+  if (req.uploadedCouponImage) {
+    body.imageUrl = req.uploadedCouponImage.url;
+    body.imagePublicId = req.uploadedCouponImage.publicId;
+  }
+  if (!body.imageUrl || body.imageUrl === "") {
+    delete body.imageUrl;
+    delete body.imagePublicId;
+  }
 
-  if (req.body.sendAnnouncement === true) {
+  const coupon = await couponAdminService.createCoupon(body);
+
+  if (body.sendAnnouncement === true || body.sendAnnouncement === "true") {
     const tpl = emailTemplates.couponAnnouncement(
       coupon.code,
       coupon.description,
@@ -55,8 +67,20 @@ export const getCoupon = catchAsync(async (req: Request, res: Response) => {
 });
 
 export const updateCoupon = catchAsync(async (req: Request, res: Response) => {
-  const reqAuth = req as AuthRequest;
-  const coupon = await couponAdminService.updateCoupon(req.params.id, req.body);
+  const reqAuth = req as AuthRequest & {
+    uploadedCouponImage?: { url: string; publicId: string };
+  };
+  const body = { ...(req.body as Record<string, unknown>) };
+  if (reqAuth.uploadedCouponImage) {
+    body.imageUrl = reqAuth.uploadedCouponImage.url;
+    body.imagePublicId = reqAuth.uploadedCouponImage.publicId;
+  }
+  if (body.clearImage === true || body.clearImage === "true") {
+    body.imageUrl = "";
+    body.imagePublicId = "";
+  }
+
+  const coupon = await couponAdminService.updateCoupon(req.params.id, body);
   await writeAdminAudit(reqAuth, "coupon.update", { couponId: req.params.id });
   sendSuccess(res, { coupon }, "Coupon updated");
 });
@@ -80,15 +104,43 @@ export const archiveCoupon = catchAsync(async (req: Request, res: Response) => {
 
 export const validateCoupon = catchAsync(
   async (req: AuthRequest, res: Response) => {
-    const { code, orderAmount } = req.body;
+    const { code, orderAmount, items } = req.body;
     const ctx = getRequestContext();
     const ip = req.ip || req.socket.remoteAddress || "unknown";
+
+    let lines;
+    if (Array.isArray(items) && items.length > 0) {
+      const { buildCouponLinesFromProductIds } = await import(
+        "../services/coupon/couponLineScopeService"
+      );
+      lines = await buildCouponLinesFromProductIds(items);
+    } else {
+      try {
+        const { cartService } = await import("../services/cartService");
+        const { buildCouponLinesFromCartItems } = await import(
+          "../services/coupon/couponLineScopeService"
+        );
+        const cart = await cartService.getCart(String(req.user!._id));
+        if (cart.items?.length) {
+          lines = await buildCouponLinesFromCartItems(
+            cart.items.map((item) => ({
+              product: item.product,
+              price: item.price,
+              quantity: item.quantity,
+            })),
+          );
+        }
+      } catch {
+        lines = undefined;
+      }
+    }
 
     const result = await couponValidationService.validateForCheckout(
       String(req.user!._id),
       code,
       orderAmount,
       ip,
+      lines,
     );
 
     logger.info({
@@ -106,11 +158,36 @@ export const validateCoupon = catchAsync(
 export const getEligibleCoupons = catchAsync(
   async (req: AuthRequest, res: Response) => {
     const orderAmount = Number(req.query.orderAmount || 0);
+    let lines;
+    try {
+      const { cartService } = await import("../services/cartService");
+      const { buildCouponLinesFromCartItems } = await import(
+        "../services/coupon/couponLineScopeService"
+      );
+      const cart = await cartService.getCart(String(req.user!._id));
+      if (cart.items?.length) {
+        lines = await buildCouponLinesFromCartItems(
+          cart.items.map((item) => ({
+            product: item.product,
+            price: item.price,
+            quantity: item.quantity,
+          })),
+        );
+      }
+    } catch {
+      lines = undefined;
+    }
     const { coupons, ineligible, completedOrders } =
       await couponValidationService.getEligibleCoupons(
         String(req.user!._id),
         orderAmount,
+        lines,
       );
     sendSuccess(res, { coupons, ineligible, completedOrders });
   },
 );
+
+export const getPublicCoupons = catchAsync(async (_req: Request, res: Response) => {
+  const coupons = await couponValidationService.listPublicCoupons();
+  sendSuccess(res, { coupons });
+});

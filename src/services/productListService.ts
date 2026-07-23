@@ -22,8 +22,11 @@ import {
 } from "./productCacheService";
 import { getCache, setCache } from "./cacheService";
 import { buildShopCollectionFilter } from "./shopCollectionFilterService";
-import { mergeOnSaleFilter } from "../constants/onSaleFilter";
+import { mergeOnSaleFilter, mergeHasOfferFilter } from "../constants/onSaleFilter";
 import { colorFlexibleRegex } from "../utils/catalogAttributes";
+import { getActiveSaleCampaigns } from "./sale/saleCacheService";
+import { enrichProductsWithSalePricing } from "./sale/saleProductEnrichment";
+import { couponValidationService } from "./coupon/couponValidationService";
 
 const RANDOM_COUNT_TTL = 300;
 
@@ -83,7 +86,16 @@ export async function listRandomProducts(
   const colorFilter = buildColorMongoFilter(parsed.colors);
   const fabricFilter = buildFabricMongoFilter(parsed.fabrics);
 
-  const baseFilter: Record<string, unknown> = mergeOnSaleFilter(
+  const [campaigns, offerScopes] = await Promise.all([
+    parsed.onSale === true || !parsed.adminScope ?
+      getActiveSaleCampaigns()
+    : Promise.resolve([]),
+    parsed.hasOffer === true ?
+      couponValidationService.getActiveTargetedOfferScopes()
+    : Promise.resolve({ categoryIds: [], subcategoryIds: [], productIds: [] }),
+  ]);
+
+  let baseFilter: Record<string, unknown> = mergeOnSaleFilter(
     {
       ...storefrontBaseFilter(parsed.adminScope),
       ...(collectionFilter ?? {}),
@@ -94,7 +106,9 @@ export async function listRandomProducts(
       ...(fabricFilter ?? {}),
     },
     parsed.onSale === true,
+    campaigns,
   );
+  baseFilter = mergeHasOfferFilter(baseFilter, parsed.hasOffer === true, offerScopes);
 
   const excludeIds = parseExcludeObjectIds(parsed.excludeIds);
   if (excludeIds.length) {
@@ -127,6 +141,9 @@ export async function listRandomProducts(
         images: 1,
         ratings: 1,
         category: 1,
+        categoryId: 1,
+        subcategory: 1,
+        subcategoryId: 1,
         fabric: 1,
         isFeatured: 1,
         isActive: 1,
@@ -147,8 +164,10 @@ export async function listRandomProducts(
       loaded < poolSize && products.length >= parsed.limit
     : products.length >= parsed.limit);
 
+  const enriched = enrichProductsWithSalePricing(products, campaigns);
+
   return {
-    products,
+    products: enriched,
     page: 1,
     limit: parsed.limit,
     total: poolSize || loaded,
@@ -173,7 +192,14 @@ export async function listProductsViaApiFeatures(
   const colorFilter = buildColorMongoFilter(parsed.colors);
   const fabricFilter = buildFabricMongoFilter(parsed.fabrics);
 
-  const categoryBase: Record<string, unknown> = mergeOnSaleFilter(
+  const [campaigns, offerScopes] = await Promise.all([
+    getActiveSaleCampaigns(),
+    parsed.hasOffer === true ?
+      couponValidationService.getActiveTargetedOfferScopes()
+    : Promise.resolve({ categoryIds: [], subcategoryIds: [], productIds: [] }),
+  ]);
+
+  let categoryBase: Record<string, unknown> = mergeOnSaleFilter(
     {
       ...storefrontBaseFilter(parsed.adminScope),
       ...(collectionFilter ?? {}),
@@ -193,6 +219,12 @@ export async function listProductsViaApiFeatures(
       ...ratingFilter,
     },
     parsed.onSale === true,
+    campaigns,
+  );
+  categoryBase = mergeHasOfferFilter(
+    categoryBase,
+    parsed.hasOffer === true,
+    offerScopes,
   );
 
   const queryString: Record<string, string | undefined> = {
@@ -235,8 +267,10 @@ export async function listProductsViaApiFeatures(
   const skip = (page - 1) * limit;
   const hasNextPage = products.length > 0 && skip + products.length < total;
 
+  const enriched = enrichProductsWithSalePricing(products, campaigns);
+
   return {
-    products,
+    products: enriched,
     page,
     limit,
     total,
@@ -266,13 +300,18 @@ export async function listProductsViaAdvancedSearch(
     minRating: parsed.minRating,
     isFeatured: parsed.isFeatured,
     onSale: parsed.onSale,
+    hasOffer: parsed.hasOffer,
     isActive: parsed.isActive,
     adminScope: parsed.adminScope,
     useCache: true,
   });
 
+  const campaigns = await getActiveSaleCampaigns();
   return {
-    products: searchResult.products,
+    products: enrichProductsWithSalePricing(
+      searchResult.products as Record<string, unknown>[],
+      campaigns,
+    ),
     page: searchResult.page,
     limit: searchResult.limit,
     total: searchResult.total,

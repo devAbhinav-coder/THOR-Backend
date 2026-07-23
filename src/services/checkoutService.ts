@@ -108,6 +108,7 @@ export const checkoutService = {
     couponCode?: string,
     cartCouponId?: mongoose.Types.ObjectId,
     cartCouponDiscount?: number,
+    lines?: import("./coupon/couponBusinessRules").CouponLineScope[],
   ) {
     return couponValidationService.evaluateCouponForOrder(
       userId,
@@ -115,6 +116,7 @@ export const checkoutService = {
       couponCode,
       cartCouponId,
       cartCouponDiscount,
+      lines,
     );
   },
 

@@ -16,9 +16,13 @@ const couponSchema = new Schema<ICoupon>(
       maxlength: [20, 'Coupon code cannot exceed 20 characters'],
     },
     description: String,
+    displayTitle: { type: String, trim: true, maxlength: 120 },
+    imageUrl: { type: String, trim: true },
+    imagePublicId: { type: String, trim: true },
+    showOnStorefront: { type: Boolean, default: true },
     discountType: {
       type: String,
-      enum: ['percentage', 'flat'],
+      enum: ['percentage', 'flat', 'fixed'],
       required: [true, 'Discount type is required'],
     },
     discountValue: {
@@ -51,7 +55,15 @@ const couponSchema = new Schema<ICoupon>(
     isActive: { type: Boolean, default: true },
     deletedAt: { type: Date, default: null },
     archivedAt: { type: Date, default: null },
+    scopeType: {
+      type: String,
+      enum: ['all', 'categories', 'subcategories', 'products'],
+      default: 'all',
+    },
     applicableCategories: [String],
+    applicableCategoryIds: [{ type: Schema.Types.ObjectId, ref: 'Category' }],
+    applicableSubcategoryIds: [{ type: Schema.Types.ObjectId, ref: 'SubCategory' }],
+    applicableProductIds: [{ type: Schema.Types.ObjectId, ref: 'Product' }],
     eligibilityType: {
       type: String,
       enum: ['all', 'first_order', 'returning'],
@@ -73,7 +85,14 @@ const couponSchema = new Schema<ICoupon>(
 couponSchema.index({ expiryDate: 1, isActive: 1, deletedAt: 1 });
 couponSchema.index({ isActive: 1, startDate: 1, expiryDate: 1, deletedAt: 1 });
 couponSchema.index({ deletedAt: 1, createdAt: -1 });
-// code index is already created by unique:true on the field
+couponSchema.index({
+  showOnStorefront: 1,
+  isActive: 1,
+  startDate: 1,
+  expiryDate: 1,
+  deletedAt: 1,
+  archivedAt: 1,
+});
 
 couponSchema.methods.isValid = function (
   userId: string,
@@ -94,6 +113,16 @@ couponSchema.pre('validate', function (next) {
   }
   if (c.discountType === 'percentage' && c.discountValue > 100) {
     this.invalidate('discountValue', 'Percentage discount cannot exceed 100');
+  }
+  const scope = c.scopeType || 'all';
+  if (scope === 'categories' && !(c.applicableCategoryIds?.length > 0)) {
+    this.invalidate('applicableCategoryIds', 'Select at least one category');
+  }
+  if (scope === 'subcategories' && !(c.applicableSubcategoryIds?.length > 0)) {
+    this.invalidate('applicableSubcategoryIds', 'Select at least one subcategory');
+  }
+  if (scope === 'products' && !(c.applicableProductIds?.length > 0)) {
+    this.invalidate('applicableProductIds', 'Select at least one product');
   }
   next();
 });

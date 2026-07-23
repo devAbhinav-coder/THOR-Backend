@@ -316,6 +316,45 @@ export const emailTemplates = {
       ),
     };
   },
+
+  /** Secure order review invite — link + QR (verified purchase → product review + homepage story). */
+  reviewInvite: (opts: {
+    name: string;
+    orderNumber: string;
+    inviteUrl: string;
+    qrDataUrl: string;
+    expiresAt: Date;
+  }) => {
+    const first = escEmail((opts.name || "there").split(/\s+/)[0] || "there");
+    const expiry = opts.expiresAt.toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+    const body = `Hi ${first},<br/><br/>
+      Thank you for shopping with <b>The House of Rani</b>. We would love a short note about your purchase
+      <b>${escEmail(opts.orderNumber)}</b>.<br/><br/>
+      Your private link is for <b>this order only</b> — no login needed. You can leave a product review
+      (shown on the product page after we approve it) and a photo story for our homepage.<br/><br/>
+      <div style="text-align:center;margin:24px 0;padding:20px;background:#f7f4ef;border-radius:16px;border:1px solid #e8e0d4;">
+        <p style="margin:0 0 8px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#c5a059;font-weight:600;">The House of Rani</p>
+        <img src="${opts.qrDataUrl}" alt="Scan to share your experience" width="240" height="240"
+          style="display:inline-block;border-radius:12px;padding:10px;background:#fff;border:1px solid #e5e7eb;" />
+        <p style="margin:12px 0 0;font-size:13px;color:#6b7280;">Scan with your phone camera</p>
+      </div>
+      <p style="margin:0;font-size:13px;color:#6b7280;">This secure link expires on <b>${escEmail(expiry)}</b>.</p>`;
+
+    return {
+      subject: `Share your House of Rani experience — ${opts.orderNumber}`,
+      html: shell(
+        "We would love your feedback",
+        body,
+        "Share your experience",
+        opts.inviteUrl,
+      ),
+    };
+  },
+
   orderStatusUpdate: (
     name: string,
     orderNumber: string,

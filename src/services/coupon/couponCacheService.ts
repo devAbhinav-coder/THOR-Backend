@@ -14,12 +14,23 @@ export function couponCodeCacheKey(code: string): string {
   return `${COUPON_BY_CODE_PREFIX}${code}`;
 }
 
-export function validationCacheKey(userId: string, code: string, orderAmount: number): string {
-  return `${VALIDATION_PREFIX}${userId}:${code}:${orderAmount}`;
+export function validationCacheKey(
+  userId: string,
+  code: string,
+  orderAmount: number,
+  scopeSuffix?: string,
+): string {
+  const suffix = scopeSuffix ? `:${scopeSuffix}` : '';
+  return `${VALIDATION_PREFIX}${userId}:${code}:${orderAmount}${suffix}`;
 }
 
-export function eligibleCouponsCacheKey(userId: string, orderAmount: number): string {
-  return `${ELIGIBLE_PREFIX}${userId}:${orderAmount}`;
+export function eligibleCouponsCacheKey(
+  userId: string,
+  orderAmount: number,
+  scopeSuffix?: string,
+): string {
+  const suffix = scopeSuffix ? `:${scopeSuffix}` : '';
+  return `${ELIGIBLE_PREFIX}${userId}:${orderAmount}${suffix}`;
 }
 
 export type EligibleCouponsCachePayload = {

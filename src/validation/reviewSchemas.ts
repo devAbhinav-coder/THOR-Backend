@@ -131,6 +131,29 @@ export const adminGetReviewsQuerySchema = z.object({
   }),
 });
 
+const optionalBooleanFromString = z.preprocess(
+  (val) => {
+    if (val === undefined || val === null || val === '') return undefined;
+    if (val === 'true' || val === true) return true;
+    if (val === 'false' || val === false) return false;
+    return val;
+  },
+  z.boolean().optional()
+);
+
+/** Public share-link product review (no login). */
+export const submitPublicReviewSchema = z.object({
+  body: z.object({
+    productId: mongoObjectId,
+    rating: z.coerce.number().int().min(1).max(5),
+    title: reviewTitle,
+    comment: reviewText,
+    displayName: z.string().trim().max(80).optional(),
+    isAnonymous: optionalBooleanFromString,
+    alsoAsStory: optionalBooleanFromString,
+  }),
+});
+
 export function parseProductReviewsQuery(
   query: z.infer<typeof paginationQuery>
 ): { page: number; limit: number; sort?: string } {

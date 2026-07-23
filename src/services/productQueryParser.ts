@@ -30,8 +30,10 @@ export type ParsedProductListQuery = {
   minRatings: number[];
   minRating?: number;
   isFeatured?: boolean;
-  /** Storefront — products where comparePrice > price */
+  /** Storefront — products where comparePrice > price OR covered by active sale campaign */
   onSale?: boolean;
+  /** Storefront — products in scope of an active targeted coupon offer */
+  hasOffer?: boolean;
   /** Admin catalog only — filter by active/inactive when set. */
   isActive?: boolean;
   isRandom: boolean;
@@ -150,6 +152,12 @@ export function parseProductListQuery(req: Request): ParsedProductListQuery {
     : onSaleRaw === "false" || onSaleRaw === false ? false
     : undefined;
 
+  const hasOfferRaw = q.hasOffer;
+  const hasOffer =
+    hasOfferRaw === "true" || hasOfferRaw === true ? true
+    : hasOfferRaw === "false" || hasOfferRaw === false ? false
+    : undefined;
+
   const isActiveRaw = q.isActive;
   const isActive =
     isActiveRaw === "true" || isActiveRaw === true ? true
@@ -180,6 +188,7 @@ export function parseProductListQuery(req: Request): ParsedProductListQuery {
     minRating: resolvedMinRating,
     isFeatured,
     onSale,
+    hasOffer,
     isActive,
     isRandom,
     excludeIds,

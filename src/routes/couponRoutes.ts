@@ -8,11 +8,13 @@ import {
   archiveCoupon,
   validateCoupon,
   getEligibleCoupons,
+  getPublicCoupons,
 } from '../controllers/couponController';
 import { protect, restrictTo } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { paginationGuard } from '../middleware/paginationGuard';
 import { createAdaptiveLimiter } from '../middleware/adaptiveRateLimit';
+import { uploadCouponBanner, processCouponBanner } from '../middleware/upload';
 import {
   createCouponSchema,
   validateCouponSchema,
@@ -37,6 +39,14 @@ const couponEligibleLimiter = createAdaptiveLimiter({
   message: 'Too many requests. Please wait a moment.',
 });
 
+const couponPublicLimiter = createAdaptiveLimiter({
+  windowMs: 60_000,
+  max: 60,
+  prefix: 'rl:coupon:public:',
+  message: 'Too many requests. Please wait a moment.',
+});
+
+router.get('/public', couponPublicLimiter, getPublicCoupons);
 router.post('/validate', protect, couponValidateLimiter, validate(validateCouponSchema), validateCoupon);
 router.get(
   '/eligible',
@@ -48,11 +58,23 @@ router.get(
 
 router.use(protect, restrictTo('admin'));
 
-router.post('/', validate(createCouponSchema), createCoupon);
+router.post(
+  '/',
+  uploadCouponBanner,
+  processCouponBanner,
+  validate(createCouponSchema),
+  createCoupon
+);
 router.get('/', paginationGuard, getAllCoupons);
 router.get('/:id', validate(couponIdParamsSchema), getCoupon);
 router.patch('/:id/archive', validate(couponIdParamsSchema), archiveCoupon);
-router.patch('/:id', validate(updateCouponSchema), updateCoupon);
+router.patch(
+  '/:id',
+  uploadCouponBanner,
+  processCouponBanner,
+  validate(updateCouponSchema),
+  updateCoupon
+);
 router.delete('/:id', validate(couponIdParamsSchema), deleteCoupon);
 
 export default router;

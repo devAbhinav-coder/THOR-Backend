@@ -4,6 +4,7 @@ import AppError from "../../types/utils/AppError";
 import {
   COUPON_QUERY_MAX_MS,
   CouponLike,
+  CouponLineScope,
   calculateCouponDiscount,
   evaluateCouponValidity,
   normalizeCouponCode,
@@ -25,15 +26,30 @@ import {
   isCouponValidationThrottled,
   recordFailedCouponAttempt,
 } from "./couponAbuseService";
-import { toCouponValidatePayload } from "./couponDto";
+import {
+  COUPON_STOREFRONT_PROJECTION,
+  toCouponStorefrontDto,
+  toCouponValidatePayload,
+} from "./couponDto";
 import { getRequestContext } from "../../types/utils/requestContext";
 import logger from "../../types/utils/logger";
+import { isWithinValidityWindow } from "./couponBusinessRules";
 
 const ACTIVE_COUPON_DB_FILTER = {
   isActive: true,
   deletedAt: null,
   archivedAt: null,
 };
+
+function discountFromValidity(
+  coupon: CouponLike,
+  orderAmount: number,
+  validity: { valid: boolean; eligibleAmount?: number },
+): number {
+  const base =
+    validity.eligibleAmount !== undefined ? validity.eligibleAmount : orderAmount;
+  return calculateCouponDiscount(coupon, base);
+}
 
 export const couponValidationService = {
   async findCouponByCode(code: string): Promise<CouponLike | null> {
@@ -49,11 +65,68 @@ export const couponValidationService = {
     return doc;
   },
 
+  async listPublicCoupons(): Promise<ReturnType<typeof toCouponStorefrontDto>[]> {
+    const now = new Date();
+    const coupons = await Coupon.find({
+      ...ACTIVE_COUPON_DB_FILTER,
+      showOnStorefront: true,
+      startDate: { $lte: now },
+      expiryDate: { $gte: now },
+    })
+      .select(COUPON_STOREFRONT_PROJECTION)
+      .sort("-createdAt")
+      .limit(24)
+      .maxTimeMS(COUPON_QUERY_MAX_MS)
+      .lean<CouponLike[]>();
+
+    return coupons
+      .filter((c) => isWithinValidityWindow(c.startDate, c.expiryDate, now))
+      .map(toCouponStorefrontDto);
+  },
+
+  /** Active targeted (non-all) storefront coupons for shop hasOffer filter. */
+  async getActiveTargetedOfferScopes(now = new Date()): Promise<{
+    categoryIds: string[];
+    subcategoryIds: string[];
+    productIds: string[];
+  }> {
+    const coupons = await Coupon.find({
+      ...ACTIVE_COUPON_DB_FILTER,
+      showOnStorefront: true,
+      scopeType: { $in: ["categories", "subcategories", "products"] },
+      startDate: { $lte: now },
+      expiryDate: { $gte: now },
+    })
+      .select(
+        "scopeType applicableCategoryIds applicableSubcategoryIds applicableProductIds startDate expiryDate",
+      )
+      .maxTimeMS(COUPON_QUERY_MAX_MS)
+      .lean<CouponLike[]>();
+
+    const categoryIds = new Set<string>();
+    const subcategoryIds = new Set<string>();
+    const productIds = new Set<string>();
+
+    for (const c of coupons) {
+      if (!isWithinValidityWindow(c.startDate, c.expiryDate, now)) continue;
+      for (const id of c.applicableCategoryIds || []) categoryIds.add(String(id));
+      for (const id of c.applicableSubcategoryIds || []) subcategoryIds.add(String(id));
+      for (const id of c.applicableProductIds || []) productIds.add(String(id));
+    }
+
+    return {
+      categoryIds: [...categoryIds],
+      subcategoryIds: [...subcategoryIds],
+      productIds: [...productIds],
+    };
+  },
+
   async validateForCheckout(
     userId: string,
     code: string,
     orderAmount: number,
     ip: string,
+    lines?: CouponLineScope[],
   ): Promise<{
     coupon: ReturnType<typeof toCouponValidatePayload>;
     discount: number;
@@ -69,7 +142,12 @@ export const couponValidationService = {
       );
     }
 
-    const cacheKey = validationCacheKey(userId, normalized, orderAmount);
+    const cacheKey = validationCacheKey(
+      userId,
+      normalized,
+      orderAmount,
+      lines?.length ? `L${lines.length}` : undefined,
+    );
     const cached = await getCachedValidationResult<{
       coupon: ReturnType<typeof toCouponValidatePayload>;
       discount: number;
@@ -90,6 +168,7 @@ export const couponValidationService = {
     const completedOrders = await getUserDeliveredOrderCount(userId);
     const validity = evaluateCouponValidity(coupon, userId, orderAmount, {
       completedOrders,
+      lines,
     });
     if (!validity.valid) {
       await recordFailedCouponAttempt(userId, ip, normalized);
@@ -105,11 +184,11 @@ export const couponValidationService = {
       throw new AppError(validity.message || "Coupon is not valid.", 400);
     }
 
-    const discount = calculateCouponDiscount(coupon, orderAmount);
+    const discount = discountFromValidity(coupon, orderAmount, validity);
     const payload = {
       coupon: toCouponValidatePayload(coupon),
       discount,
-      finalAmount: orderAmount - discount,
+      finalAmount: Math.max(0, orderAmount - discount),
     };
 
     await setCachedValidationResult(cacheKey, payload);
@@ -121,6 +200,7 @@ export const couponValidationService = {
   async getEligibleCoupons(
     userId: string,
     orderAmount: number,
+    lines?: CouponLineScope[],
   ): Promise<{
     coupons: CouponLike[];
     ineligible: Array<{ code: string; reason: string }>;
@@ -129,7 +209,11 @@ export const couponValidationService = {
     const now = new Date();
     recordCouponMetric("coupon.eligible.fetch");
 
-    const userCacheKey = eligibleCouponsCacheKey(userId, orderAmount);
+    const userCacheKey = eligibleCouponsCacheKey(
+      userId,
+      orderAmount,
+      lines?.length ? `L${lines.length}` : undefined,
+    );
     const cached = await getCachedEligibleCoupons(userCacheKey);
     if (cached) {
       recordCouponMetric("coupon.eligible.fetch", { cached: true });
@@ -159,6 +243,7 @@ export const couponValidationService = {
       const validity = evaluateCouponValidity(coupon, userId, orderAmount, {
         completedOrders,
         now,
+        lines,
       });
       if (validity.valid) eligible.push(coupon);
       else
@@ -179,6 +264,7 @@ export const couponValidationService = {
     couponCode?: string,
     cartCouponId?: mongoose.Types.ObjectId,
     cartCouponDiscount?: number,
+    lines?: CouponLineScope[],
   ): Promise<{ discount: number; couponId?: mongoose.Types.ObjectId }> {
     if (couponCode) {
       const coupon = await this.findCouponByCode(couponCode);
@@ -190,13 +276,13 @@ export const couponValidationService = {
         coupon,
         userId,
         checkoutSubtotal,
-        { completedOrders },
+        { completedOrders, lines },
       );
       if (!validity.valid) {
         throw new AppError(validity.message || "Coupon is not valid.", 400);
       }
       return {
-        discount: calculateCouponDiscount(coupon, checkoutSubtotal),
+        discount: discountFromValidity(coupon, checkoutSubtotal, validity),
         couponId: coupon._id as mongoose.Types.ObjectId,
       };
     }
@@ -211,11 +297,11 @@ export const couponValidationService = {
           coupon,
           userId,
           checkoutSubtotal,
-          { completedOrders },
+          { completedOrders, lines },
         );
         if (validity.valid) {
           return {
-            discount: calculateCouponDiscount(coupon, checkoutSubtotal),
+            discount: discountFromValidity(coupon, checkoutSubtotal, validity),
             couponId: cartCouponId,
           };
         }

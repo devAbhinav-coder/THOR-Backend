@@ -19,7 +19,9 @@ import {
 import { env } from "../config/env";
 import logger from "../types/utils/logger";
 import { buildShopCollectionFilter } from "./shopCollectionFilterService";
-import { mergeOnSaleFilter } from "../constants/onSaleFilter";
+import { mergeOnSaleFilter, mergeHasOfferFilter } from "../constants/onSaleFilter";
+import { getActiveSaleCampaigns } from "./sale/saleCacheService";
+import { couponValidationService } from "./coupon/couponValidationService";
 import { colorFlexibleRegex } from "../utils/catalogAttributes";
 
 /**
@@ -506,6 +508,7 @@ export class AdvancedSearchService {
     minRating?: number;
     isFeatured?: boolean;
     onSale?: boolean;
+    hasOffer?: boolean;
     isActive?: boolean;
     adminScope?: boolean;
     useCache?: boolean;
@@ -536,6 +539,7 @@ export class AdvancedSearchService {
       minRating,
       isFeatured,
       onSale,
+      hasOffer,
       isActive,
       adminScope = false,
       useCache = true,
@@ -593,6 +597,7 @@ export class AdvancedSearchService {
       minRating,
       isFeatured,
       onSale,
+      hasOffer,
       isActive,
       adminScope,
     });
@@ -646,6 +651,7 @@ export class AdvancedSearchService {
         minRating,
         isFeatured,
         onSale,
+        hasOffer,
         isActive,
         adminScope,
       });
@@ -666,6 +672,7 @@ export class AdvancedSearchService {
         minRating,
         isFeatured,
         onSale,
+        hasOffer,
         isActive,
         adminScope,
       });
@@ -739,6 +746,7 @@ export class AdvancedSearchService {
     minRating?: number;
     isFeatured?: boolean;
     onSale?: boolean;
+    hasOffer?: boolean;
     isActive?: boolean;
     adminScope?: boolean;
   }): Promise<{
@@ -765,6 +773,7 @@ export class AdvancedSearchService {
       minRating,
       isFeatured,
       onSale,
+      hasOffer,
       isActive,
       adminScope = false,
     } = options;
@@ -814,7 +823,16 @@ export class AdvancedSearchService {
       baseFilter.isActive = isActive;
     }
 
-    baseFilter = mergeOnSaleFilter(baseFilter, onSale === true);
+    baseFilter = mergeOnSaleFilter(
+      baseFilter,
+      onSale === true,
+      await getActiveSaleCampaigns(),
+    );
+    if (hasOffer === true) {
+      const offerScopes =
+        await couponValidationService.getActiveTargetedOfferScopes();
+      baseFilter = mergeHasOfferFilter(baseFilter, true, offerScopes);
+    }
 
     Object.entries(filters).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
@@ -980,6 +998,7 @@ export class AdvancedSearchService {
     minRating?: number;
     isFeatured?: boolean;
     onSale?: boolean;
+    hasOffer?: boolean;
     isActive?: boolean;
     adminScope?: boolean;
   }): Promise<{
@@ -1005,6 +1024,7 @@ export class AdvancedSearchService {
       minRating,
       isFeatured,
       onSale,
+      hasOffer,
       isActive,
       adminScope = false,
     } = options;
@@ -1055,7 +1075,16 @@ export class AdvancedSearchService {
       baseFilter.isActive = isActive;
     }
 
-    baseFilter = mergeOnSaleFilter(baseFilter, onSale === true);
+    baseFilter = mergeOnSaleFilter(
+      baseFilter,
+      onSale === true,
+      await getActiveSaleCampaigns(),
+    );
+    if (hasOffer === true) {
+      const offerScopes =
+        await couponValidationService.getActiveTargetedOfferScopes();
+      baseFilter = mergeHasOfferFilter(baseFilter, true, offerScopes);
+    }
 
     // Apply additional filters
     Object.entries(filters).forEach(([key, value]) => {
@@ -1142,8 +1171,10 @@ export class AdvancedSearchService {
       merged.colors.length > 0 || merged.categories.length > 0 ?
         merged.residualQuery
       : merged.query;
+    // Keep raw query when intent parsing emptied residual (short tokens / Hindi / typos)
     const searchText =
-      `${textSearchQuery}${merged.colors.length ? ` ${merged.colors.join(" ")}` : ""}`.trim();
+      `${textSearchQuery}${merged.colors.length ? ` ${merged.colors.join(" ")}` : ""}`.trim() ||
+      safeQuery.trim();
 
     const v = await getProductCacheVersion();
     const cacheKey = `cache:v${v}:autocomplete:${require("crypto").createHash("md5").update(safeQuery).digest("hex")}`;

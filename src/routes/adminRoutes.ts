@@ -42,6 +42,10 @@ import {
 } from '../controllers/admin/adminMarketingController';
 import { createOfflineOrder } from '../controllers/adminOfflineOrderController';
 import {
+  adminCreateReviewInvite,
+  adminEmailReviewInvite,
+} from '../controllers/reviewInviteController';
+import {
   listSalesInvoices,
   getSalesInvoice,
   createSalesInvoice,
@@ -226,6 +230,8 @@ router.post(
   createOfflineOrder,
 );
 router.get('/orders/:id', getOrderDetails);
+router.post('/orders/:id/review-invite', adminCreateReviewInvite);
+router.post('/orders/:id/review-invite/email', adminEmailReviewInvite);
 router.delete('/orders/:id', adminSensitiveLimiter, deleteOrder);
 router.get('/delhivery/status', getDelhiveryIntegrationStatus);
 router.get(

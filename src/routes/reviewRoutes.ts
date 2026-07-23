@@ -8,6 +8,7 @@ import {
   voteHelpful,
   reportReview,
   canReviewProduct,
+  submitPublicReview,
 } from '../controllers/reviewController';
 import { protect } from '../middleware/auth';
 import { uploadReviewImages, processReviewImages } from '../middleware/upload';
@@ -21,6 +22,7 @@ import {
   productIdParamSchema,
   getProductReviewsQuerySchema,
   reportReviewSchema,
+  submitPublicReviewSchema,
 } from '../validation/reviewSchemas';
 
 const router = Router();
@@ -46,12 +48,30 @@ const reviewMutationLimiter = createAdaptiveLimiter({
   message: 'Too many review actions. Please wait a moment.',
 });
 
+const reviewPublicSubmitLimiter = createAdaptiveLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 8,
+  prefix: 'rl:reviews:public-submit:',
+  message: 'Too many submissions. Please try again later.',
+});
+
 router.get('/featured', reviewReadLimiter, getFeaturedReviews);
 router.get(
   '/product/:productId',
   reviewReadLimiter,
   validate(getProductReviewsQuerySchema),
   getProductReviews
+);
+
+/** Share-link / QR — no login. Pending until admin approves. */
+router.post(
+  '/submit-public',
+  reviewPublicSubmitLimiter,
+  uploadReviewImages,
+  assertReviewUploadSecurity,
+  processReviewImages,
+  validate(submitPublicReviewSchema),
+  submitPublicReview
 );
 
 router.use(protect);

@@ -4,6 +4,7 @@ import AppError from "../types/utils/AppError";
 import { sendPaginated, sendSuccess } from "../types/utils/response";
 import { reconcileProductJson } from "../types/utils/productStock";
 import Product from "../models/Product";
+import { OFFLINE_MANUAL_PRODUCT_TAG } from "../constants/offlineOrder";
 import {
   parseProductListQuery,
   mapSortToAdvanced,
@@ -93,6 +94,46 @@ export const searchAdminProducts = catchAsync(
       : typeof req.query.sort === "string" ? req.query.sort
       : "-createdAt",
     );
+
+    // Prefer simple name/slug regex for short / typo-prone admin pickers
+    // Advanced intent parsing often empties residual at 4+ chars (category/color tokens).
+    const useSimple =
+      req.query.simple === "true" ||
+      req.query.simple === "1" ||
+      req.query.mode === "name" ||
+      (q.length > 0 && q.length <= 8);
+
+    if (useSimple) {
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const filter: Record<string, unknown> = {
+        tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
+      };
+      if (req.query.isActive === "true") filter.isActive = true;
+      if (req.query.isActive === "false") filter.isActive = false;
+      if (escaped) {
+        filter.$or = [
+          { name: { $regex: escaped, $options: "i" } },
+          { slug: { $regex: escaped, $options: "i" } },
+          { tags: { $regex: escaped, $options: "i" } },
+          { fabric: { $regex: escaped, $options: "i" } },
+        ];
+      }
+      const skip = (listParsed.page - 1) * listParsed.limit;
+      const [products, total] = await Promise.all([
+        Product.find(filter)
+          .sort({ updatedAt: -1 })
+          .skip(skip)
+          .limit(listParsed.limit)
+          .select("name slug images price category isActive")
+          .lean(),
+        Product.countDocuments(filter),
+      ]);
+      return sendPaginated(
+        res,
+        { products: products.map(leanProduct), searchMethod: "name_regex", cached: false },
+        { page: listParsed.page, limit: listParsed.limit, total },
+      );
+    }
 
     const searchResult = await advancedSearchService.searchProducts({
       query: q,
