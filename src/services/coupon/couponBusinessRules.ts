@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { createHash } from 'node:crypto';
 
 export const COUPON_QUERY_MAX_MS = Number(process.env.COUPON_QUERY_MAX_MS || 5000);
 
@@ -40,8 +41,22 @@ export type CouponLineScope = {
   productId: string;
   categoryId?: string | null;
   subcategoryId?: string | null;
+  /** Legacy string fields — used when FK ids were missing at write time. */
+  categoryName?: string | null;
+  subcategoryName?: string | null;
   lineTotal: number;
 };
+
+export function linesScopeFingerprint(lines?: CouponLineScope[]): string | undefined {
+  if (!lines?.length) return undefined;
+  const parts = lines
+    .map(
+      (l) =>
+        `${l.productId}:${l.categoryId || ''}:${l.subcategoryId || ''}:${Math.round(Number(l.lineTotal) * 100)}`,
+    )
+    .sort();
+  return `L${lines.length}h${createHash('sha1').update(parts.join('|')).digest('hex').slice(0, 16)}`;
+}
 
 export function normalizeCouponCode(raw: string): string {
   return raw.trim().toUpperCase();
@@ -79,12 +94,30 @@ export function lineMatchesCouponScope(
     return idSet(coupon.applicableProductIds).has(String(line.productId));
   }
   if (scope === 'categories') {
-    if (!line.categoryId) return false;
-    return idSet(coupon.applicableCategoryIds).has(String(line.categoryId));
+    if (line.categoryId && idSet(coupon.applicableCategoryIds).has(String(line.categoryId))) {
+      return true;
+    }
+    const names = new Set(
+      (coupon.applicableCategories || []).map((n) => String(n).trim().toLowerCase()).filter(Boolean),
+    );
+    if (line.categoryName && names.has(String(line.categoryName).trim().toLowerCase())) {
+      return true;
+    }
+    // Leaf collections are often SubCategories (e.g. Chanderi) while admin scopes a Category
+    // with the same display name — treat name match on subcategory as eligible.
+    if (line.subcategoryName && names.has(String(line.subcategoryName).trim().toLowerCase())) {
+      return true;
+    }
+    return false;
   }
   if (scope === 'subcategories') {
-    if (!line.subcategoryId) return false;
-    return idSet(coupon.applicableSubcategoryIds).has(String(line.subcategoryId));
+    if (
+      line.subcategoryId &&
+      idSet(coupon.applicableSubcategoryIds).has(String(line.subcategoryId))
+    ) {
+      return true;
+    }
+    return false;
   }
   return true;
 }

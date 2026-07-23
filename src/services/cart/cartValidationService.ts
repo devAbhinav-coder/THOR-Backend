@@ -134,10 +134,24 @@ export async function findCouponByCode(
 ): Promise<Record<string, unknown> | null> {
   const normalized = normalizeCouponCode(code);
   if (!normalized) return null;
-  return Coupon.findOne({ code: normalized })
+  const doc = await Coupon.findOne({ code: normalized })
     .select(`+usedBy ${COUPON_LOOKUP_SELECT}`)
     .maxTimeMS(CART_QUERY_MAX_MS)
     .lean<Record<string, unknown>>();
+  if (!doc) return null;
+
+  const scope = String(doc.scopeType || "all");
+  const names = doc.applicableCategories as string[] | undefined;
+  const ids = doc.applicableCategoryIds as unknown[] | undefined;
+  if (scope === "categories" && !(names?.length) && ids?.length) {
+    const Category = (await import("../../models/Category")).default;
+    const cats = await Category.find({ _id: { $in: ids } })
+      .select("name")
+      .maxTimeMS(CART_QUERY_MAX_MS)
+      .lean<{ name: string }[]>();
+    doc.applicableCategories = cats.map((c) => c.name).filter(Boolean);
+  }
+  return doc;
 }
 
 export function assertNonEmptyCart(cart: CartDto): void {

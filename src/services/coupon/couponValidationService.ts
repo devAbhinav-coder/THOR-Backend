@@ -7,6 +7,7 @@ import {
   CouponLineScope,
   calculateCouponDiscount,
   evaluateCouponValidity,
+  linesScopeFingerprint,
   normalizeCouponCode,
 } from "./couponBusinessRules";
 import {
@@ -51,17 +52,38 @@ function discountFromValidity(
   return calculateCouponDiscount(coupon, base);
 }
 
+async function enrichCouponCategoryNames(coupon: CouponLike): Promise<CouponLike> {
+  if ((coupon.scopeType || "all") !== "categories") return coupon;
+  if (coupon.applicableCategories?.length) return coupon;
+  if (!coupon.applicableCategoryIds?.length) return coupon;
+  const Category = (await import("../../models/Category")).default;
+  const cats = await Category.find({
+    _id: { $in: coupon.applicableCategoryIds },
+  })
+    .select("name")
+    .maxTimeMS(COUPON_QUERY_MAX_MS)
+    .lean<{ name: string }[]>();
+  return {
+    ...coupon,
+    applicableCategories: cats.map((c) => c.name).filter(Boolean),
+  };
+}
+
 export const couponValidationService = {
   async findCouponByCode(code: string): Promise<CouponLike | null> {
     const normalized = normalizeCouponCode(code);
     const cached = await getCachedCouponByCode(normalized);
-    if (cached) return cached;
+    if (cached) return enrichCouponCategoryNames(cached);
 
     const doc = await Coupon.findOne({ code: normalized, deletedAt: null })
       .select("+usedBy")
       .maxTimeMS(COUPON_QUERY_MAX_MS)
       .lean<CouponLike>();
-    if (doc) await setCachedCouponByCode(normalized, doc);
+    if (doc) {
+      const enriched = await enrichCouponCategoryNames(doc);
+      await setCachedCouponByCode(normalized, enriched);
+      return enriched;
+    }
     return doc;
   },
 
@@ -146,7 +168,7 @@ export const couponValidationService = {
       userId,
       normalized,
       orderAmount,
-      lines?.length ? `L${lines.length}` : undefined,
+      linesScopeFingerprint(lines),
     );
     const cached = await getCachedValidationResult<{
       coupon: ReturnType<typeof toCouponValidatePayload>;
@@ -212,7 +234,7 @@ export const couponValidationService = {
     const userCacheKey = eligibleCouponsCacheKey(
       userId,
       orderAmount,
-      lines?.length ? `L${lines.length}` : undefined,
+      linesScopeFingerprint(lines),
     );
     const cached = await getCachedEligibleCoupons(userCacheKey);
     if (cached) {
@@ -240,12 +262,13 @@ export const couponValidationService = {
     const ineligible: Array<{ code: string; reason: string }> = [];
 
     for (const coupon of coupons) {
-      const validity = evaluateCouponValidity(coupon, userId, orderAmount, {
+      const enriched = await enrichCouponCategoryNames(coupon);
+      const validity = evaluateCouponValidity(enriched, userId, orderAmount, {
         completedOrders,
         now,
         lines,
       });
-      if (validity.valid) eligible.push(coupon);
+      if (validity.valid) eligible.push(enriched);
       else
         ineligible.push({
           code: coupon.code,

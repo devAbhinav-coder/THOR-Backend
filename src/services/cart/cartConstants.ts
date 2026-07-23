@@ -27,4 +27,4 @@ export const PRODUCT_FOR_CART_SELECT =
 export const PRODUCT_MIN_QTY_SELECT = 'minOrderQty occasions';
 
 export const COUPON_LOOKUP_SELECT =
-  'code discountType discountValue minOrderAmount maxDiscountAmount usageLimit usedCount userUsageLimit usedBy startDate expiryDate isActive deletedAt eligibilityType minCompletedOrders maxCompletedOrders';
+  'code discountType discountValue minOrderAmount maxDiscountAmount usageLimit usedCount userUsageLimit usedBy startDate expiryDate isActive deletedAt eligibilityType minCompletedOrders maxCompletedOrders scopeType applicableCategories applicableCategoryIds applicableSubcategoryIds applicableProductIds';

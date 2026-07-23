@@ -93,11 +93,23 @@ export const couponAdminService = {
       applicableProductIds: data.applicableProductIds as unknown[] | undefined,
     });
 
+    const categoryIds = (data.applicableCategoryIds as string[] | undefined) || [];
+    let applicableCategories = (data.applicableCategories as string[] | undefined) || [];
+    if (categoryIds.length && !applicableCategories.length) {
+      const Category = (await import("../../models/Category")).default;
+      const cats = await Category.find({ _id: { $in: categoryIds } })
+        .select("name")
+        .maxTimeMS(COUPON_QUERY_MAX_MS)
+        .lean<{ name: string }[]>();
+      applicableCategories = cats.map((c) => c.name).filter(Boolean);
+    }
+
     const coupon = await Coupon.create({
       ...data,
       code,
       startDate,
       expiryDate,
+      applicableCategories,
     });
 
     await invalidateCouponCaches(code);
@@ -179,6 +191,20 @@ export const couponAdminService = {
             new Date(update.expiryDate as string)
           : new Date(Date.now() + 86400000),
       });
+    }
+
+    const categoryIds = update.applicableCategoryIds as string[] | undefined;
+    if (Array.isArray(categoryIds)) {
+      if (categoryIds.length) {
+        const Category = (await import("../../models/Category")).default;
+        const cats = await Category.find({ _id: { $in: categoryIds } })
+          .select("name")
+          .maxTimeMS(COUPON_QUERY_MAX_MS)
+          .lean<{ name: string }[]>();
+        update.applicableCategories = cats.map((c) => c.name).filter(Boolean);
+      } else {
+        update.applicableCategories = [];
+      }
     }
 
     const coupon = await Coupon.findOneAndUpdate(

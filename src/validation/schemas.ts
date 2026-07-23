@@ -618,6 +618,8 @@ export const validateCouponSchema = z.object({
 export const eligibleCouponsQuerySchema = z.object({
   query: z.object({
     orderAmount: z.coerce.number().min(0).optional(),
+    /** Optional JSON array of { productId, price, quantity } for buy-now / explicit carts */
+    items: z.string().max(20000).optional(),
   }),
 });
 

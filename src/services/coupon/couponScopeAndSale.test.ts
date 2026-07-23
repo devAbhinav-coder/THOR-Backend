@@ -4,6 +4,7 @@ import {
   computeEligibleSubtotal,
   evaluateCouponValidity,
   lineMatchesCouponScope,
+  linesScopeFingerprint,
   resolveDiscountBaseAmount,
   type CouponLike,
   type CouponLineScope,
@@ -161,6 +162,38 @@ assert.equal(
   const resolved = resolveEffectivePrice({ price: 1000 }, [a, b], now);
   assert.equal(resolved.effectivePrice, 750);
   assert.equal(resolved.saleCampaignId, 'better');
+}
+
+// Name fallback: category-scoped coupon matches subcategory with same display name
+assert.equal(
+  lineMatchesCouponScope(
+    baseCoupon({
+      scopeType: 'categories',
+      applicableCategoryIds: ['cat-chanderi'],
+      applicableCategories: ['Chanderi'],
+    }),
+    { productId: 'p3', categoryId: 'c-sarees', subcategoryId: 's-ch', subcategoryName: 'Chanderi', lineTotal: 800 },
+  ),
+  true
+);
+
+// Fingerprint changes with product composition (not just line count)
+{
+  const a = linesScopeFingerprint([
+    { productId: 'p1', categoryId: 'c1', lineTotal: 1000 },
+    { productId: 'p2', categoryId: 'c2', lineTotal: 500 },
+  ]);
+  const b = linesScopeFingerprint([
+    { productId: 'p1', categoryId: 'c1', lineTotal: 1000 },
+    { productId: 'p9', categoryId: 'c9', lineTotal: 500 },
+  ]);
+  const c = linesScopeFingerprint([
+    { productId: 'p2', categoryId: 'c2', lineTotal: 500 },
+    { productId: 'p1', categoryId: 'c1', lineTotal: 1000 },
+  ]);
+  assert.ok(a);
+  assert.notEqual(a, b);
+  assert.equal(a, c);
 }
 
 console.log('couponBusinessRules + salePriceService tests passed');

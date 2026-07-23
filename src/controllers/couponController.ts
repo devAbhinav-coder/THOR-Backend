@@ -159,23 +159,61 @@ export const getEligibleCoupons = catchAsync(
   async (req: AuthRequest, res: Response) => {
     const orderAmount = Number(req.query.orderAmount || 0);
     let lines;
-    try {
-      const { cartService } = await import("../services/cartService");
-      const { buildCouponLinesFromCartItems } = await import(
-        "../services/coupon/couponLineScopeService"
-      );
-      const cart = await cartService.getCart(String(req.user!._id));
-      if (cart.items?.length) {
-        lines = await buildCouponLinesFromCartItems(
-          cart.items.map((item) => ({
-            product: item.product,
-            price: item.price,
-            quantity: item.quantity,
-          })),
-        );
+    const itemsRaw = typeof req.query.items === "string" ? req.query.items : "";
+    if (itemsRaw) {
+      try {
+        const parsed = JSON.parse(itemsRaw) as unknown;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const { buildCouponLinesFromProductIds } = await import(
+            "../services/coupon/couponLineScopeService"
+          );
+          const entries = parsed
+            .map((row) => {
+              const r = row as {
+                productId?: unknown;
+                price?: unknown;
+                quantity?: unknown;
+              };
+              return {
+                productId: String(r.productId || ""),
+                price: Number(r.price) || 0,
+                quantity: Number(r.quantity) || 0,
+              };
+            })
+            .filter(
+              (e) =>
+                e.productId &&
+                e.quantity > 0 &&
+                e.price >= 0 &&
+                /^[a-fA-F0-9]{24}$/.test(e.productId),
+            );
+          if (entries.length) {
+            lines = await buildCouponLinesFromProductIds(entries);
+          }
+        }
+      } catch {
+        lines = undefined;
       }
-    } catch {
-      lines = undefined;
+    }
+    if (!lines) {
+      try {
+        const { cartService } = await import("../services/cartService");
+        const { buildCouponLinesFromCartItems } = await import(
+          "../services/coupon/couponLineScopeService"
+        );
+        const cart = await cartService.getCart(String(req.user!._id));
+        if (cart.items?.length) {
+          lines = await buildCouponLinesFromCartItems(
+            cart.items.map((item) => ({
+              product: item.product,
+              price: item.price,
+              quantity: item.quantity,
+            })),
+          );
+        }
+      } catch {
+        lines = undefined;
+      }
     }
     const { coupons, ineligible, completedOrders } =
       await couponValidationService.getEligibleCoupons(
