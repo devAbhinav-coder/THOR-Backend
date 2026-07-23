@@ -719,6 +719,7 @@ export const reviewService = {
         rating,
         images: images!,
         productId,
+        linkedReviewId: reviewId,
       });
       testimonialId = String(story._id);
     }

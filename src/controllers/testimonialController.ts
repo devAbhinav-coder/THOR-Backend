@@ -66,8 +66,19 @@ export const approveTestimonial = catchAsync(async (req: Request, res: Response)
   const testimonial = await testimonialService.approve(req.params.id);
   await writeAdminAudit(req as AuthRequest, 'testimonial.approve', {
     testimonialId: req.params.id,
+    linkedReviewId: (testimonial as { linkedReviewId?: string }).linkedReviewId,
   });
-  sendSuccess(res, { testimonial }, 'Story approved — now live on homepage');
+  const hasProductReview = Boolean(
+    (testimonial as { linkedReviewId?: string; product?: unknown }).linkedReviewId ||
+      (testimonial as { product?: unknown }).product,
+  );
+  sendSuccess(
+    res,
+    { testimonial },
+    hasProductReview
+      ? 'Approved — live on homepage and product page (rating updated)'
+      : 'Story approved — now live on homepage',
+  );
 });
 
 export const rejectTestimonial = catchAsync(async (req: Request, res: Response) => {

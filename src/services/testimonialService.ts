@@ -4,6 +4,7 @@ import Review from '../models/Review';
 import AppError from '../types/utils/AppError';
 import { getCache, setCache, deleteCache } from './cacheService';
 import { PUBLIC_REVIEW_FILTER } from './reviews/reviewConstants';
+import { reviewCacheService } from './reviews/reviewCacheService';
 
 const PUBLIC_CACHE_KEY = 'cache:testimonials:home:v3';
 const PUBLIC_TTL = 300;
@@ -50,6 +51,8 @@ export type TestimonialInput = {
   status?: 'pending' | 'approved' | 'rejected';
   source?: 'public_link' | 'admin';
   productId?: string;
+  /** Product review created with this story (share-link / invite). */
+  linkedReviewId?: string;
 };
 
 function productDto(product: unknown) {
@@ -126,7 +129,7 @@ function reviewToHomeDto(doc: Record<string, unknown>): HomeStoryDto | null {
 }
 
 function toAdminDto(doc: ITestimonial | Record<string, unknown>) {
-  const d = doc as ITestimonial & { product?: unknown };
+  const d = doc as ITestimonial & { product?: unknown; linkedReview?: unknown };
   const status = d.status || (d.isActive ? 'approved' : 'pending');
   const product = productDto(d.product);
   const rawProductId =
@@ -135,6 +138,13 @@ function toAdminDto(doc: ITestimonial | Record<string, unknown>) {
       : d.product
         ? String(d.product)
         : undefined;
+  const linkedReviewId = d.linkedReview
+    ? String(
+        typeof d.linkedReview === 'object' && d.linkedReview !== null && '_id' in d.linkedReview
+          ? (d.linkedReview as { _id: unknown })._id
+          : d.linkedReview,
+      )
+    : undefined;
   return {
     _id: String(d._id),
     displayName: d.displayName || '',
@@ -152,6 +162,7 @@ function toAdminDto(doc: ITestimonial | Record<string, unknown>) {
       : rawProductId
         ? { product: { _id: rawProductId, name: 'Product' } }
         : {}),
+    ...(linkedReviewId ? { linkedReviewId } : {}),
     createdAt: d.createdAt,
     updatedAt: d.updatedAt,
   };
@@ -164,6 +175,163 @@ function normalizeProductId(productId?: string) {
     throw new AppError('Invalid product.', 400);
   }
   return id;
+}
+
+function normalizeReviewId(reviewId?: string) {
+  const id = String(reviewId || '').trim();
+  if (!id) return undefined;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw new AppError('Invalid linked review.', 400);
+  }
+  return id;
+}
+
+async function recalcProductRatings(productId: mongoose.Types.ObjectId) {
+  await (
+    Review as typeof Review & {
+      calcAverageRatings: (id: mongoose.Types.ObjectId) => Promise<void>;
+    }
+  ).calcAverageRatings(productId);
+  reviewCacheService.scheduleInvalidateProduct(String(productId));
+  reviewCacheService.scheduleInvalidateFeatured();
+}
+
+async function healApprovedStoriesMissingVisibleReviews(
+  stories: ITestimonial[],
+): Promise<boolean> {
+  const approved = stories.filter(
+    (s) => s.status === 'approved' && (s.linkedReview || s.product),
+  );
+  if (approved.length === 0) return false;
+
+  let healed = false;
+  for (const story of approved.slice(0, 40)) {
+    try {
+      let review =
+        story.linkedReview
+          ? await Review.findById(story.linkedReview)
+          : null;
+
+      if (!review && story.product) {
+        const quoteKey = String(story.quote || '').trim().slice(0, 80).toLowerCase();
+        const candidates = await Review.find({
+          product: story.product,
+          source: { $in: ['share_link', 'invite'] },
+          status: { $in: ['pending_moderation', 'flagged'] },
+        })
+          .sort({ createdAt: -1 })
+          .limit(8)
+          .maxTimeMS(QUERY_MAX_MS);
+        review =
+          candidates.find((r) => {
+            const commentKey = String(r.comment || '')
+              .trim()
+              .slice(0, 80)
+              .toLowerCase();
+            return commentKey === quoteKey;
+          }) || null;
+      }
+
+      if (!review) continue;
+      if (review.status === 'visible' && !review.deletedAt) {
+        if (!story.linkedReview) {
+          await Testimonial.findByIdAndUpdate(story._id, {
+            linkedReview: review._id,
+          });
+        }
+        continue;
+      }
+
+      review.status = 'visible';
+      review.deletedAt = null;
+      await review.save();
+
+      if (!story.linkedReview) {
+        await Testimonial.findByIdAndUpdate(story._id, {
+          linkedReview: review._id,
+        });
+      }
+
+      const productId =
+        review.product instanceof mongoose.Types.ObjectId
+          ? review.product
+          : new mongoose.Types.ObjectId(
+              String(
+                typeof review.product === 'object' &&
+                  review.product &&
+                  '_id' in review.product
+                  ? (review.product as { _id: unknown })._id
+                  : review.product,
+              ),
+            );
+      await recalcProductRatings(productId);
+      healed = true;
+    } catch {
+      // best-effort heal; skip bad rows
+    }
+  }
+
+  if (healed) {
+    await deleteCache(PUBLIC_CACHE_KEY);
+  }
+  return healed;
+}
+
+/**
+ * Make the paired product review visible (or hidden) when a story is moderated.
+ * Falls back to matching pending share_link/invite reviews for older unlinked rows.
+ */
+async function syncLinkedProductReview(
+  story: ITestimonial,
+  next: 'approve' | 'reject',
+): Promise<void> {
+  let review =
+    story.linkedReview
+      ? await Review.findById(story.linkedReview)
+      : null;
+
+  if (!review && story.product) {
+    const quoteKey = String(story.quote || '').trim().slice(0, 80).toLowerCase();
+    const candidates = await Review.find({
+      product: story.product,
+      source: { $in: ['share_link', 'invite'] },
+      status: { $in: ['pending_moderation', 'flagged', 'visible', 'hidden'] },
+    })
+      .sort({ createdAt: -1 })
+      .limit(12)
+      .maxTimeMS(QUERY_MAX_MS);
+
+    review =
+      candidates.find((r) => {
+        const commentKey = String(r.comment || '').trim().slice(0, 80).toLowerCase();
+        return commentKey === quoteKey;
+      }) || null;
+
+    if (review && !story.linkedReview) {
+      story.linkedReview = review._id as ITestimonial['linkedReview'];
+    }
+  }
+
+  if (!review) return;
+
+  if (next === 'approve') {
+    review.status = 'visible';
+    review.deletedAt = null;
+  } else {
+    review.status = 'hidden';
+    if (!review.deletedAt) review.deletedAt = new Date();
+  }
+  await review.save();
+
+  const productId =
+    review.product instanceof mongoose.Types.ObjectId
+      ? review.product
+      : new mongoose.Types.ObjectId(String(
+          typeof review.product === 'object' && review.product && '_id' in review.product
+            ? (review.product as { _id: unknown })._id
+            : review.product,
+        ));
+  await recalcProductRatings(productId);
 }
 
 export const testimonialService = {
@@ -230,7 +398,22 @@ export const testimonialService = {
       .sort({ createdAt: -1 })
       .maxTimeMS(QUERY_MAX_MS)
       .lean();
-    return docs.map((d) => toAdminDto(d as unknown as ITestimonial));
+
+    // Heal older approvals where the paired product review stayed pending
+    const healed = await healApprovedStoriesMissingVisibleReviews(
+      docs as unknown as ITestimonial[],
+    );
+
+    if (!healed) {
+      return docs.map((d) => toAdminDto(d as unknown as ITestimonial));
+    }
+
+    const refreshed = await Testimonial.find()
+      .populate({ path: 'product', select: 'name slug images isActive' })
+      .sort({ createdAt: -1 })
+      .maxTimeMS(QUERY_MAX_MS)
+      .lean();
+    return refreshed.map((d) => toAdminDto(d as unknown as ITestimonial));
   },
 
   async create(input: TestimonialInput) {
@@ -243,6 +426,7 @@ export const testimonialService = {
     const status = input.status || (source === 'public_link' ? 'pending' : 'approved');
     const approved = status === 'approved';
     const productId = normalizeProductId(input.productId);
+    const linkedReviewId = normalizeReviewId(input.linkedReviewId);
 
     const doc = await Testimonial.create({
       displayName: isAnonymous ? undefined : String(input.displayName).trim(),
@@ -251,6 +435,7 @@ export const testimonialService = {
       rating: Math.min(5, Math.max(1, Number(input.rating) || 5)),
       images,
       ...(productId ? { product: productId } : {}),
+      ...(linkedReviewId ? { linkedReview: linkedReviewId } : {}),
       status,
       source,
       isActive: approved && input.isActive !== false,
@@ -272,6 +457,7 @@ export const testimonialService = {
     rating?: number;
     images?: { url: string; publicId: string }[];
     productId?: string;
+    linkedReviewId?: string;
   }) {
     if (!input.images?.length) {
       throw new AppError('Please upload at least one photo.', 400);
@@ -291,9 +477,13 @@ export const testimonialService = {
     existing.status = 'approved';
     existing.isActive = true;
     existing.showOnHome = true;
+    await syncLinkedProductReview(existing, 'approve');
     await existing.save();
     await deleteCache(PUBLIC_CACHE_KEY);
-    return toAdminDto(existing);
+    const populated = await Testimonial.findById(existing._id)
+      .populate({ path: 'product', select: 'name slug images isActive' })
+      .lean();
+    return toAdminDto((populated || existing) as unknown as ITestimonial);
   },
 
   async reject(id: string) {
@@ -302,9 +492,13 @@ export const testimonialService = {
     existing.status = 'rejected';
     existing.isActive = false;
     existing.showOnHome = false;
+    await syncLinkedProductReview(existing, 'reject');
     await existing.save();
     await deleteCache(PUBLIC_CACHE_KEY);
-    return toAdminDto(existing);
+    const populated = await Testimonial.findById(existing._id)
+      .populate({ path: 'product', select: 'name slug images isActive' })
+      .lean();
+    return toAdminDto((populated || existing) as unknown as ITestimonial);
   },
 
   async update(id: string, input: Partial<TestimonialInput>) {

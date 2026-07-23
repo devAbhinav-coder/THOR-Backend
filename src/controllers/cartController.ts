@@ -29,6 +29,7 @@ import {
 } from "../services/cart/cartAbuseService";
 import { recordFailedCouponAttempt } from "../services/coupon/couponAbuseService";
 import {
+  calculateCouponDiscount,
   evaluateCouponValidity,
   type CouponLike,
 } from "../services/coupon/couponBusinessRules";
@@ -256,6 +257,28 @@ export const applyCoupon = catchAsync(
       cartAnalyticsService.trackCouponApply(false, uid, normalizedCode);
       throw new AppError(
         validity.message || "Coupon is not valid for this cart.",
+        400,
+      );
+    }
+
+    const eligibleBase =
+      validity.eligibleAmount !== undefined ? validity.eligibleAmount : cart.subtotal;
+    const previewDiscount = calculateCouponDiscount(
+      coupon as CouponLike,
+      eligibleBase,
+      lines,
+    );
+    if (previewDiscount <= 0) {
+      await recordFailedCouponAttempt(uid, ip, normalizedCode);
+      cartAnalyticsService.trackCouponApply(false, uid, normalizedCode);
+      const typed = coupon as CouponLike;
+      const scoped = (typed.scopeType || "all") !== "all";
+      throw new AppError(
+        typed.discountType === "fixed"
+          ? scoped
+            ? `Eligible items must be priced above ₹${typed.discountValue} for this offer`
+            : `Eligible items must total more than ₹${typed.discountValue} for this offer`
+          : "This coupon does not reduce the price of items in your cart.",
         400,
       );
     }

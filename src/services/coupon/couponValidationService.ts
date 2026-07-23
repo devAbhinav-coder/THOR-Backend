@@ -46,41 +46,63 @@ function discountFromValidity(
   coupon: CouponLike,
   orderAmount: number,
   validity: { valid: boolean; eligibleAmount?: number },
+  lines?: CouponLineScope[],
 ): number {
   const base =
     validity.eligibleAmount !== undefined ? validity.eligibleAmount : orderAmount;
-  return calculateCouponDiscount(coupon, base);
+  return calculateCouponDiscount(coupon, base, lines);
 }
 
-async function enrichCouponCategoryNames(coupon: CouponLike): Promise<CouponLike> {
-  if ((coupon.scopeType || "all") !== "categories") return coupon;
-  if (coupon.applicableCategories?.length) return coupon;
-  if (!coupon.applicableCategoryIds?.length) return coupon;
-  const Category = (await import("../../models/Category")).default;
-  const cats = await Category.find({
-    _id: { $in: coupon.applicableCategoryIds },
-  })
-    .select("name")
-    .maxTimeMS(COUPON_QUERY_MAX_MS)
-    .lean<{ name: string }[]>();
-  return {
-    ...coupon,
-    applicableCategories: cats.map((c) => c.name).filter(Boolean),
-  };
+async function enrichCouponScopeNames(coupon: CouponLike): Promise<CouponLike> {
+  const scope = coupon.scopeType || "all";
+
+  if (scope === "categories") {
+    if (coupon.applicableCategories?.length) return coupon;
+    if (!coupon.applicableCategoryIds?.length) return coupon;
+    const Category = (await import("../../models/Category")).default;
+    const cats = await Category.find({
+      _id: { $in: coupon.applicableCategoryIds },
+    })
+      .select("name")
+      .maxTimeMS(COUPON_QUERY_MAX_MS)
+      .lean<{ name: string }[]>();
+    return {
+      ...coupon,
+      applicableCategories: cats.map((c) => c.name).filter(Boolean),
+    };
+  }
+
+  if (scope === "subcategories") {
+    if (coupon.applicableSubcategoryNames?.length) return coupon;
+    if (!coupon.applicableSubcategoryIds?.length) return coupon;
+    const SubCategory = (await import("../../models/SubCategory")).default;
+    const subs = await SubCategory.find({
+      _id: { $in: coupon.applicableSubcategoryIds },
+    })
+      .select("name")
+      .maxTimeMS(COUPON_QUERY_MAX_MS)
+      .lean<{ name: string }[]>();
+    return {
+      ...coupon,
+      applicableSubcategoryNames: subs.map((s) => s.name).filter(Boolean),
+    };
+  }
+
+  return coupon;
 }
 
 export const couponValidationService = {
   async findCouponByCode(code: string): Promise<CouponLike | null> {
     const normalized = normalizeCouponCode(code);
     const cached = await getCachedCouponByCode(normalized);
-    if (cached) return enrichCouponCategoryNames(cached);
+    if (cached) return enrichCouponScopeNames(cached);
 
     const doc = await Coupon.findOne({ code: normalized, deletedAt: null })
       .select("+usedBy")
       .maxTimeMS(COUPON_QUERY_MAX_MS)
       .lean<CouponLike>();
     if (doc) {
-      const enriched = await enrichCouponCategoryNames(doc);
+      const enriched = await enrichCouponScopeNames(doc);
       await setCachedCouponByCode(normalized, enriched);
       return enriched;
     }
@@ -206,7 +228,19 @@ export const couponValidationService = {
       throw new AppError(validity.message || "Coupon is not valid.", 400);
     }
 
-    const discount = discountFromValidity(coupon, orderAmount, validity);
+    const discount = discountFromValidity(coupon, orderAmount, validity, lines);
+    if (discount <= 0) {
+      await recordFailedCouponAttempt(userId, ip, normalized);
+      recordCouponMetric("coupon.validate.failure", { reason: "zero_discount" });
+      throw new AppError(
+        coupon.discountType === "fixed"
+          ? (coupon.scopeType || "all") !== "all"
+            ? `Eligible items must be priced above ₹${coupon.discountValue} for this offer`
+            : `Eligible items must total more than ₹${coupon.discountValue} for this offer`
+          : "This coupon does not reduce the price of items in your cart",
+        400,
+      );
+    }
     const payload = {
       coupon: toCouponValidatePayload(coupon),
       discount,
@@ -245,7 +279,7 @@ export const couponValidationService = {
     const coupons = await Coupon.find({
       ...ACTIVE_COUPON_DB_FILTER,
       startDate: { $lte: now },
-      expiryDate: { $gt: now },
+      expiryDate: { $gte: now },
       $or: [
         { usageLimit: { $exists: false } },
         { usageLimit: null },
@@ -262,7 +296,7 @@ export const couponValidationService = {
     const ineligible: Array<{ code: string; reason: string }> = [];
 
     for (const coupon of coupons) {
-      const enriched = await enrichCouponCategoryNames(coupon);
+      const enriched = await enrichCouponScopeNames(coupon);
       const validity = evaluateCouponValidity(enriched, userId, orderAmount, {
         completedOrders,
         now,
@@ -305,7 +339,7 @@ export const couponValidationService = {
         throw new AppError(validity.message || "Coupon is not valid.", 400);
       }
       return {
-        discount: discountFromValidity(coupon, checkoutSubtotal, validity),
+        discount: discountFromValidity(coupon, checkoutSubtotal, validity, lines),
         couponId: coupon._id as mongoose.Types.ObjectId,
       };
     }
@@ -316,15 +350,16 @@ export const couponValidationService = {
         .lean<CouponLike>();
       if (coupon) {
         const completedOrders = await getUserDeliveredOrderCount(userId);
+        const enriched = await enrichCouponScopeNames(coupon);
         const validity = evaluateCouponValidity(
-          coupon,
+          enriched,
           userId,
           checkoutSubtotal,
           { completedOrders, lines },
         );
         if (validity.valid) {
           return {
-            discount: discountFromValidity(coupon, checkoutSubtotal, validity),
+            discount: discountFromValidity(enriched, checkoutSubtotal, validity, lines),
             couponId: cartCouponId,
           };
         }

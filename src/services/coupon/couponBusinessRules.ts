@@ -31,6 +31,8 @@ export type CouponLike = {
   archivedAt?: Date | null;
   scopeType?: PromoScopeType;
   applicableCategories?: string[];
+  /** Runtime-only: enriched subcategory display names for ID-scoped coupons. */
+  applicableSubcategoryNames?: string[];
   applicableCategoryIds?: (mongoose.Types.ObjectId | string)[];
   applicableSubcategoryIds?: (mongoose.Types.ObjectId | string)[];
   applicableProductIds?: (mongoose.Types.ObjectId | string)[];
@@ -44,16 +46,24 @@ export type CouponLineScope = {
   /** Legacy string fields — used when FK ids were missing at write time. */
   categoryName?: string | null;
   subcategoryName?: string | null;
+  /** Unit selling price for this line. */
+  unitPrice?: number;
+  /** Quantity in cart (defaults to 1 when omitted). */
+  quantity?: number;
   lineTotal: number;
 };
 
 export function linesScopeFingerprint(lines?: CouponLineScope[]): string | undefined {
   if (!lines?.length) return undefined;
   const parts = lines
-    .map(
-      (l) =>
-        `${l.productId}:${l.categoryId || ''}:${l.subcategoryId || ''}:${Math.round(Number(l.lineTotal) * 100)}`,
-    )
+    .map((l) => {
+      const qty = Math.max(1, Number(l.quantity) || 1);
+      const unit =
+        l.unitPrice != null && Number.isFinite(Number(l.unitPrice))
+          ? Number(l.unitPrice)
+          : Math.round((Number(l.lineTotal) / qty) * 100) / 100;
+      return `${l.productId}:${l.categoryId || ''}:${l.subcategoryId || ''}:${qty}:${Math.round(unit * 100)}`;
+    })
     .sort();
   return `L${lines.length}h${createHash('sha1').update(parts.join('|')).digest('hex').slice(0, 16)}`;
 }
@@ -115,6 +125,14 @@ export function lineMatchesCouponScope(
       line.subcategoryId &&
       idSet(coupon.applicableSubcategoryIds).has(String(line.subcategoryId))
     ) {
+      return true;
+    }
+    const names = new Set(
+      (coupon.applicableSubcategoryNames || [])
+        .map((n) => String(n).trim().toLowerCase())
+        .filter(Boolean),
+    );
+    if (line.subcategoryName && names.has(String(line.subcategoryName).trim().toLowerCase())) {
       return true;
     }
     return false;
@@ -230,10 +248,42 @@ export function evaluateCouponValidity(
     return { valid: false, message: 'You are not eligible for this coupon' };
   }
 
+  // Direct price / flat / % must actually save money on the eligible base.
+  // Otherwise carts show "coupon applied · Off ₹0" and Direct Price looks broken.
+  const discount = calculateCouponDiscount(coupon, base.amount, opts?.lines);
+  if (discount <= 0) {
+    if (coupon.discountType === 'fixed') {
+      const scoped = (coupon.scopeType || 'all') !== 'all';
+      return {
+        valid: false,
+        message: scoped
+          ? `Eligible items must be priced above ₹${coupon.discountValue} for this offer`
+          : `Eligible items must total more than ₹${coupon.discountValue} for this offer`,
+        eligibleAmount: base.amount,
+      };
+    }
+    return {
+      valid: false,
+      message: 'This coupon does not reduce the price of items in your cart',
+      eligibleAmount: base.amount,
+    };
+  }
+
   return { valid: true, eligibleAmount: base.amount };
 }
 
-export function calculateCouponDiscount(coupon: CouponLike, orderAmount: number): number {
+/**
+ * Compute coupon discount.
+ * - percentage / flat: on `orderAmount` (eligible base)
+ * - fixed + scope all: whole eligible base pays `discountValue`
+ * - fixed + category/subcategory/product: each matching unit pays `discountValue`
+ *   (same as sale Direct Price — 5 products ≠ cart at ₹1150, each is ₹1150)
+ */
+export function calculateCouponDiscount(
+  coupon: CouponLike,
+  orderAmount: number,
+  lines?: CouponLineScope[]
+): number {
   let discount = 0;
   if (coupon.discountType === 'percentage') {
     discount = (orderAmount * coupon.discountValue) / 100;
@@ -241,12 +291,28 @@ export function calculateCouponDiscount(coupon: CouponLike, orderAmount: number)
       discount = Math.min(discount, coupon.maxDiscountAmount);
     }
   } else if (coupon.discountType === 'fixed') {
-    // Eligible cart pays this exact amount (e.g. ₹1150)
-    discount = Math.max(0, orderAmount - coupon.discountValue);
+    const scope = coupon.scopeType || 'all';
+    const usePerUnit =
+      scope !== 'all' && Array.isArray(lines) && lines.length > 0;
+
+    if (usePerUnit) {
+      for (const line of lines) {
+        if (!lineMatchesCouponScope(coupon, line)) continue;
+        const qty = Math.max(1, Math.floor(Number(line.quantity) || 1));
+        const unitPrice =
+          line.unitPrice != null && Number.isFinite(Number(line.unitPrice))
+            ? Math.max(0, Number(line.unitPrice))
+            : Math.max(0, Number(line.lineTotal) / qty);
+        discount += Math.max(0, unitPrice - coupon.discountValue) * qty;
+      }
+    } else {
+      // Eligible cart (or full order when scope=all) pays this exact amount
+      discount = Math.max(0, orderAmount - coupon.discountValue);
+    }
   } else {
     discount = coupon.discountValue;
   }
-  return Math.min(discount, orderAmount);
+  return Math.min(discount, Math.max(0, orderAmount));
 }
 
 export function assertCouponBusinessRules(input: {

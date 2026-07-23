@@ -334,6 +334,7 @@ export const reviewInviteService = {
       rating,
       images,
       productId,
+      linkedReviewId: String(review._id),
     });
 
     reviewCacheService.scheduleInvalidateProduct(productId);

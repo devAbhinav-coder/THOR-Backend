@@ -164,6 +164,8 @@ export async function buildCouponLinesFromCartItems(
       subcategoryId,
       categoryName,
       subcategoryName,
+      unitPrice: Number(item.price),
+      quantity: Number(item.quantity),
       lineTotal: Number(item.price) * Number(item.quantity),
     };
   });

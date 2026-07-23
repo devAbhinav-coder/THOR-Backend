@@ -124,7 +124,9 @@ export const searchAdminProducts = catchAsync(
           .sort({ updatedAt: -1 })
           .skip(skip)
           .limit(listParsed.limit)
-          .select("name slug images price category isActive")
+          .select(
+            "name slug images price category isActive variants.size variants.color variants.colorCode variants.stock variants.sku variants.price",
+          )
           .lean(),
         Product.countDocuments(filter),
       ]);

@@ -151,6 +151,18 @@ export async function findCouponByCode(
       .lean<{ name: string }[]>();
     doc.applicableCategories = cats.map((c) => c.name).filter(Boolean);
   }
+  if (scope === "subcategories") {
+    const subNames = doc.applicableSubcategoryNames as string[] | undefined;
+    const subIds = doc.applicableSubcategoryIds as unknown[] | undefined;
+    if (!(subNames?.length) && subIds?.length) {
+      const SubCategory = (await import("../../models/SubCategory")).default;
+      const subs = await SubCategory.find({ _id: { $in: subIds } })
+        .select("name")
+        .maxTimeMS(CART_QUERY_MAX_MS)
+        .lean<{ name: string }[]>();
+      doc.applicableSubcategoryNames = subs.map((s) => s.name).filter(Boolean);
+    }
+  }
   return doc;
 }
 

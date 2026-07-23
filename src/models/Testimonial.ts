@@ -18,6 +18,11 @@ export interface ITestimonial {
   images: ITestimonialImage[];
   /** Optional product this story/review is about */
   product?: mongoose.Types.ObjectId;
+  /**
+   * When this story was submitted together with a product review
+   * (share-link / offline invite), approve/reject stays in sync.
+   */
+  linkedReview?: mongoose.Types.ObjectId;
   /** pending = waiting admin approval (from share link) */
   status: TestimonialStatus;
   source: TestimonialSource;
@@ -53,6 +58,12 @@ const testimonialSchema = new Schema<ITestimonial>(
     product: {
       type: Schema.Types.ObjectId,
       ref: 'Product',
+      required: false,
+      index: true,
+    },
+    linkedReview: {
+      type: Schema.Types.ObjectId,
+      ref: 'Review',
       required: false,
       index: true,
     },

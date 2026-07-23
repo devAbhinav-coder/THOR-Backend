@@ -122,21 +122,43 @@ reviewSchema.statics.calcAverageRatings = async function (productId: mongoose.Ty
   }
 };
 
+function resolveProductObjectId(
+  product: unknown,
+): mongoose.Types.ObjectId | null {
+  if (!product) return null;
+  if (product instanceof mongoose.Types.ObjectId) return product;
+  if (typeof product === 'string' && mongoose.Types.ObjectId.isValid(product)) {
+    return new mongoose.Types.ObjectId(product);
+  }
+  if (typeof product === 'object' && product !== null && '_id' in product) {
+    const id = (product as { _id: unknown })._id;
+    if (id instanceof mongoose.Types.ObjectId) return id;
+    if (typeof id === 'string' && mongoose.Types.ObjectId.isValid(id)) {
+      return new mongoose.Types.ObjectId(id);
+    }
+  }
+  return null;
+}
+
 reviewSchema.post('save', async function () {
+  const productId = resolveProductObjectId(this.product);
+  if (!productId) return;
   await (
     this.constructor as typeof mongoose.Model & {
       calcAverageRatings: (id: mongoose.Types.ObjectId) => Promise<void>;
     }
-  ).calcAverageRatings(this.product as mongoose.Types.ObjectId);
+  ).calcAverageRatings(productId);
 });
 
 reviewSchema.post('findOneAndDelete', async function (doc: IReview) {
   if (doc) {
+    const productId = resolveProductObjectId(doc.product);
+    if (!productId) return;
     await (
       mongoose.model('Review') as typeof mongoose.Model & {
         calcAverageRatings: (id: mongoose.Types.ObjectId) => Promise<void>;
       }
-    ).calcAverageRatings(doc.product as mongoose.Types.ObjectId);
+    ).calcAverageRatings(productId);
   }
 });
 

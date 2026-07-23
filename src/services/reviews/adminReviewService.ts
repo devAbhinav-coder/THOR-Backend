@@ -79,7 +79,12 @@ export const adminReviewService = {
     const review = await Review.findByIdAndDelete(reviewId);
     if (!review) throw new AppError("Review not found.", 404);
 
-    const productId = String(review.product);
+    const productRef = review.product as unknown;
+    const productId =
+      productRef && typeof productRef === "object" && "_id" in (productRef as object)
+        ? String((productRef as { _id: unknown })._id)
+        : String(review.product);
+
     reviewCacheService.scheduleInvalidateProduct(productId);
     reviewCacheService.scheduleInvalidateFeatured();
 
@@ -87,7 +92,11 @@ export const adminReviewService = {
       Review as typeof Review & {
         calcAverageRatings: (id: Types.ObjectId) => Promise<void>;
       }
-    ).calcAverageRatings(review.product as Types.ObjectId);
+    ).calcAverageRatings(
+      Types.ObjectId.isValid(productId)
+        ? new Types.ObjectId(productId)
+        : (review.product as Types.ObjectId),
+    );
 
     recordReviewMetric("review.deleted", {
       scope: "admin",
