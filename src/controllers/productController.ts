@@ -50,8 +50,8 @@ import {
   mergeOccasionOptions,
 } from "../constants/productCatalog";
 import {
+  buildFilterColorOptions,
   canonicalizeVariantColors,
-  dedupeCatalogLabels,
 } from "../utils/catalogAttributes";
 import { invalidateGiftingProductCache } from "../services/gifting/giftingProductDiscoveryService";
 const PDP_CACHE_TTL = 600;
@@ -349,10 +349,11 @@ export const getFilterOptions = catchAsync(
       typeof req.query.subcategoryId === "string" ? req.query.subcategoryId.trim() : "";
 
     const v = await getProductCacheVersion();
-    const cacheKey = filtersCacheKey(v, `${categoryParam || 'all'}-${categoryIdParam || 'all'}-${subcategoryIdParam || 'all'}`);
+    const cacheKey = filtersCacheKey(v, `cc1-${categoryParam || 'all'}-${categoryIdParam || 'all'}-${subcategoryIdParam || 'all'}`);
     const cached = await getCache<{
       categories: string[];
       colors: string[];
+      colorCodes: Record<string, string>;
       fabrics: string[];
       subcategories: string[];
       occasions: string[];
@@ -379,7 +380,7 @@ export const getFilterOptions = catchAsync(
 
     const [facet] = await Product.aggregate<{
       allCategories: { categories: string[] }[];
-      allColors: { colors: string[] }[];
+      allColors: { color: string; colorCode: string }[];
       allFabrics: { fabrics: string[] }[];
       allSubcategories: { subcategories: string[] }[];
       allTags: { tags: string[] }[];
@@ -406,8 +407,17 @@ export const getFilterOptions = catchAsync(
             { $match: { "variants.color": { $exists: true, $ne: "" } } },
             {
               $group: {
-                _id: null,
-                colors: { $addToSet: "$variants.color" },
+                _id: {
+                  color: "$variants.color",
+                  colorCode: { $ifNull: ["$variants.colorCode", ""] },
+                },
+              },
+            },
+            {
+              $project: {
+                _id: 0,
+                color: "$_id.color",
+                colorCode: "$_id.colorCode",
               },
             },
           ],
@@ -464,7 +474,8 @@ export const getFilterOptions = catchAsync(
     ]).option({ maxTimeMS: 4000 });
 
     const allCategories = facet?.allCategories?.[0];
-    const allColors = facet?.allColors?.[0];
+    const { colors: filterColors, colorCodes: filterColorCodes } =
+      buildFilterColorOptions(facet?.allColors ?? []);
     const allFabrics = facet?.allFabrics?.[0];
     const allSubcategories = facet?.allSubcategories?.[0];
     const allTags = facet?.allTags?.[0];
@@ -520,9 +531,8 @@ export const getFilterOptions = catchAsync(
         .filter(Boolean)
         .filter((c) => c !== "Gifting")
         .sort() as string[],
-      colors: dedupeCatalogLabels(
-        (allColors?.colors ?? []).filter(Boolean) as string[],
-      ),
+      colors: filterColors,
+      colorCodes: filterColorCodes,
       fabrics: mergeFabricOptions(
         (allFabrics?.fabrics ?? []).filter(Boolean) as string[],
       ),

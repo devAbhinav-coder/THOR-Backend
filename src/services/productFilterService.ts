@@ -3,17 +3,18 @@ import { getCache, setCache } from './cacheService';
 import { filtersCacheKey, getProductCacheVersion } from './productCacheService';
 import { OFFLINE_MANUAL_PRODUCT_TAG } from '../constants/offlineOrder';
 import { mergeFabricOptions } from '../constants/productCatalog';
-import { dedupeCatalogLabels } from '../utils/catalogAttributes';
+import { buildFilterColorOptions } from '../utils/catalogAttributes';
 import mongoose from 'mongoose';
 
 const FILTERS_CACHE_TTL = 300;
 
 export async function getFilterOptionsForCategory(categoryId: string, subcategoryId?: string) {
   const v = await getProductCacheVersion();
-  const cacheKey = filtersCacheKey(v, `${categoryId}-${subcategoryId || 'all'}`);
+  const cacheKey = filtersCacheKey(v, `cc1-${categoryId}-${subcategoryId || 'all'}`);
   const cached = await getCache<{
     categories: string[];
     colors: string[];
+    colorCodes: Record<string, string>;
     fabrics: string[];
     subcategories: string[];
     tags: string[];
@@ -35,7 +36,7 @@ export async function getFilterOptionsForCategory(categoryId: string, subcategor
   }
 
   const [facet] = await Product.aggregate<{
-    allColors: { colors: string[] }[];
+    allColors: { color: string; colorCode: string }[];
     allFabrics: { fabrics: string[] }[];
     allTags: { tags: string[] }[];
     scopedPrice: {
@@ -51,8 +52,17 @@ export async function getFilterOptionsForCategory(categoryId: string, subcategor
           { $match: { 'variants.color': { $exists: true, $ne: '' } } },
           {
             $group: {
-              _id: null,
-              colors: { $addToSet: '$variants.color' },
+              _id: {
+                color: '$variants.color',
+                colorCode: { $ifNull: ['$variants.colorCode', ''] },
+              },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              color: '$_id.color',
+              colorCode: '$_id.colorCode',
             },
           },
         ],
@@ -89,14 +99,15 @@ export async function getFilterOptionsForCategory(categoryId: string, subcategor
     },
   ]).option({ maxTimeMS: 4000 });
 
-  const allColors = facet?.allColors?.[0];
+  const { colors, colorCodes } = buildFilterColorOptions(facet?.allColors ?? []);
   const allFabrics = facet?.allFabrics?.[0];
   const allTags = facet?.allTags?.[0];
   const scopedPrice = facet?.scopedPrice?.[0];
 
   const result = {
     categories: [], // Not needed for sub-pages typically, but keeping interface
-    colors: dedupeCatalogLabels((allColors?.colors ?? []).filter(Boolean) as string[]),
+    colors,
+    colorCodes,
     fabrics: mergeFabricOptions(
       (allFabrics?.fabrics ?? []).filter(Boolean) as string[],
     ),

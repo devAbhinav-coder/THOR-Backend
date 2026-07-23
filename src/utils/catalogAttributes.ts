@@ -83,6 +83,53 @@ export function dedupeCatalogLabels(values: string[]): string[] {
 }
 
 /**
+ * Build deduped color filter labels + a name→colorCode map for shop swatches.
+ * Prefers a real hex when available; otherwise keeps multicolor marker / first code.
+ */
+export function buildFilterColorOptions(
+  rows: Array<{ color?: string | null; colorCode?: string | null }>,
+): { colors: string[]; colorCodes: Record<string, string> } {
+  const namesByKey = new Map<string, string[]>();
+  const codesByKey = new Map<string, string[]>();
+
+  for (const row of rows) {
+    const color = String(row.color ?? "").trim();
+    if (!color) continue;
+    const key = catalogMatchKey(color);
+    if (!key) continue;
+
+    const names = namesByKey.get(key) ?? [];
+    names.push(color);
+    namesByKey.set(key, names);
+
+    const code = String(row.colorCode ?? "").trim();
+    if (code) {
+      const codes = codesByKey.get(key) ?? [];
+      codes.push(code);
+      codesByKey.set(key, codes);
+    }
+  }
+
+  const colors = [...namesByKey.values()]
+    .map(pickCanonicalLabel)
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+
+  const colorCodes: Record<string, string> = {};
+  for (const color of colors) {
+    const key = catalogMatchKey(color);
+    const codes = codesByKey.get(key) ?? [];
+    const picked =
+      codes.find((c) => c.startsWith("#")) ??
+      codes.find((c) => c === "__hr_multicolor") ??
+      codes[0];
+    if (picked) colorCodes[color] = picked;
+  }
+
+  return { colors, colorCodes };
+}
+
+/**
  * Flexible color match: "Off White" matches "Offwhite", "off-white", etc.
  * Keeps start/end anchors so "Red" does not match "Red Wine" incorrectly via substring.
  */
