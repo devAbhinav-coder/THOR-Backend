@@ -52,13 +52,13 @@ const FALLBACK_SETTINGS = {
     eyebrow: "The House of Rani",
     title: "Festive-ready pieces, crafted to feel timeless.",
     description:
-      "Discover fresh drops across sarees, lehengas, and more with rich fabrics and elegant drapes.",
+      "Discover fresh drops across sarees, salwar suits, and corsets with rich fabrics and elegant drapes.",
     backgroundImage:
       "https://images.unsplash.com/photo-1520975958225-b3ea6a2c4bd0?w=1600&q=80&auto=format&fit=crop",
     primaryButtonText: "Shop New Arrivals",
-    primaryButtonLink: "/shop?sort=-createdAt",
+    primaryButtonLink: "/shop/collections?sort=-createdAt",
     secondaryButtonText: "Browse All",
-    secondaryButtonLink: "/shop",
+    secondaryButtonLink: "/shop/collections",
     perks: ["Premium fabrics", "Curated colors", "Easy to shop"],
   },
   homeEditorialGallery: {
@@ -115,21 +115,21 @@ const FALLBACK_SETTINGS = {
     headlineLine1: "Our Gifting",
     headlineLine2: "Collections",
     description:
-      "Also explore curated gift sets and occasion hampers — perfect alongside our saree collections for weddings and celebrations.",
+      "Also explore handmade gifts, corporate gifting, and curated hampers — perfect alongside our saree, salwar suit, and corset collections.",
     socialHandle: "@thehouseofrani",
     cards: [
       {
         title: "Handmade Gifts",
         description:
-          "Thoughtful, artisan-style pieces with personal detail — perfect for birthdays, weddings, and thank-yous.",
+          "Artisan handmade gifts and pen presents with personal detail — perfect for birthdays, weddings, and thank-yous.",
         image:
           "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=800&q=80",
         shopButtonText: "Browse gifts",
         shopLinkMode: "gifting",
         giftingSearch: "handmade",
-        shopButtonLink: "/gifting",
+        shopButtonLink: "/gifting/handmade-gifts",
         giftButtonText: "Gifting",
-        giftButtonLink: "/gifting",
+        giftButtonLink: "/gifting/handmade-gifts",
         accent: "rose",
       },
       {
@@ -141,9 +141,9 @@ const FALLBACK_SETTINGS = {
         shopButtonText: "Browse gifts",
         shopLinkMode: "gifting",
         giftingSearch: "corporate",
-        shopButtonLink: "/gifting",
+        shopButtonLink: "/gifting/corporate-gifts",
         giftButtonText: "Gifting",
-        giftButtonLink: "/gifting",
+        giftButtonLink: "/gifting/corporate-gifts",
         accent: "amber",
       },
       {
@@ -164,7 +164,7 @@ const FALLBACK_SETTINGS = {
   },
   footer: {
     description:
-      "Your destination for exquisite Indian ethnic wear. Curated sarees, lehengas, salwar suits, and more — crafted with love and tradition.",
+      "Your destination for exquisite Indian ethnic wear. Curated sarees, salwar suits, and corsets — crafted with love and tradition.",
     contactAddress: "123 Silk Road, Textile Market, Surat, Gujarat 395003",
     contactPhone: "+91 98765 43210",
     contactEmail: "hello@houseofrani.in",
@@ -174,7 +174,7 @@ const FALLBACK_SETTINGS = {
     youtubeUrl: "#",
     quickLinks: [
       { label: "Home", href: "/" },
-      { label: "Shop All", href: "/shop" },
+      { label: "Shop All", href: "/shop/collections" },
       { label: "About", href: "/about" },
       { label: "Journal", href: "/blog" },
       { label: "FAQ", href: "/faq" },

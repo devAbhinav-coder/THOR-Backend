@@ -14,10 +14,10 @@ const OLD_SNIPPET_MARKERS = [
 ];
 
 const NEW_HOME_GIFT_DESCRIPTION =
-  "Also explore curated gift sets and occasion hampers — perfect alongside our saree collections for weddings and celebrations.";
+  "Also explore handmade gifts, corporate gifting, and curated hampers — perfect alongside our saree, salwar suit, and corset collections.";
 
 const NEW_FOOTER_DESCRIPTION =
-  "Your destination for exquisite Indian ethnic wear. Curated sarees, lehengas, salwar suits, and more — crafted with love and tradition.";
+  "Your destination for exquisite Indian ethnic wear. Curated sarees, salwar suits, and corsets — crafted with love and tradition.";
 
 async function main() {
   const uri = process.env.MONGODB_URI || process.env.DATABASE_URL;

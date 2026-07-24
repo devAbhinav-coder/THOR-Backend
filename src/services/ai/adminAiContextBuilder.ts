@@ -348,7 +348,7 @@ export async function buildProductDraftContext(input: {
       variants: variantSummary,
     },
     brand: 'The House of Rani',
-    storefront: 'Indian ethnic wear — sarees, suits, lehengas, gifting',
+    storefront: 'Indian ethnic wear — sarees, salwar suits, corsets, handmade & corporate gifting',
     specTableRequiredRows: ['Fabric', 'Work', 'Length', 'Blouse', 'Care'],
   };
 }

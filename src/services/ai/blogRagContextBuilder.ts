@@ -13,8 +13,8 @@ import {
 
 const CATEGORY_CONTEXT: Record<string, string> = {
   "saree-styling": "draping, pleats, pallu, blouse pairing, occasion looks",
-  bridal: "wedding, reception, haldi, bridal saree, lehenga alternatives",
-  gifting: "corporate gifting, festive hampers, saree gift boxes, personalization",
+  bridal: "wedding, reception, haldi, bridal saree, salwar suit, corset pairings",
+  gifting: "corporate gifting, handmade gifts, pen gifts, festive hampers, personalization",
   "fabric-care": "silk care, storage, ironing, dry clean, banarasi preservation",
   festive: "Diwali, Navratri, Karva Chauth, Durga Puja outfit ideas",
   trends: "seasonal colours, celebrity-inspired drapes, new arrivals styling",
