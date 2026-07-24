@@ -7,12 +7,14 @@ export const openApiSpec = {
   openapi: "3.0.3",
   info: {
     title: "The House of Rani – Backend API",
-    version: "1.0.0",
+    version: "1.1.0",
     description:
       "Complete REST API documentation for the House of Rani e-commerce platform.\n\n" +
-      "**Authentication:** Most protected endpoints require a valid JWT cookie (`accessToken`) " +
-      "obtained via `POST /api/auth/login` or `POST /api/auth/google`.\n\n" +
-      "**Admin endpoints** additionally require the authenticated user to have `role: admin`.",
+      "**Authentication:** Protected endpoints accept either:\n" +
+      "- httpOnly cookie `accessToken` (web browsers), or\n" +
+      "- `Authorization: Bearer <jwt>` (mobile apps with header `X-Client: mobile`).\n\n" +
+      "**Admin endpoints** require `role: admin`.\n\n" +
+      "**Production:** `/api/docs` is disabled unless `ENABLE_API_DOCS=true`.",
     contact: { name: "House of Rani Dev Team" },
   },
   servers: [
@@ -27,7 +29,14 @@ export const openApiSpec = {
         type: "apiKey",
         in: "cookie",
         name: "accessToken",
-        description: "JWT access token stored in an httpOnly cookie.",
+        description: "JWT access token stored in an httpOnly cookie (web).",
+      },
+      bearerAuth: {
+        type: "http",
+        scheme: "bearer",
+        bearerFormat: "JWT",
+        description:
+          "JWT access token for native apps. Send header `X-Client: mobile` on login/refresh to receive tokens in the JSON body.",
       },
     },
 
@@ -224,21 +233,64 @@ export const openApiSpec = {
       // ── Order ──────────────────────────────────────────────────────────────
       CreateOrderBody: {
         type: "object",
-        required: ["addressId", "paymentMethod"],
+        required: ["shippingAddress", "paymentMethod"],
         properties: {
-          addressId: { type: "string" },
+          shippingAddress: {
+            type: "object",
+            required: ["name", "phone", "street", "city", "state", "pincode"],
+            properties: {
+              name: { type: "string", example: "Aisha Khan" },
+              phone: { type: "string", example: "9876543210" },
+              label: { type: "string", example: "Home" },
+              house: { type: "string" },
+              street: { type: "string" },
+              landmark: { type: "string" },
+              city: { type: "string" },
+              state: { type: "string" },
+              pincode: { type: "string", example: "395003" },
+              country: { type: "string", default: "India" },
+            },
+          },
           paymentMethod: { type: "string", enum: ["razorpay", "cod"] },
           couponCode: { type: "string", nullable: true },
-          giftMessage: { type: "string", nullable: true },
+          notes: { type: "string", maxLength: 500, nullable: true },
+          buyNowItem: {
+            type: "object",
+            nullable: true,
+            properties: {
+              productId: { type: "string" },
+              variant: {
+                type: "object",
+                properties: {
+                  size: { type: "string" },
+                  color: { type: "string" },
+                  colorCode: { type: "string" },
+                  sku: { type: "string" },
+                },
+              },
+              quantity: { type: "integer", minimum: 1, maximum: 10 },
+            },
+          },
+          marketingAttribution: { type: "object", nullable: true },
+          metaBrowser: { type: "object", nullable: true },
         },
       },
       VerifyPaymentBody: {
         type: "object",
-        required: ["razorpay_order_id", "razorpay_payment_id", "razorpay_signature"],
+        required: ["razorpayOrderId", "razorpayPaymentId", "razorpaySignature"],
         properties: {
-          razorpay_order_id: { type: "string" },
-          razorpay_payment_id: { type: "string" },
-          razorpay_signature: { type: "string" },
+          razorpayOrderId: { type: "string" },
+          razorpayPaymentId: { type: "string" },
+          razorpaySignature: { type: "string" },
+          orderId: {
+            type: "string",
+            description: "Mongo ObjectId — required if checkoutIntentId omitted",
+          },
+          checkoutIntentId: {
+            type: "string",
+            description: "Mongo ObjectId — required if orderId omitted",
+          },
+          metaBrowser: { type: "object", nullable: true },
         },
       },
 
@@ -385,8 +437,8 @@ export const openApiSpec = {
     },
   },
 
-  // ─── Global security (cookie auth by default) ───────────────────────────────
-  security: [{ cookieAuth: [] }],
+  // ─── Global security (cookie OR bearer — either is enough) ─────────────────
+  security: [{ cookieAuth: [] }, { bearerAuth: [] }],
 
   // ─── Paths ──────────────────────────────────────────────────────────────────
   paths: {
@@ -894,12 +946,14 @@ export const openApiSpec = {
           "404": { description: "Product not found" },
         },
       },
+    },
+    "/products/{id}": {
       patch: {
         tags: ["Products"],
-        summary: "[Admin] Update product",
-        security: [{ cookieAuth: [] }],
+        summary: "[Admin] Update product by MongoDB id",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
         parameters: [
-          { name: "slug", in: "path", required: true, schema: { type: "string" }, description: "Product ID (not slug) for admin update" },
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
         ],
         requestBody: {
           content: {
@@ -925,10 +979,10 @@ export const openApiSpec = {
       },
       delete: {
         tags: ["Products"],
-        summary: "[Admin] Delete product",
-        security: [{ cookieAuth: [] }],
+        summary: "[Admin] Delete product by MongoDB id",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
         parameters: [
-          { name: "slug", in: "path", required: true, schema: { type: "string" } },
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
         ],
         responses: {
           "200": { description: "Product deleted" },
@@ -1639,12 +1693,14 @@ export const openApiSpec = {
           "404": { description: "Not found" },
         },
       },
+    },
+    "/blogs/{id}": {
       patch: {
         tags: ["Blogs"],
-        summary: "[Admin] Update blog post",
-        security: [{ cookieAuth: [] }],
+        summary: "[Admin] Update blog post by MongoDB id",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
         parameters: [
-          { name: "slug", in: "path", required: true, schema: { type: "string" }, description: "Blog _id for admin update" },
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
         ],
         requestBody: {
           content: {
@@ -1668,10 +1724,10 @@ export const openApiSpec = {
       },
       delete: {
         tags: ["Blogs"],
-        summary: "[Admin] Delete blog post",
-        security: [{ cookieAuth: [] }],
+        summary: "[Admin] Delete blog post by MongoDB id",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
         parameters: [
-          { name: "slug", in: "path", required: true, schema: { type: "string" } },
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
         ],
         responses: {
           "200": { description: "Blog deleted" },
@@ -3334,7 +3390,7 @@ export const openApiSpec = {
       patch: {
         tags: ["Admin – Blog Calendar"],
         summary: "Update a blog content plan entry",
-        security: [{ cookieAuth: [] }],
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
         requestBody: {
           content: {
@@ -3346,9 +3402,465 @@ export const openApiSpec = {
       delete: {
         tags: ["Admin – Blog Calendar"],
         summary: "Delete a blog content plan entry",
-        security: [{ cookieAuth: [] }],
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
         responses: { "200": { description: "Deleted" } },
+      },
+    },
+
+    // ════════════════════════════════════════════════════════════════════════
+    // SALES / COLLECTIONS / TESTIMONIALS / REVIEW INVITES / RANI CARE / NAV
+    // ════════════════════════════════════════════════════════════════════════
+    "/sales/public": {
+      get: {
+        tags: ["Sales"],
+        summary: "List active public sale campaigns",
+        security: [],
+        responses: { "200": { description: "Public sales" } },
+      },
+    },
+    "/sales/preview": {
+      post: {
+        tags: ["Sales"],
+        summary: "[Admin] Preview sale campaign pricing",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        requestBody: {
+          content: { "application/json": { schema: { type: "object" } } },
+        },
+        responses: { "200": { description: "Preview result" }, "403": { description: "Admin only" } },
+      },
+    },
+    "/sales": {
+      get: {
+        tags: ["Sales"],
+        summary: "[Admin] List all sale campaigns",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        responses: { "200": { description: "Sale campaigns" }, "403": { description: "Admin only" } },
+      },
+      post: {
+        tags: ["Sales"],
+        summary: "[Admin] Create sale campaign",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        requestBody: {
+          content: {
+            "multipart/form-data": {
+              schema: { type: "object", properties: { image: { type: "string", format: "binary" } } },
+            },
+          },
+        },
+        responses: { "201": { description: "Created" }, "403": { description: "Admin only" } },
+      },
+    },
+    "/sales/{id}": {
+      get: {
+        tags: ["Sales"],
+        summary: "[Admin] Get sale campaign",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "Sale campaign" }, "403": { description: "Admin only" } },
+      },
+      patch: {
+        tags: ["Sales"],
+        summary: "[Admin] Update sale campaign",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "Updated" }, "403": { description: "Admin only" } },
+      },
+      delete: {
+        tags: ["Sales"],
+        summary: "[Admin] Delete sale campaign",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "Deleted" }, "403": { description: "Admin only" } },
+      },
+    },
+    "/sales/{id}/archive": {
+      patch: {
+        tags: ["Sales"],
+        summary: "[Admin] Archive sale campaign",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "Archived" }, "403": { description: "Admin only" } },
+      },
+    },
+
+    "/collections/{catSlug}": {
+      get: {
+        tags: ["Collections"],
+        summary: "Get shop collection (category) details",
+        security: [],
+        parameters: [{ name: "catSlug", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "Collection details" }, "404": { description: "Not found" } },
+      },
+    },
+    "/collections/{catSlug}/products": {
+      get: {
+        tags: ["Collections"],
+        summary: "List products in a collection",
+        security: [],
+        parameters: [
+          { name: "catSlug", in: "path", required: true, schema: { type: "string" } },
+          { name: "page", in: "query", schema: { type: "integer" } },
+          { name: "limit", in: "query", schema: { type: "integer" } },
+          { name: "sort", in: "query", schema: { type: "string" } },
+        ],
+        responses: { "200": { description: "Products" } },
+      },
+    },
+    "/collections/{catSlug}/filters": {
+      get: {
+        tags: ["Collections"],
+        summary: "Filter facets for a collection",
+        security: [],
+        parameters: [{ name: "catSlug", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "Filters" } },
+      },
+    },
+    "/collections/{catSlug}/{subSlug}": {
+      get: {
+        tags: ["Collections"],
+        summary: "Get subcategory collection details",
+        security: [],
+        parameters: [
+          { name: "catSlug", in: "path", required: true, schema: { type: "string" } },
+          { name: "subSlug", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: { "200": { description: "Subcollection details" } },
+      },
+    },
+    "/collections/{catSlug}/{subSlug}/products": {
+      get: {
+        tags: ["Collections"],
+        summary: "List products in a subcategory collection",
+        security: [],
+        parameters: [
+          { name: "catSlug", in: "path", required: true, schema: { type: "string" } },
+          { name: "subSlug", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: { "200": { description: "Products" } },
+      },
+    },
+    "/collections/{catSlug}/{subSlug}/filters": {
+      get: {
+        tags: ["Collections"],
+        summary: "Filter facets for a subcategory collection",
+        security: [],
+        parameters: [
+          { name: "catSlug", in: "path", required: true, schema: { type: "string" } },
+          { name: "subSlug", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: { "200": { description: "Filters" } },
+      },
+    },
+
+    "/testimonials": {
+      get: {
+        tags: ["Testimonials"],
+        summary: "Public approved testimonials",
+        security: [],
+        responses: { "200": { description: "Testimonials" } },
+      },
+      post: {
+        tags: ["Testimonials"],
+        summary: "[Admin] Create testimonial",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        responses: { "201": { description: "Created" }, "403": { description: "Admin only" } },
+      },
+    },
+    "/testimonials/submit": {
+      post: {
+        tags: ["Testimonials"],
+        summary: "Public testimonial submit (share link)",
+        security: [],
+        requestBody: {
+          content: {
+            "multipart/form-data": {
+              schema: {
+                type: "object",
+                properties: {
+                  name: { type: "string" },
+                  message: { type: "string" },
+                  images: { type: "array", items: { type: "string", format: "binary" } },
+                },
+              },
+            },
+          },
+        },
+        responses: { "201": { description: "Submitted for review" } },
+      },
+    },
+    "/testimonials/admin": {
+      get: {
+        tags: ["Testimonials"],
+        summary: "[Admin] List all testimonials",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        responses: { "200": { description: "Admin list" }, "403": { description: "Admin only" } },
+      },
+    },
+    "/testimonials/{id}": {
+      patch: {
+        tags: ["Testimonials"],
+        summary: "[Admin] Update testimonial",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "Updated" }, "403": { description: "Admin only" } },
+      },
+      delete: {
+        tags: ["Testimonials"],
+        summary: "[Admin] Delete testimonial",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "Deleted" }, "403": { description: "Admin only" } },
+      },
+    },
+    "/testimonials/{id}/approve": {
+      patch: {
+        tags: ["Testimonials"],
+        summary: "[Admin] Approve testimonial",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "Approved" }, "403": { description: "Admin only" } },
+      },
+    },
+    "/testimonials/{id}/reject": {
+      patch: {
+        tags: ["Testimonials"],
+        summary: "[Admin] Reject testimonial",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "Rejected" }, "403": { description: "Admin only" } },
+      },
+    },
+
+    "/review-invites/{token}": {
+      get: {
+        tags: ["Review Invites"],
+        summary: "Get public review invite by token",
+        security: [],
+        parameters: [{ name: "token", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "Invite details" }, "404": { description: "Invalid/expired" } },
+      },
+    },
+    "/review-invites/{token}/submit": {
+      post: {
+        tags: ["Review Invites"],
+        summary: "Submit review via invite token",
+        security: [],
+        parameters: [{ name: "token", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          content: {
+            "multipart/form-data": {
+              schema: {
+                type: "object",
+                properties: {
+                  rating: { type: "integer", minimum: 1, maximum: 5 },
+                  title: { type: "string" },
+                  comment: { type: "string" },
+                  images: { type: "array", items: { type: "string", format: "binary" } },
+                },
+              },
+            },
+          },
+        },
+        responses: { "201": { description: "Review submitted" } },
+      },
+    },
+
+    "/rani-care/status": {
+      get: {
+        tags: ["Rani Care"],
+        summary: "Rani Care chat availability status",
+        security: [],
+        responses: { "200": { description: "Status" } },
+      },
+    },
+    "/rani-care/chat": {
+      post: {
+        tags: ["Rani Care"],
+        summary: "Send a Rani Care chat message",
+        security: [],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["message"],
+                properties: {
+                  message: { type: "string" },
+                  sessionId: { type: "string", nullable: true },
+                },
+              },
+            },
+          },
+        },
+        responses: { "200": { description: "Assistant reply" } },
+      },
+    },
+
+    "/navigation/mega-menu": {
+      get: {
+        tags: ["Navigation"],
+        summary: "Navbar mega-menu categories + subcategories",
+        security: [],
+        responses: { "200": { description: "Mega menu tree" } },
+      },
+    },
+
+    "/coupons/public": {
+      get: {
+        tags: ["Coupons"],
+        summary: "Public coupon banners / offers",
+        security: [],
+        responses: { "200": { description: "Public coupons" } },
+      },
+    },
+    "/storefront/visit": {
+      post: {
+        tags: ["Storefront"],
+        summary: "Record a storefront visit (analytics)",
+        security: [],
+        requestBody: {
+          content: { "application/json": { schema: { type: "object" } } },
+        },
+        responses: { "200": { description: "Recorded" } },
+      },
+    },
+    "/storefront/meta-event": {
+      post: {
+        tags: ["Storefront"],
+        summary: "Forward Meta CAPI browser event",
+        security: [],
+        requestBody: {
+          content: { "application/json": { schema: { type: "object" } } },
+        },
+        responses: { "200": { description: "Forwarded" } },
+      },
+    },
+    "/categories/slug/{slug}": {
+      get: {
+        tags: ["Categories"],
+        summary: "Get category by slug",
+        security: [],
+        parameters: [{ name: "slug", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "Category" }, "404": { description: "Not found" } },
+      },
+    },
+    "/categories/slug/{slug}/subcategories": {
+      get: {
+        tags: ["Categories"],
+        summary: "List subcategories for a category slug",
+        security: [],
+        parameters: [{ name: "slug", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "Subcategories" } },
+      },
+    },
+    "/reviews/submit-public": {
+      post: {
+        tags: ["Reviews"],
+        summary: "Public review submit (tokenized / guest flows)",
+        security: [],
+        requestBody: {
+          content: {
+            "multipart/form-data": {
+              schema: {
+                type: "object",
+                properties: {
+                  rating: { type: "integer" },
+                  comment: { type: "string" },
+                  images: { type: "array", items: { type: "string", format: "binary" } },
+                },
+              },
+            },
+          },
+        },
+        responses: { "201": { description: "Submitted" } },
+      },
+    },
+
+    "/admin/ai/draft/catalog-seo": {
+      post: {
+        tags: ["Admin – AI"],
+        summary: "[Admin] Draft catalog SEO copy",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        requestBody: {
+          content: { "application/json": { schema: { type: "object" } } },
+        },
+        responses: { "200": { description: "Draft SEO" }, "403": { description: "Admin only" } },
+      },
+    },
+    "/admin/orders/{id}/review-invite": {
+      post: {
+        tags: ["Admin – Orders"],
+        summary: "[Admin] Create review invite for order",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "201": { description: "Invite created" }, "403": { description: "Admin only" } },
+      },
+    },
+    "/admin/orders/{id}/review-invite/email": {
+      post: {
+        tags: ["Admin – Orders"],
+        summary: "[Admin] Email review invite for order",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "Email queued" }, "403": { description: "Admin only" } },
+      },
+    },
+    "/admin/categories/{id}/subcategories": {
+      get: {
+        tags: ["Admin – Categories"],
+        summary: "[Admin] List subcategories for category",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "Subcategories" }, "403": { description: "Admin only" } },
+      },
+    },
+    "/admin/subcategories": {
+      get: {
+        tags: ["Admin – Categories"],
+        summary: "[Admin] List subcategories",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        responses: { "200": { description: "Subcategories" }, "403": { description: "Admin only" } },
+      },
+      post: {
+        tags: ["Admin – Categories"],
+        summary: "[Admin] Create subcategory",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        responses: { "201": { description: "Created" }, "403": { description: "Admin only" } },
+      },
+    },
+    "/admin/subcategories/reorder": {
+      patch: {
+        tags: ["Admin – Categories"],
+        summary: "[Admin] Reorder subcategories",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        requestBody: {
+          content: { "application/json": { schema: { type: "object" } } },
+        },
+        responses: { "200": { description: "Reordered" }, "403": { description: "Admin only" } },
+      },
+    },
+    "/admin/subcategories/{id}": {
+      get: {
+        tags: ["Admin – Categories"],
+        summary: "[Admin] Get subcategory",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "Subcategory" }, "403": { description: "Admin only" } },
+      },
+      patch: {
+        tags: ["Admin – Categories"],
+        summary: "[Admin] Update subcategory",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "Updated" }, "403": { description: "Admin only" } },
+      },
+      delete: {
+        tags: ["Admin – Categories"],
+        summary: "[Admin] Delete subcategory",
+        security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "Deleted" }, "403": { description: "Admin only" } },
       },
     },
   },

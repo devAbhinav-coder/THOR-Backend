@@ -6,16 +6,28 @@ import AppError from "../types/utils/AppError";
 
 const memoryStorage = multer.memoryStorage();
 
+/** Raster images only — SVG/XML rejected to block stored XSS via image uploads. */
+const ALLOWED_IMAGE_MIMES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+]);
+
 const imageFileFilter = (
   _req: Request,
   file: Express.Multer.File,
   cb: multer.FileFilterCallback,
 ) => {
-  if (file.mimetype.startsWith("image/")) {
+  if (ALLOWED_IMAGE_MIMES.has(file.mimetype)) {
     cb(null, true);
   } else {
     cb(
-      new AppError("Only image files are allowed.", 400) as unknown as null,
+      new AppError(
+        "Only JPEG, PNG, WebP, or GIF images are allowed.",
+        400,
+      ) as unknown as null,
       false,
     );
   }

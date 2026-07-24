@@ -16,6 +16,27 @@ const ACCESS_EXPIRES = process.env.JWT_EXPIRES_IN || "15m";
 const REFRESH_MS =
   parseInt(process.env.REFRESH_TOKEN_DAYS || "30", 10) * 24 * 60 * 60 * 1000;
 
+/**
+ * Native apps need Bearer tokens in the JSON body (no cookie jar).
+ * Never trust a spoofable `X-Client` from a browser (Origin present) —
+ * same-origin XSS could otherwise harvest refresh tokens from JSON.
+ */
+function clientWantsBearerTokens(req?: Request): boolean {
+  if (!req) return false;
+  const origin = req.get("Origin");
+  // Browser requests always send Origin on cross-site XHR; same-origin
+  // navigations may omit it, but fetch/XHR from pages typically include it.
+  // If Origin is present (including "null"), never echo bearer tokens.
+  if (origin) return false;
+
+  const client = String(
+    req.headers["x-client"] || req.headers["x-client-type"] || "",
+  )
+    .trim()
+    .toLowerCase();
+  return client === "mobile" || client === "app" || client === "expo";
+}
+
 export const signAccessToken = (userId: string): string => {
   return jwt.sign(
     { id: userId },
@@ -116,13 +137,17 @@ export const sendAuthResponse = async (
   const userObj = user.toObject() as unknown as Record<string, unknown>;
   delete userObj["password"];
 
-  res.status(statusCode).json({
+  const payload: Record<string, unknown> = {
     status: "success",
     message: "Authenticated successfully",
-    token: accessToken,
-    refreshToken: raw,
     data: { user: userObj },
-  });
+  };
+  if (clientWantsBearerTokens(req)) {
+    payload.token = accessToken;
+    payload.refreshToken = raw;
+  }
+
+  res.status(statusCode).json(payload);
 };
 
 export function readRefreshTokenFromRequest(req: Request): string | undefined {
@@ -203,13 +228,17 @@ export async function rotateRefreshToken(
   const userObj = user.toObject() as unknown as Record<string, unknown>;
   delete userObj["password"];
 
-  res.status(200).json({
+  const payload: Record<string, unknown> = {
     status: "success",
     message: "Authenticated successfully",
-    token: accessToken,
-    refreshToken: newRaw,
     data: { user: userObj },
-  });
+  };
+  if (clientWantsBearerTokens(req)) {
+    payload.token = accessToken;
+    payload.refreshToken = newRaw;
+  }
+
+  res.status(200).json(payload);
 
   return user;
 }

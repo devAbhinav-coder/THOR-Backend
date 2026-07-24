@@ -189,6 +189,8 @@ app.use(
       "Content-Type",
       "Authorization",
       "X-Request-Id",
+      "X-Client",
+      "X-Client-Type",
       "Idempotency-Key",
       "Accept",
       "Cookie",
@@ -314,6 +316,33 @@ const authLimiter = rateLimit({
   : {}),
 });
 
+/** Protect HMAC verification from flood/DoS (runs before express.json). */
+const webhookLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  skip: (req) => req.method === "OPTIONS",
+  message: {
+    status: "error",
+    message: "Too many webhook requests, please try again later.",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  ...(redisEnabled ?
+    {
+      store: new RedisStore({
+        prefix: "rl:webhook:",
+        sendCommand: (...args: string[]) =>
+          redisConnection.call(
+            args[0],
+            ...(args.slice(1) as string[]),
+          ) as Promise<
+            string | number | boolean | (string | number | boolean)[]
+          >,
+      }),
+    }
+  : {}),
+});
+
 app.use((req: Request, res: Response, next: NextFunction) => {
   const id = (req.headers["x-request-id"] as string) || randomUUID();
   const traceId = (req.headers["x-trace-id"] as string) || undefined;
@@ -327,6 +356,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 /** Razorpay webhooks require raw body for HMAC verification (must run before express.json). */
 app.use(
   "/api/webhooks",
+  webhookLimiter,
   express.raw({
     type: "application/json",
     limit: process.env.JSON_BODY_LIMIT || "512kb",
@@ -376,7 +406,21 @@ app.get("/api/health", async (_req: Request, res: Response) => {
     },
   });
 });
-app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(openApiSpec));
+app.use(
+  "/api/docs",
+  (req: Request, res: Response, next: NextFunction) => {
+    const enabled =
+      process.env.ENABLE_API_DOCS === "true" ||
+      process.env.NODE_ENV !== "production";
+    if (!enabled) {
+      res.status(404).json({ status: "fail", message: "Not found" });
+      return;
+    }
+    next();
+  },
+  swaggerUi.serve,
+  swaggerUi.setup(openApiSpec),
+);
 
 app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api", limiter);
@@ -394,7 +438,6 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/storefront", storefrontRoutes);
 app.use("/api/blogs", blogRoutes);
-app.use("/api/webhooks", webhookRoutes);
 app.use("/api/collections", collectionRoutes);
 app.use("/api/newsletter", newsletterRoutes);
 app.use("/api/notifications", notificationRoutes);
@@ -415,6 +458,15 @@ const PORT = parseInt(process.env.PORT || "5000", 10);
 const server = app.listen(PORT, "0.0.0.0", () => {
   logger.info(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
 });
+
+// Harden against slowloris / hung connections under load.
+server.headersTimeout = parseInt(process.env.HEADERS_TIMEOUT_MS || "65000", 10);
+server.requestTimeout = parseInt(process.env.REQUEST_TIMEOUT_MS || "120000", 10);
+server.keepAliveTimeout = parseInt(process.env.KEEP_ALIVE_TIMEOUT_MS || "65000", 10);
+const maxConnections = parseInt(process.env.MAX_CONNECTIONS || "0", 10);
+if (maxConnections > 0) {
+  server.maxConnections = maxConnections;
+}
 
 const delhiverySyncMs = parseInt(
   process.env.DELHIVERY_TRACK_SYNC_MS || String(20 * 60 * 1000),

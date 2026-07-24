@@ -74,8 +74,6 @@ export const checkoutService = {
       throw new AppError("Your cart is empty.", 400);
     }
 
-    const checkoutItems = cart.items;
-    const checkoutSubtotal = cart.subtotal;
     const cartIdToDelete = cart._id as mongoose.Types.ObjectId;
 
     let cartCouponDiscount = 0;
@@ -90,7 +88,19 @@ export const checkoutService = {
         cart.items.map((item: { product: unknown }) => String(item.product)),
       ),
     ];
-    const products = await orderRepository.findProductsByIds(productIds);    const productMap = new Map(products.map((p) => [String(p._id), p]));
+    const products = await orderRepository.findProductsByIds(productIds);
+    const productMap = new Map(products.map((p) => [String(p._id), p]));
+
+    // Always price order lines from live catalog (never trust stored cart price).
+    const pricedLines = buildOrderItemsFromProducts(cart.items, productMap);
+    const checkoutItems = cart.items.map((item, idx) => ({
+      ...item,
+      price: pricedLines[idx]?.price ?? item.price,
+    }));
+    const checkoutSubtotal = checkoutItems.reduce(
+      (sum, item) => sum + Number(item.price) * Number(item.quantity),
+      0,
+    );
 
     return {
       checkoutItems,

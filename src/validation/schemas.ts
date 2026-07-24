@@ -70,7 +70,7 @@ const otpField = z
   .transform((v) => v.replace(/\D/g, '').slice(0, 6))
   .pipe(z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'));
 
-/** Cloudflare Turnstile — optional until TURNSTILE_ENFORCE=true */
+/** Cloudflare Turnstile — required when TURNSTILE_SECRET is set (unless ENFORCE=false) */
 const turnstileTokenField = z.string().min(10).max(2048).optional();
 
 export const signupStartSchema = z.object({
@@ -124,11 +124,13 @@ export const resetPasswordSchema = z.object({
     z.object({
       resetToken: z.string().min(32).max(128),
       newPassword: strongPassword,
+      turnstileToken: turnstileTokenField,
     }),
     z.object({
       email: emailField,
       otp: otpField,
       newPassword: strongPassword,
+      turnstileToken: turnstileTokenField,
     }),
   ]),
 });
@@ -136,6 +138,7 @@ export const resetPasswordSchema = z.object({
 export const googleAuthSchema = z.object({
   body: z.object({
     credential: z.string().min(10, 'Invalid Google credential'),
+    turnstileToken: turnstileTokenField,
   }),
 });
 
@@ -167,6 +170,7 @@ export const resendOtpSchema = z.object({
   body: z.object({
     type: z.enum(['signup', 'login', 'forgot_password']),
     email: emailField,
+    turnstileToken: turnstileTokenField,
   }),
 });
 
@@ -175,6 +179,7 @@ export const verifyOtpSchema = z.object({
     type: z.enum(['signup', 'login', 'forgot_password']),
     email: emailField,
     otp: otpField,
+    turnstileToken: turnstileTokenField,
   }),
 });
 

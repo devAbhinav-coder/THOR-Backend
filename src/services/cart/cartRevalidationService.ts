@@ -8,7 +8,7 @@ import { recordCartMetric } from "./cartMetricsService";
 
 /**
  * Checkout-safe revalidation: prices, active products, variants, soft stock, min qty.
- * Used before checkout handoff; does not mutate cart (read-only checks).
+ * Throws 409 when stored cart line prices diverge from live catalog prices.
  */
 export const cartRevalidationService = {
   async assertCartReadyForCheckout(
@@ -75,14 +75,18 @@ export const cartRevalidationService = {
         );
       }
 
-      const livePrice = variant.price ?? (product.price as number);
-      if (Math.abs(Number(item.price) - Number(livePrice)) > 0.001) {
+      const livePrice = Number(variant.price ?? (product.price as number));
+      if (Math.abs(Number(item.price) - livePrice) > 0.001) {
         staleCount += 1;
       }
     }
 
     if (staleCount > 0) {
       recordCartMetric("cart.stale.recovered", { userId, staleCount });
+      throw new AppError(
+        "Some prices in your cart changed. Please review your cart and try again.",
+        409,
+      );
     }
   },
 };

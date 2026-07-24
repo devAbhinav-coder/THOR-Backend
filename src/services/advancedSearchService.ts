@@ -848,8 +848,9 @@ export class AdvancedSearchService {
         return new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
       }
       const regexStrings = words.map((word) => {
-        if (word.length <= 3) return word;
-        return `(${word}|${word.slice(0, -1)}|${word}s)`;
+        const escaped = escapeRegExp(word);
+        if (word.length <= 3) return escaped;
+        return `(${escaped}|${escapeRegExp(word.slice(0, -1))}|${escaped}s)`;
       });
       return new RegExp(regexStrings.join(".*"), "i");
     });
@@ -1199,7 +1200,9 @@ export class AdvancedSearchService {
     }
 
     const expandedQueries = this.expandSearchQuery(searchText);
-    const regexPatterns = expandedQueries.map((q) => new RegExp(q, "i"));
+    const regexPatterns = expandedQueries.map(
+      (q) => new RegExp(escapeRegExp(q), "i"),
+    );
 
     const conditions = regexPatterns.map((pattern) =>
       this.buildFieldRegexMatch(pattern),
@@ -1318,7 +1321,7 @@ export class AdvancedSearchService {
 
     // Fetch collection suggestions
     const collectionSuggestions: Array<{ name: string; url: string; image?: string }> = [];
-    const catQuery = new RegExp(safeQuery, "i");
+    const catQuery = new RegExp(escapeRegExp(safeQuery), "i");
     
     // Check categories
     const matchedCategories = await mongoose.model("Category").find({ name: catQuery, isActive: true }).limit(2).lean() as any[];

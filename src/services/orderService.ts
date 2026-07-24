@@ -34,7 +34,13 @@ export function buildOrderItemsFromProducts(
       image: product.images[0].url,
       variant: item.variant,
       quantity: item.quantity,
-      price: item.price,
+      price: (() => {
+        const sku = String(item.variant?.sku || "").trim();
+        const live =
+          product.variants?.find((v) => String(v.sku || "").trim() === sku)
+            ?.price ?? product.price;
+        return Number(live);
+      })(),
       customFieldAnswers:
         typeof item.customFieldAnswers === "string" ?
           undefined

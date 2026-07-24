@@ -33,8 +33,13 @@ export function csrfOriginGuard(
   }
 
   const origin = req.get("Origin");
-  if (!origin || origin === "null") {
+  if (!origin) {
+    // Non-browser clients (mobile, curl, SSR) typically omit Origin.
     next();
+    return;
+  }
+  if (origin === "null") {
+    next(new AppError("Forbidden origin.", 403));
     return;
   }
 

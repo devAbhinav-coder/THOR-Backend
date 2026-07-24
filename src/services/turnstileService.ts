@@ -2,26 +2,39 @@ import logger from "../types/utils/logger";
 
 const VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
-export function turnstileEnabled(): boolean {
-  return Boolean(
-    process.env.TURNSTILE_SECRET_KEY?.trim() &&
-    process.env.TURNSTILE_ENFORCE === "true",
+/** Canonical secret: TURNSTILE_SECRET (Spin). Legacy alias: TURNSTILE_SECRET_KEY. */
+export function getTurnstileSecret(): string {
+  return (
+    process.env.TURNSTILE_SECRET?.trim() ||
+    process.env.TURNSTILE_SECRET_KEY?.trim() ||
+    ""
   );
 }
 
+/**
+ * Enforce when a secret is configured unless explicitly disabled
+ * (`TURNSTILE_ENFORCE=false`).
+ */
+export function turnstileEnabled(): boolean {
+  const secret = getTurnstileSecret();
+  if (!secret) return false;
+  if (process.env.TURNSTILE_ENFORCE === "false") return false;
+  return true;
+}
+
 export function turnstileOptional(): boolean {
-  return Boolean(process.env.TURNSTILE_SECRET_KEY?.trim());
+  return Boolean(getTurnstileSecret());
 }
 
 /**
- * Verifies Cloudflare Turnstile token when secret is configured.
- * When TURNSTILE_ENFORCE is not true, missing token is allowed (hook for gradual rollout).
+ * Canonical Cloudflare siteverify.
+ * When enforcement is off, missing token is allowed (gradual rollout).
  */
 export async function verifyTurnstileToken(
   token: string | undefined,
   remoteIp?: string,
 ): Promise<{ ok: boolean; skipped: boolean }> {
-  const secret = process.env.TURNSTILE_SECRET_KEY?.trim();
+  const secret = getTurnstileSecret();
   if (!secret) {
     return { ok: true, skipped: true };
   }

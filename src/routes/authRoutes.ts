@@ -90,13 +90,13 @@ router.post('/signup/start', otpLimiter, turnstileGuard, validate(signupStartSch
 router.post('/signup/verify', otpLimiter, turnstileGuard, validate(signupVerifySchema), signupVerify);
 /** Unified OTP API (immediate Zoho + Resend fallback). */
 router.post('/send-otp', otpLimiter, turnstileGuard, validate(sendOtpSchema), postSendOtp);
-router.post('/resend-otp', otpLimiter, validate(resendOtpSchema), postResendOtp);
-router.post('/verify-otp', otpLimiter, validate(verifyOtpSchema), postVerifyOtp);
+router.post('/resend-otp', otpLimiter, turnstileGuard, validate(resendOtpSchema), postResendOtp);
+router.post('/verify-otp', otpLimiter, turnstileGuard, validate(verifyOtpSchema), postVerifyOtp);
 router.post('/login', loginLimiter, sensitiveAuthLimiter, turnstileGuard, validate(loginSchema), login);
 router.post('/refresh', sensitiveAuthLimiter, refresh);
 router.post('/forgot-password', otpLimiter, turnstileGuard, validate(forgotPasswordSchema), forgotPassword);
-router.post('/reset-password', otpLimiter, validate(resetPasswordSchema), resetPassword);
-router.post('/google', loginLimiter, sensitiveAuthLimiter, validate(googleAuthSchema), googleAuth);
+router.post('/reset-password', otpLimiter, turnstileGuard, validate(resetPasswordSchema), resetPassword);
+router.post('/google', loginLimiter, sensitiveAuthLimiter, turnstileGuard, validate(googleAuthSchema), googleAuth);
 router.post('/logout', logout);
 
 router.use(protect);
