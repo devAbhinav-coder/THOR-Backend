@@ -26,7 +26,11 @@ export const createCoupon = catchAsync(async (_req: Request, res: Response) => {
 
   const coupon = await couponAdminService.createCoupon(body);
 
-  if (body.sendAnnouncement === true || body.sendAnnouncement === "true") {
+  // Never email-blast code-only / influencer coupons — that would defeat privacy.
+  const isPublicOffer = coupon.showOnStorefront !== false;
+  const wantsAnnouncement =
+    body.sendAnnouncement === true || body.sendAnnouncement === "true";
+  if (wantsAnnouncement && isPublicOffer) {
     const tpl = emailTemplates.couponAnnouncement(
       coupon.code,
       coupon.description,
@@ -45,11 +49,18 @@ export const createCoupon = catchAsync(async (_req: Request, res: Response) => {
       couponId: String(coupon._id),
       code: coupon.code,
     });
+  } else if (wantsAnnouncement && !isPublicOffer) {
+    logger.info({
+      msg: "coupon_broadcast_skipped_code_only",
+      couponId: String(coupon._id),
+      code: coupon.code,
+    });
   }
 
   await writeAdminAudit(req, "coupon.create", {
     couponId: String(coupon._id),
     code: coupon.code,
+    showOnStorefront: isPublicOffer,
   });
   sendSuccess(res, { coupon }, "Coupon created", 201);
 });

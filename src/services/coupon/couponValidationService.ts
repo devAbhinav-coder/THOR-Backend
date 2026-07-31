@@ -276,8 +276,12 @@ export const couponValidationService = {
       return cached;
     }
 
+    // Code-only / influencer coupons (showOnStorefront: false) stay off this
+    // list — users must type the code. Apply + validate still accept them.
+    // $ne:false keeps legacy docs (missing field) treated as public.
     const coupons = await Coupon.find({
       ...ACTIVE_COUPON_DB_FILTER,
+      showOnStorefront: { $ne: false },
       startDate: { $lte: now },
       expiryDate: { $gte: now },
       $or: [
