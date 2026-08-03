@@ -108,8 +108,8 @@ export function parseProductListQuery(req: Request): ParsedProductListQuery {
   const minRating =
     minRatings.length > 0 ? Math.min(...minRatings) : undefined;
 
-  const minPriceRaw = q.minPrice ?? (q as Record<string, string>)["price[gte]"];
-  const maxPriceRaw = q.maxPrice ?? (q as Record<string, string>)["price[lte]"];
+  const minPriceRaw = q.minPrice ?? (q.price as Record<string, unknown>)?.gte ?? q["price[gte]"];
+  const maxPriceRaw = q.maxPrice ?? (q.price as Record<string, unknown>)?.lte ?? q["price[lte]"];
   const minPrice =
     minPriceRaw !== undefined && minPriceRaw !== "" ?
       Number(minPriceRaw)

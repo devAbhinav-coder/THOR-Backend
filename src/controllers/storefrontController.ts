@@ -116,7 +116,7 @@ const FALLBACK_SETTINGS = {
     headlineLine2: "Collections",
     description:
       "Also explore handmade gifts, corporate gifting, and curated hampers — perfect alongside our saree, salwar suit, and corset collections.",
-    socialHandle: "@thehouseofrani",
+    socialHandle: "@thehouseofrani_",
     cards: [
       {
         title: "Handmade Gifts",

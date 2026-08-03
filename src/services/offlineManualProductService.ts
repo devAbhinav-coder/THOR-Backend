@@ -5,7 +5,7 @@ import {
 } from "../constants/offlineOrder";
 
 const PLACEHOLDER_IMAGE = {
-  url: "https://images.unsplash.com/photo-1606107557195-0e29a4b5b4aa?w=400&h=400&fit=crop",
+  url: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=400&fit=crop",
   publicId: "offline-system/line-item-placeholder",
 };
 
