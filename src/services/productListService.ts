@@ -227,18 +227,23 @@ export async function listProductsViaApiFeatures(
     offerScopes,
   );
 
+  const priceFilter: Record<string, unknown> = {};
+  if (parsed.minPrice !== undefined) {
+    priceFilter.$gte = parsed.minPrice;
+  }
+  if (parsed.maxPrice !== undefined) {
+    priceFilter.$lte = parsed.maxPrice;
+  }
+  if (Object.keys(priceFilter).length > 0) {
+    categoryBase.price = priceFilter;
+  }
+
   const queryString: Record<string, string | undefined> = {
     page: String(parsed.page),
     limit: String(parsed.limit),
     sort: normalizeShopListSort(parsed.sort),
   };
   if (parsed.search) queryString.search = parsed.search;
-  if (parsed.minPrice !== undefined) {
-    queryString["price[gte]"] = String(parsed.minPrice);
-  }
-  if (parsed.maxPrice !== undefined) {
-    queryString["price[lte]"] = String(parsed.maxPrice);
-  }
 
   const features = new APIFeatures<IProduct>(
     Product.find(categoryBase),
