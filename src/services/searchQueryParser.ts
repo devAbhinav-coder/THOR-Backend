@@ -685,10 +685,25 @@ export function mergeSearchIntentWithFilters(
   residualQuery: string;
   colors: string[];
   fabrics: string[];
+  /**
+   * Only explicitly provided categories (from URL params like shop page).
+   * These become HARD MongoDB filters via buildShopCollectionFilter.
+   * Intent-parsed categories (from text) are in intentCategories instead.
+   */
   categories: string[];
+  /**
+   * Categories parsed from the search query text (intent only).
+   * These should NOT become hard filters — use them for relevance boosting
+   * and text search only, so subcategories like "Banarasi Saree" still match
+   * when searching for "saree".
+   */
+  intentCategories: string[];
   minPrice?: number;
   maxPrice?: number;
+  /** Only explicit URL param subcategories. Become hard MongoDB filters. */
   subcategories: string[];
+  /** Intent-parsed subcategories (from PHRASE_HINTS). Soft boost only — NOT hard filters. */
+  intentSubcategories: string[];
   tags: string[];
 } {
   const colorSet = new Set<string>();
@@ -715,8 +730,31 @@ export function mergeSearchIntentWithFilters(
     categorySet.add(normalizeIntentCategory(category));
   }
 
-  const subcategorySet = new Set(
-    [...(intent.subcategories || []), ...(filters.subcategories || [])]
+  // Explicit URL categories (become hard MongoDB filters)
+  const explicitCategorySet = new Set<string>();
+  for (const category of filters.categories ?? []) {
+    explicitCategorySet.add(normalizeIntentCategory(category));
+  }
+
+  // Intent categories from text parsing (for boosting only, not hard filters)
+  const intentCategorySet = new Set<string>();
+  for (const category of intent.categories ?? []) {
+    const normalized = normalizeIntentCategory(category);
+    if (!explicitCategorySet.has(normalized)) {
+      intentCategorySet.add(normalized);
+    }
+  }
+
+  // Explicit URL subcategories (become hard MongoDB filters)
+  const explicitSubcategorySet = new Set(
+    [...(filters.subcategories || [])]
+  );
+
+  // Intent subcategories from PHRASE_HINTS (soft boost only — NOT hard filters)
+  // e.g. "cotton saree" auto-matches PHRASE_HINTS but DB has "Cotton Sarees" (different case/plural)
+  // Using these as hard filters via buildShopCollectionFilter produces 0 results.
+  const intentSubcategorySet = new Set(
+    [...(intent.subcategories || [])]
   );
 
   return {
@@ -724,10 +762,13 @@ export function mergeSearchIntentWithFilters(
     residualQuery: buildResidualTextQuery(intent),
     colors: [...colorSet],
     fabrics: [...fabricSet],
-    categories: [...categorySet],
+    categories: [...explicitCategorySet],
+    intentCategories: [...intentCategorySet],
     minPrice: filters.minPrice ?? intent.minPrice,
     maxPrice: filters.maxPrice ?? intent.maxPrice,
-    subcategories: Array.from(subcategorySet),
+    subcategories: Array.from(explicitSubcategorySet),
+    intentSubcategories: Array.from(intentSubcategorySet),
     tags: intent.tags,
   };
 }
+

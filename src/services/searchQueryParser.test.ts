@@ -58,23 +58,33 @@ test("parses chanderi saree intent", () => {
   assert.ok(intent.categories.includes("saree"));
 });
 
-test("merge applies parsed fabric and category intent as filters", () => {
+test("merge puts parsed intent categories into intentCategories (not hard filter)", () => {
   const intent = parseSearchQueryIntent("chanderi saree");
   const merged = mergeSearchIntentWithFilters(intent, {});
-  assert.ok(merged.colors.includes("Chanderi"));
-  assert.ok(merged.categories.includes("Sarees"));
+  // Chanderi is a fabric
+  assert.ok(merged.fabrics.includes("Chanderi"));
+  // Saree from the text query goes to intentCategories (soft boost), not the hard filter 'categories'
+  assert.ok(merged.intentCategories.includes("Sarees"));
+  // No explicit URL categories were passed, so hard filter set should be empty
+  assert.equal(merged.categories.length, 0, "No explicit categories should be in hard filter");
 });
 
-test("explicit URL filters merge with parsed intent", () => {
+test("explicit URL filters go to categories, intent-only go to intentCategories", () => {
   const intent = parseSearchQueryIntent("cotton saree");
   const merged = mergeSearchIntentWithFilters(intent, {
     colors: ["Silk"],
     categories: ["Lehengas"],
   });
-  assert.ok(merged.colors.includes("Cotton"));
+  // Cotton from text is a fabric, not a color
+  assert.ok(merged.fabrics.includes("Cotton"));
+  // Silk was an explicit color URL filter
   assert.ok(merged.colors.includes("Silk"));
-  assert.ok(merged.categories.includes("Sarees"));
+  // Saree from text query → intentCategories (soft boost only)
+  assert.ok(merged.intentCategories.includes("Sarees"));
+  // Lehenga was an EXPLICIT URL param → goes to hard-filter categories
   assert.ok(merged.categories.includes("Lehengas"));
+  // Saree should NOT be in hard-filter categories (it's text-intent only)
+  assert.ok(!merged.categories.includes("Sarees"));
 });
 
 test("builds empty residual query when intent fully covers search", () => {

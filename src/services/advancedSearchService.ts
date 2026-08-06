@@ -335,6 +335,8 @@ export class AdvancedSearchService {
     intentHints?: {
       colors?: string[];
       categories?: string[];
+      /** Intent-only categories for soft boosting via subcategory contains-match */
+      intentCategories?: string[];
     },
   ): number {
     const queryWords = query
@@ -422,6 +424,38 @@ export class AdvancedSearchService {
         const normalized = normalizeIntentCategory(category).toLowerCase();
         if (productCategory === normalized) {
           score += 15;
+        }
+      }
+    }
+
+    // Soft boost for intent-only categories (from text query, not explicit filters).
+    // e.g. user searched "saree" → intentCategories = ["Sarees"]
+    // Products with subcategory "Banarasi Saree" or category "Banarasi Saree" get a boost
+    // because their category/subcategory CONTAINS the root word "saree".
+    if (intentHints?.intentCategories?.length) {
+      const productCategory = (product.category ?? "").toLowerCase();
+      const productSubcategory = (product.subcategory ?? "").toLowerCase();
+      const productName = product.name.toLowerCase();
+
+      for (const intentCat of intentHints.intentCategories) {
+        // Extract the root word(s) from the intent category
+        // "Sarees" → ["saree", "sarees"], "Salwar Suits" → ["salwar", "suit", "suits"]
+        const intentWords = intentCat
+          .toLowerCase()
+          .replace(/s$/, "") // strip trailing 's' for singular
+          .split(/\s+/)
+          .filter((w) => w.length >= 4);
+
+        for (const word of intentWords) {
+          if (productCategory.includes(word)) {
+            score += 12; // Category contains the intent word (e.g. "Banarasi Saree" contains "saree")
+          }
+          if (productSubcategory.includes(word)) {
+            score += 12; // Subcategory contains the intent word
+          }
+          if (productName.includes(word)) {
+            score += 8; // Name contains the intent word
+          }
         }
       }
     }
@@ -558,8 +592,16 @@ export class AdvancedSearchService {
     const effectiveQuery = merged.query;
     const effectiveColors = merged.colors;
     const effectiveFabrics = merged.fabrics;
+    // Only EXPLICIT categories (from URL params) become hard MongoDB filters
     const effectiveCategories = merged.categories;
+    // Intent categories (from text parsing) are used for soft boosting only
+    const intentCategories = merged.intentCategories;
+    // Only EXPLICIT subcategories (from URL params) become hard MongoDB filters
     const effectiveSubcategories = merged.subcategories;
+    // Intent subcategories (from PHRASE_HINTS) are soft boost only
+    const intentSubcategories = merged.intentSubcategories;
+    // Only use residualQuery (strip category words) when there are EXPLICIT categories/colors/fabrics
+    // For intent-only categories, we keep the full query so regex can match subcategories like 'Banarasi Saree'
     const textSearchQuery =
       effectiveColors.length > 0 ||
       effectiveCategories.length > 0 ||
@@ -571,10 +613,12 @@ export class AdvancedSearchService {
     const hasQuery = safeQuery.length > 0;
     const colorBoost =
       merged.colors.length > 0 ? ` ${merged.colors.join(" ")}` : "";
-    const subcategoryBoost =
-      merged.subcategories.length > 0 ?
-        ` ${merged.subcategories.join(" ")}`
-      : "";
+    // Combine explicit + intent subcategories for text search boost
+    const allSubsForBoost = [
+      ...merged.subcategories,
+      ...intentSubcategories,
+    ].filter(Boolean);
+    const subcategoryBoost = allSubsForBoost.length > 0 ? ` ${allSubsForBoost.join(" ")}` : "";
     const tagBoost =
       merged.tags.length > 0 ? ` ${merged.tags.join(" ")}` : "";
     const searchText =
@@ -589,7 +633,9 @@ export class AdvancedSearchService {
       page,
       limit,
       categories: effectiveCategories,
+      intentCategories,
       subcategories: effectiveSubcategories,
+      intentSubcategories,
       colors: effectiveColors,
       fabrics: effectiveFabrics,
       minPrice: effectiveMinPrice,
@@ -642,7 +688,9 @@ export class AdvancedSearchService {
         page,
         limit,
         categories: effectiveCategories,
+        intentCategories,
         subcategories: effectiveSubcategories,
+        intentSubcategories,
         occasions,
         colors: effectiveColors,
         fabrics: effectiveFabrics,
@@ -737,7 +785,11 @@ export class AdvancedSearchService {
     page?: number;
     limit?: number;
     categories?: string[];
+    /** Intent-parsed categories (from text search). Soft boost only — NOT hard MongoDB filters. */
+    intentCategories?: string[];
     subcategories?: string[];
+    /** Intent-parsed subcategories (from PHRASE_HINTS). Soft boost only — NOT hard MongoDB filters. */
+    intentSubcategories?: string[];
     occasions?: string[];
     colors?: string[];
     fabrics?: string[];
@@ -764,6 +816,7 @@ export class AdvancedSearchService {
       page = 1,
       limit = env.pagination.defaultLimit,
       categories = [],
+      intentCategories = [],
       subcategories = [],
       occasions = [],
       colors = [],
@@ -915,7 +968,9 @@ export class AdvancedSearchService {
           fabric: product.fabric as string,
         },
         {
+          colors: colors.length > 0 ? colors : undefined,
           categories: categories.length > 0 ? categories : undefined,
+          intentCategories: intentCategories.length > 0 ? intentCategories : undefined,
         },
       );
 
