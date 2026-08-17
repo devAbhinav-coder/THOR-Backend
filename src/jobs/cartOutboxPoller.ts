@@ -1,38 +1,16 @@
-import logger from "../types/utils/logger";
+import { createOutboxPoller } from "./createOutboxPoller";
 import { processPendingCartOutboxBatch } from "../services/cart/cartOutboxService";
 
-const DEFAULT_INTERVAL_MS = Number(process.env.CART_OUTBOX_POLL_MS || 15_000);
+const poller = createOutboxPoller({
+  name: "cart-outbox",
+  enabledEnv: "CART_OUTBOX_POLL_ENABLED",
+  intervalEnv: "CART_OUTBOX_POLL_MS",
+  defaultIntervalMs: 15_000,
+  disabledLogMessage:
+    "Cart outbox poller disabled (CART_OUTBOX_POLL_ENABLED=false)",
+  dispatchedLogMsg: "cart_outbox_poller_dispatched",
+  processBatch: processPendingCartOutboxBatch,
+});
 
-let timer: ReturnType<typeof setInterval> | null = null;
-
-export function startCartOutboxPoller(): void {
-  if (timer) return;
-  if (process.env.CART_OUTBOX_POLL_ENABLED === "false") {
-    logger.info("Cart outbox poller disabled (CART_OUTBOX_POLL_ENABLED=false)");
-    return;
-  }
-
-  const tick = async () => {
-    try {
-      const n = await processPendingCartOutboxBatch();
-      if (n > 0) {
-        logger.info({ msg: "cart_outbox_poller_dispatched", count: n });
-      }
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "cart outbox poll failed";
-      logger.error({ msg: "cart_outbox_poller_error", error: message });
-    }
-  };
-
-  void tick();
-  timer = setInterval(() => void tick(), DEFAULT_INTERVAL_MS);
-  logger.info(`Cart outbox poller started (interval ${DEFAULT_INTERVAL_MS}ms)`);
-}
-
-export function stopCartOutboxPoller(): void {
-  if (timer) {
-    clearInterval(timer);
-    timer = null;
-  }
-}
+export const startCartOutboxPoller = poller.start;
+export const stopCartOutboxPoller = poller.stop;

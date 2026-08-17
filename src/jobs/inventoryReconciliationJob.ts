@@ -1,14 +1,17 @@
 import logger from "../types/utils/logger";
 import { runInventoryReconciliation } from "../services/inventory/inventoryReconciliationService";
+import { withPollerLock } from "./pollerLock";
+import { startScheduledJob } from "./scheduledRunner";
 
 const DEFAULT_INTERVAL_MS = Number(
   process.env.INVENTORY_RECONCILE_POLL_MS || 60 * 60 * 1000,
 );
+const CRON_EXPRESSION = process.env.INVENTORY_RECONCILE_CRON?.trim();
 
-let timer: ReturnType<typeof setInterval> | null = null;
+let stopJob: (() => void) | null = null;
 
 export function startInventoryReconciliationJob(): void {
-  if (timer) return;
+  if (stopJob) return;
   if (process.env.INVENTORY_RECONCILE_ENABLED === "false") {
     logger.info(
       "Inventory reconciliation job disabled (INVENTORY_RECONCILE_ENABLED=false)",
@@ -16,29 +19,40 @@ export function startInventoryReconciliationJob(): void {
     return;
   }
 
-  const tick = async () => {
-    try {
-      const result = await runInventoryReconciliation();
-      if (result.totalStockFixed > 0) {
-        logger.warn({ msg: "inventory_reconciliation_completed", ...result });
-      }
-    } catch (err: unknown) {
+  const lockTtlMs = CRON_EXPRESSION ?
+      55 * 60 * 1000
+    : Math.max(Math.floor(DEFAULT_INTERVAL_MS * 0.9), 60_000);
+
+  stopJob = startScheduledJob({
+    name: "inventory-reconciliation",
+    cronExpression: CRON_EXPRESSION || undefined,
+    intervalMs: CRON_EXPRESSION ? undefined : DEFAULT_INTERVAL_MS,
+    onTick: async () => {
+      await withPollerLock("inventory-reconciliation", lockTtlMs, async () => {
+        const result = await runInventoryReconciliation();
+        if (result.totalStockFixed > 0) {
+          logger.warn({ msg: "inventory_reconciliation_completed", ...result });
+        }
+      });
+    },
+    onError: (err: unknown) => {
       const message =
         err instanceof Error ? err.message : "reconciliation failed";
       logger.error({ msg: "inventory_reconciliation_error", error: message });
-    }
-  };
+    },
+  });
 
-  void tick();
-  timer = setInterval(() => void tick(), DEFAULT_INTERVAL_MS);
-  logger.info(
-    `Inventory reconciliation job started (interval ${DEFAULT_INTERVAL_MS}ms)`,
-  );
+  logger.info({
+    msg: "inventory_reconciliation_job_started",
+    schedule: CRON_EXPRESSION ? "cron" : "interval",
+    cronExpression: CRON_EXPRESSION,
+    intervalMs: CRON_EXPRESSION ? undefined : DEFAULT_INTERVAL_MS,
+  });
 }
 
 export function stopInventoryReconciliationJob(): void {
-  if (timer) {
-    clearInterval(timer);
-    timer = null;
+  if (stopJob) {
+    stopJob();
+    stopJob = null;
   }
 }

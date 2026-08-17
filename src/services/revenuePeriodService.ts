@@ -3,62 +3,18 @@ import { istEndOfDay, istMidnight, istParts } from "../types/utils/istDate";
 import {
   PAYMENT_STATUS_GROSS,
   couponDiscountPipeline,
+  promotionDiscountPipeline,
+  saleDiscountPipeline,
   orderFeesPipeline,
   taxCollectedPipeline,
 } from "./orderFinanceAggregations";
+import { getOfferAttributionSummary } from "./offerAttributionService";
+import { paidOrderLineProfitStages } from "./orderProfitAggregationHelpers";
+import { ORDER_CHANNEL_SWITCH, orderChannelFilterLabel, orderChannelMatch, type OrderSalesChannelFilter } from "../utils/orderChannel";
 
 const IST_TZ = "Asia/Kolkata";
 
 export type RevenuePeriod = "month" | "year" | "lifetime";
-
-function paidOrderLineProfitStages(extraMatch: Record<string, unknown> = {}) {
-  return [
-    { $match: { paymentStatus: "paid" as const, ...extraMatch } },
-    { $unwind: "$items" },
-    {
-      $lookup: {
-        from: "products",
-        localField: "items.product",
-        foreignField: "_id",
-        as: "productDoc",
-      },
-    },
-    { $unwind: { path: "$productDoc", preserveNullAndEmptyArrays: true } },
-    {
-      $addFields: {
-        matchedVariant: {
-          $arrayElemAt: [
-            {
-              $filter: {
-                input: { $ifNull: ["$productDoc.variants", []] },
-                as: "v",
-                cond: { $eq: ["$$v.sku", "$items.variant.sku"] },
-              },
-            },
-            0,
-          ],
-        },
-      },
-    },
-    {
-      $addFields: {
-        unitCost: { $ifNull: ["$matchedVariant.costPrice", 0] },
-        lineRevenue: { $multiply: ["$items.price", "$items.quantity"] },
-      },
-    },
-    {
-      $addFields: {
-        lineCogs: { $multiply: ["$unitCost", "$items.quantity"] },
-        lineProfit: {
-          $subtract: [
-            { $multiply: ["$items.price", "$items.quantity"] },
-            { $multiply: ["$unitCost", "$items.quantity"] },
-          ],
-        },
-      },
-    },
-  ];
-}
 
 export function resolveRevenuePeriodBounds(
   period: RevenuePeriod,
@@ -138,18 +94,26 @@ function refundDateMatch(bounds: { start: Date | null; end: Date }) {
 
 export async function getRevenuePeriodSummary(
   period: RevenuePeriod,
-  options?: { year?: number; month?: number },
+  options?: { year?: number; month?: number; channel?: OrderSalesChannelFilter },
 ) {
   const bounds = resolveRevenuePeriodBounds(
     period,
     options?.year,
     options?.month,
   );
-  const orderMatch = orderDateMatch(bounds);
-  const chartOrderMatch = orderDateMatch({
-    start: bounds.chartStart,
-    end: bounds.end,
-  });
+  const channel = options?.channel ?? "all";
+  const channelMatch = orderChannelMatch(channel);
+  const orderMatch = { ...orderDateMatch(bounds), ...channelMatch };
+  const chartOrderMatch = {
+    ...orderDateMatch({
+      start: bounds.chartStart,
+      end: bounds.end,
+    }),
+    ...channelMatch,
+  };
+  const channelSuffix = orderChannelFilterLabel(channel);
+  const periodLabel =
+    channelSuffix ? `${bounds.label} · ${channelSuffix}` : bounds.label;
 
   const refundStages = [
     { $match: { "refundData.amount": { $gt: 0 } } },
@@ -171,10 +135,14 @@ export async function getRevenuePeriodSummary(
     categoryProfit,
     orderCountAgg,
     couponAgg,
+    promoAgg,
+    saleAgg,
     orderFeesAgg,
     taxAgg,
     feesRetainedAgg,
     paymentMethodMix,
+    channelMixAgg,
+    offerAttribution,
   ] = await Promise.all([
     Order.aggregate([
       { $match: { ...PAYMENT_STATUS_GROSS, ...orderMatch } },
@@ -182,7 +150,7 @@ export async function getRevenuePeriodSummary(
     ]),
     Order.aggregate([
       ...refundStages,
-      { $match: refundDateMatch(bounds) },
+      { $match: { ...refundDateMatch(bounds), ...channelMatch } },
       {
         $group: {
           _id: null,
@@ -234,7 +202,10 @@ export async function getRevenuePeriodSummary(
     Order.aggregate([
       ...refundStages,
       {
-        $match: refundDateMatch({ start: bounds.chartStart, end: bounds.end }),
+        $match: {
+          ...refundDateMatch({ start: bounds.chartStart, end: bounds.end }),
+          ...channelMatch,
+        },
       },
       {
         $group: {
@@ -252,17 +223,17 @@ export async function getRevenuePeriodSummary(
       ...paidOrderLineProfitStages(orderMatch),
       {
         $group: {
-          _id: "$items.product",
+          _id: "$profitGroupKey",
           name: { $first: "$items.name" },
           image: { $first: "$items.image" },
-          category: { $first: "$productDoc.category" },
+          category: { $first: "$resolvedLineCategory" },
           unitsSold: { $sum: "$items.quantity" },
           revenue: { $sum: "$lineRevenue" },
           cogs: { $sum: "$lineCogs" },
           profit: { $sum: "$lineProfit" },
           orderLines: { $sum: 1 },
           linesMissingCost: {
-            $sum: { $cond: [{ $eq: ["$unitCost", 0] }, 1, 0] },
+            $sum: { $cond: ["$hasCostData", 0, 1] },
           },
         },
       },
@@ -303,7 +274,7 @@ export async function getRevenuePeriodSummary(
       ...paidOrderLineProfitStages(orderMatch),
       {
         $group: {
-          _id: { $ifNull: ["$productDoc.category", "Uncategorized"] },
+          _id: "$resolvedLineCategory",
           revenue: { $sum: "$lineRevenue" },
           cogs: { $sum: "$lineCogs" },
           profit: { $sum: "$lineProfit" },
@@ -334,6 +305,8 @@ export async function getRevenuePeriodSummary(
       { $group: { _id: null, count: { $sum: 1 } } },
     ]),
     Order.aggregate(couponDiscountPipeline(orderMatch)),
+    Order.aggregate(promotionDiscountPipeline(orderMatch)),
+    Order.aggregate(saleDiscountPipeline(orderMatch)),
     Order.aggregate(orderFeesPipeline(orderMatch)),
     Order.aggregate(taxCollectedPipeline(orderMatch)),
     Order.aggregate([
@@ -341,6 +314,7 @@ export async function getRevenuePeriodSummary(
       {
         $match: {
           ...refundDateMatch(bounds),
+          ...channelMatch,
           "refundData.nonRefundableFees": { $gt: 0 },
         },
       },
@@ -359,6 +333,17 @@ export async function getRevenuePeriodSummary(
       },
       { $sort: { revenue: -1 } },
     ]),
+    Order.aggregate([
+      { $match: { ...PAYMENT_STATUS_GROSS, ...orderMatch } },
+      {
+        $group: {
+          _id: ORDER_CHANNEL_SWITCH,
+          revenue: { $sum: "$total" },
+          count: { $sum: 1 },
+        },
+      },
+    ]),
+    getOfferAttributionSummary(bounds),
   ]);
 
   const grossRevenue = Math.round((grossAgg[0]?.total ?? 0) * 100) / 100;
@@ -394,7 +379,8 @@ export async function getRevenuePeriodSummary(
     period,
     year: bounds.year,
     month: bounds.month,
-    label: bounds.label,
+    label: periodLabel,
+    channel,
     overview: {
       grossRevenue,
       netRevenue,
@@ -408,6 +394,12 @@ export async function getRevenuePeriodSummary(
       couponDiscountTotal:
         Math.round((couponAgg[0]?.totalDiscount ?? 0) * 100) / 100,
       couponOrdersCount: couponAgg[0]?.count ?? 0,
+      promotionDiscountTotal:
+        Math.round((promoAgg[0]?.totalDiscount ?? 0) * 100) / 100,
+      promotionOrdersCount: promoAgg[0]?.count ?? 0,
+      saleDiscountTotal:
+        Math.round((saleAgg[0]?.totalDiscount ?? 0) * 100) / 100,
+      saleOrdersCount: saleAgg[0]?.count ?? 0,
       shippingCollected:
         Math.round((orderFeesAgg[0]?.shipping ?? 0) * 100) / 100,
       codFeeCollected: Math.round((orderFeesAgg[0]?.cod ?? 0) * 100) / 100,
@@ -444,5 +436,19 @@ export async function getRevenuePeriodSummary(
       revenue: number;
       count: number;
     }[],
+    channelMix: (() => {
+      type Row = { _id: "online" | "offline" | "b2b"; revenue: number; count: number };
+      const rows = channelMixAgg as Row[];
+      const map = new Map(rows.map((r) => [r._id, r]));
+      return {
+        onlineRevenue: map.get("online")?.revenue ?? 0,
+        offlineRevenue: map.get("offline")?.revenue ?? 0,
+        b2bRevenue: map.get("b2b")?.revenue ?? 0,
+        onlineCount: map.get("online")?.count ?? 0,
+        offlineCount: map.get("offline")?.count ?? 0,
+        b2bCount: map.get("b2b")?.count ?? 0,
+      };
+    })(),
+    offerAttribution,
   };
 }

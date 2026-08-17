@@ -1,6 +1,10 @@
 import mongoose from 'mongoose';
 import type { PromoScopeType } from '../coupon/couponBusinessRules';
 import { isWithinValidityWindow } from '../coupon/couponBusinessRules';
+import type { SaleScopeContext, ProductScopeSource } from './saleScopeResolver';
+import { resolveProductScopeIds } from './saleScopeResolver';
+
+export type { SaleScopeContext, ProductScopeSource };
 
 export type SaleCampaignLike = {
   _id?: mongoose.Types.ObjectId | string;
@@ -38,28 +42,30 @@ function idSet(ids?: (mongoose.Types.ObjectId | string)[]): Set<string> {
 
 export function campaignMatchesProduct(
   campaign: SaleCampaignLike,
-  product: ProductPriceInput
+  product: ProductScopeSource,
+  ctx?: SaleScopeContext,
 ): boolean {
+  const scoped = resolveProductScopeIds(product, ctx);
   const scope = campaign.scopeType || 'all';
   if (scope === 'all') return true;
-  const productId = product._id ? String(product._id) : '';
+  const productId = scoped._id ? String(scoped._id) : '';
   if (scope === 'products') {
     return productId ? idSet(campaign.productIds).has(productId) : false;
   }
   if (scope === 'categories') {
-    if (!product.categoryId) return false;
-    return idSet(campaign.categoryIds).has(String(product.categoryId));
+    if (!scoped.categoryId) return false;
+    return idSet(campaign.categoryIds).has(String(scoped.categoryId));
   }
   if (scope === 'subcategories') {
-    if (!product.subcategoryId) return false;
-    return idSet(campaign.subcategoryIds).has(String(product.subcategoryId));
+    if (!scoped.subcategoryId) return false;
+    return idSet(campaign.subcategoryIds).has(String(scoped.subcategoryId));
   }
   return false;
 }
 
 export function applyCampaignDiscount(
   basePrice: number,
-  campaign: SaleCampaignLike
+  campaign: SaleCampaignLike,
 ): number {
   if (basePrice <= 0) return basePrice;
   let discounted = basePrice;
@@ -70,7 +76,6 @@ export function applyCampaignDiscount(
     }
     discounted = basePrice - off;
   } else if (campaign.discountType === 'fixed') {
-    // Sell at exact price (e.g. ₹1150) when lower than MRP
     discounted = Math.min(basePrice, Math.max(0, campaign.discountValue));
   } else {
     discounted = basePrice - campaign.discountValue;
@@ -79,9 +84,10 @@ export function applyCampaignDiscount(
 }
 
 export function resolveEffectivePrice(
-  product: ProductPriceInput,
+  product: ProductScopeSource,
   campaigns: SaleCampaignLike[],
-  now = new Date()
+  now = new Date(),
+  ctx?: SaleScopeContext,
 ): {
   effectivePrice: number;
   basePrice: number;
@@ -90,6 +96,7 @@ export function resolveEffectivePrice(
   saleCampaignId: string | null;
   onSale: boolean;
   discountPercent: number | null;
+  winningCampaign: SaleCampaignLike | null;
 } {
   const basePrice = Number(product.price) || 0;
   const comparePrice =
@@ -103,7 +110,7 @@ export function resolveEffectivePrice(
   for (const campaign of campaigns) {
     if (!campaign.isActive || campaign.deletedAt || campaign.archivedAt) continue;
     if (!isWithinValidityWindow(campaign.startDate, campaign.endDate, now)) continue;
-    if (!campaignMatchesProduct(campaign, product)) continue;
+    if (!campaignMatchesProduct(campaign, product, ctx)) continue;
     const priced = applyCampaignDiscount(basePrice, campaign);
     if (priced < bestPrice) {
       bestPrice = priced;
@@ -112,20 +119,21 @@ export function resolveEffectivePrice(
   }
 
   const displayMrp = Math.max(comparePrice ?? basePrice, basePrice);
-  const onSale = bestPrice < displayMrp || Boolean(bestCampaign);
+  const onSale = Boolean(bestCampaign);
   let discountPercent: number | null = null;
-  if (displayMrp > bestPrice && displayMrp > 0) {
+  if (bestCampaign && displayMrp > bestPrice && displayMrp > 0) {
     discountPercent = Math.round(((displayMrp - bestPrice) / displayMrp) * 100);
   }
 
   return {
-    effectivePrice: bestPrice,
+    effectivePrice: bestCampaign ? bestPrice : basePrice,
     basePrice,
-    comparePrice: comparePrice ?? (bestCampaign && bestPrice < basePrice ? basePrice : null),
-    saleBadge: bestCampaign?.badgeText || (onSale && bestPrice < displayMrp ? 'Sale' : null),
+    comparePrice,
+    saleBadge: bestCampaign ? bestCampaign.badgeText || 'Sale' : null,
     saleCampaignId: bestCampaign?._id ? String(bestCampaign._id) : null,
     onSale,
     discountPercent,
+    winningCampaign: bestCampaign,
   };
 }
 

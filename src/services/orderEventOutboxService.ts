@@ -4,6 +4,10 @@ import { enqueueOrderEvent } from "../queues/orderQueue";
 import logger from "../types/utils/logger";
 import { getRequestContext } from "../types/utils/requestContext";
 import { recordOrderMetric } from "./orderMetricsService";
+import {
+  logOutboxDeadLetter,
+  nextOutboxStatusAfterFailure,
+} from "./outboxDeadLetter";
 
 const MAX_ATTEMPTS = 8;
 const BASE_BACKOFF_MS = 2000;
@@ -102,17 +106,27 @@ export async function dispatchOutboxById(outboxId: string): Promise<boolean> {
     const message = err instanceof Error ? err.message : "dispatch failed";
     const attempts = claimed.attempts;
     const terminal = attempts >= MAX_ATTEMPTS;
+    const nextStatus = nextOutboxStatusAfterFailure(attempts, MAX_ATTEMPTS);
     await OrderEventOutbox.updateOne(
       { _id: claimed._id },
       {
         $set: {
-          status: terminal ? "failed" : "pending",
+          status: nextStatus,
           lastError: message.slice(0, 500),
           nextAttemptAt: new Date(Date.now() + nextBackoffMs(attempts)),
         },
       },
     );
     recordOrderMetric("order.outbox.dispatch_failure", { terminal, attempts });
+    if (terminal) {
+      logOutboxDeadLetter(
+        "order",
+        String(claimed._id),
+        claimed.dedupeKey,
+        attempts,
+        message,
+      );
+    }
     logger.error({
       msg: "order_outbox_dispatch_failed",
       outboxId: String(claimed._id),

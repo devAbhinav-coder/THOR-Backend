@@ -10,6 +10,8 @@ import type { CartDto } from "./cartDto";
 import type { CartProductRecord } from "./cartProductService";
 import type { NormalizedCustomFieldAnswer } from "./cartValidationService";
 import { CART_QUERY_MAX_MS, CART_VERSION_MAX_RETRIES } from "./cartConstants";
+import { getActiveSaleCampaigns } from "../sale/saleCacheService";
+import { resolveVariantSellPrice } from "../sale/saleProductEnrichment";
 
 type CartLineVariant = {
   sku: string;
@@ -71,10 +73,21 @@ function buildLineItem(
   variant: CartLineVariant,
   quantity: number,
   customAnswers: NormalizedCustomFieldAnswer[],
+  campaigns: Awaited<ReturnType<typeof getActiveSaleCampaigns>>,
 ) {
   const hash = generateCustomizationHash(customAnswers);
   const cartItemId = generateCartItemId(variant.sku, hash);
-  const price = variant.price ?? (product.price as number);
+  const price = resolveVariantSellPrice(
+    {
+      _id: String(product._id),
+      price: Number(product.price) || 0,
+      comparePrice: product.comparePrice as number | null | undefined,
+      categoryId: product.categoryId as string | null | undefined,
+      subcategoryId: product.subcategoryId as string | null | undefined,
+    },
+    variant,
+    campaigns,
+  );
 
   return {
     cartItemId,
@@ -110,7 +123,14 @@ export const cartMutationService = {
       const variant = variants.find((v) => v.sku === variantSku);
       if (!variant) throw new AppError("Variant not found.", 404);
 
-      const newItem = buildLineItem(product, variant, quantity, customAnswers);
+      const campaigns = await getActiveSaleCampaigns();
+      const newItem = buildLineItem(
+        product,
+        variant,
+        quantity,
+        customAnswers,
+        campaigns,
+      );
       const { cartItemId } = newItem;
 
       const incResult = await Cart.findOneAndUpdate(

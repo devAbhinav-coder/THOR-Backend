@@ -176,7 +176,7 @@ export function assertCouponAppliedToCart(
   cart: CartDto,
   expectedCode: string,
 ): void {
-  if ((cart.discount ?? 0) <= 0) {
+  if ((cart.couponDiscount ?? 0) <= 0) {
     throw new AppError("Coupon is not valid for this cart.", 400);
   }
   const coupon = cart.coupon;

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
-import { redisConnection, redisEnabled } from '../config/redis';
+import { redisConnection, shouldUseRedisRateLimit } from '../config/redis';
 import {
   signupStart,
   signupVerify,
@@ -73,7 +73,7 @@ const otpLimiter = rateLimit({
   message: { status: 'error', message: 'Too many code requests. Try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
-  ...(redisEnabled
+  ...(shouldUseRedisRateLimit()
     ? {
         store: new RedisStore({
           prefix: 'rl:otp:',

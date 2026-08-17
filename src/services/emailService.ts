@@ -6,11 +6,19 @@ import logger from "../types/utils/logger";
 import { htmlToPlainText } from "../types/utils/emailPlainText";
 import { sendViaResend } from "./emailDeliveryService";
 
-type EmailPayload = {
+export type EmailPayload = {
   to: string;
   subject: string;
   html: string;
   text?: string;
+  attachments?: EmailAttachment[];
+};
+
+export type EmailAttachment = {
+  filename: string;
+  /** Raw bytes or base64 string (decoded automatically when sending). */
+  content: Buffer | string;
+  contentType?: string;
 };
 
 const fromEmail =
@@ -114,7 +122,35 @@ type SmtpPayload = {
   subject: string;
   html: string;
   text?: string;
+  attachments?: EmailAttachment[];
 };
+
+function toNodemailerAttachments(
+  attachments?: EmailAttachment[],
+): import("nodemailer/lib/mailer").Attachment[] | undefined {
+  if (!attachments?.length) return undefined;
+  return attachments.map((a) => ({
+    filename: a.filename,
+    content:
+      typeof a.content === "string" ?
+        Buffer.from(a.content, "base64")
+      : a.content,
+    contentType: a.contentType || "application/octet-stream",
+  }));
+}
+
+function toResendAttachments(
+  attachments?: EmailAttachment[],
+): { filename: string; content: Buffer }[] | undefined {
+  if (!attachments?.length) return undefined;
+  return attachments.map((a) => ({
+    filename: a.filename,
+    content:
+      typeof a.content === "string" ?
+        Buffer.from(a.content, "base64")
+      : a.content,
+  }));
+}
 
 /**
  * SMTP send with limited retries (timeouts / transient socket errors).
@@ -134,9 +170,10 @@ export async function sendViaSmtpWithRetry(
     subject: payload.subject,
     html: payload.html,
     text: payload.text || htmlToPlainText(payload.html),
+    attachments: toNodemailerAttachments(payload.attachments),
   };
 
-  if (isLocalhost) {
+  if (isLocalhost && !payload.attachments?.length) {
     const p = getLocalLogoPath();
     if (p) {
       mailOptions.attachments = [
@@ -250,6 +287,40 @@ export const emailTemplates = {
       `${frontendUrl}/shop`,
     ),
   }),
+  abandonedCart: (name: string, total: number, itemCount: number) => ({
+    subject: "Your cart is waiting — The House of Rani",
+    html: shell(
+      "Complete your order",
+      `Hi ${escEmail(name)},<br/><br/>You left <b>${itemCount}</b> item${itemCount !== 1 ? "s" : ""} in your cart (₹${total.toFixed(2)}).<br/><br/>They may sell out — checkout takes just a minute.`,
+      "Return to cart",
+      `${frontendUrl}/cart`,
+    ),
+  }),
+  wishlistPriceDrop: (
+    name: string,
+    productName: string,
+    oldPrice: number,
+    newPrice: number,
+    dropPct: number,
+    productUrl: string,
+  ) => ({
+    subject: `Price drop: ${productName}`,
+    html: shell(
+      "Good news from your wishlist",
+      `Hi ${escEmail(name)},<br/><br/><b>${escEmail(productName)}</b> dropped from ₹${oldPrice.toFixed(0)} to <b>₹${newPrice.toFixed(0)}</b> (${dropPct.toFixed(0)}% off).`,
+      "View product",
+      productUrl,
+    ),
+  }),
+  reengagement: (name: string) => ({
+    subject: "We miss you at The House of Rani",
+    html: shell(
+      "Come back and explore",
+      `Hi ${escEmail(name)},<br/><br/>It has been a while since your last visit. New arrivals and stories are waiting for you.`,
+      "Shop now",
+      `${frontendUrl}/shop`,
+    ),
+  }),
   orderPlacedUser: (name: string, orderNumber: string, total: number) => ({
     subject: `Order confirmation ${orderNumber}`,
     html: shell(
@@ -284,7 +355,7 @@ export const emailTemplates = {
     const fulfilNote =
       opts.fulfillment === "offline_handover" ?
         "Your purchase was completed <b>in person</b> at the time of sale — nothing will be shipped to this address for this order."
-      : "We will arrange <b>courier delivery</b> as usual. You will receive updates when your order ships.";
+      : "We will arrange <b>courier delivery</b> as usual. You will receive updates when your order ships, and your <b>tax invoice by email</b> once the order is delivered.";
 
     const body = `Hi ${escEmail(name)},<br/><br/>
       Thank you for choosing <b>The House of Rani</b>.<br/><br/>
@@ -317,40 +388,124 @@ export const emailTemplates = {
     };
   },
 
-  /** Secure order review invite — link + QR (verified purchase → product review + homepage story). */
+  /** Secure order review invite — verified purchase review link (no login). */
   reviewInvite: (opts: {
     name: string;
     orderNumber: string;
     inviteUrl: string;
-    qrDataUrl: string;
     expiresAt: Date;
   }) => {
     const first = escEmail((opts.name || "there").split(/\s+/)[0] || "there");
     const expiry = opts.expiresAt.toLocaleDateString("en-IN", {
       day: "numeric",
-      month: "short",
+      month: "long",
       year: "numeric",
     });
     const body = `Hi ${first},<br/><br/>
-      Thank you for shopping with <b>The House of Rani</b>. We would love a short note about your purchase
+      Thank you for shopping with <b>The House of Rani</b>. We hope you are enjoying order
       <b>${escEmail(opts.orderNumber)}</b>.<br/><br/>
-      Your private link is for <b>this order only</b> — no login needed. You can leave a product review
-      (shown on the product page after we approve it) and a photo story for our homepage.<br/><br/>
-      <div style="text-align:center;margin:24px 0;padding:20px;background:#f7f4ef;border-radius:16px;border:1px solid #e8e0d4;">
-        <p style="margin:0 0 8px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#c5a059;font-weight:600;">The House of Rani</p>
-        <img src="${opts.qrDataUrl}" alt="Scan to share your experience" width="240" height="240"
-          style="display:inline-block;border-radius:12px;padding:10px;background:#fff;border:1px solid #e5e7eb;" />
-        <p style="margin:12px 0 0;font-size:13px;color:#6b7280;">Scan with your phone camera</p>
-      </div>
-      <p style="margin:0;font-size:13px;color:#6b7280;">This secure link expires on <b>${escEmail(expiry)}</b>.</p>`;
+      We would love to hear about your experience. Share a short review and a photo — it only takes a minute.
+      Your feedback helps other customers and means a lot to our team.<br/><br/>
+      <p style="margin:0;font-size:13px;color:#64748b;">This link is valid until <b>${escEmail(expiry)}</b>.</p>`;
 
     return {
-      subject: `Share your House of Rani experience — ${opts.orderNumber}`,
+      subject: `How was your order? — ${opts.orderNumber}`,
       html: shell(
-        "We would love your feedback",
-        body,
         "Share your experience",
+        body,
+        "Leave a review",
         opts.inviteUrl,
+      ),
+    };
+  },
+
+  /** Delivered order email — full tax invoice attached as PDF (email-safe body). */
+  orderDeliveredWithInvoice: (
+    name: string,
+    opts: {
+      orderNumber: string;
+      invoiceNumber: string;
+      invoiceDate: Date | string;
+      total: number;
+      itemCount: number;
+      paymentMethod: string;
+      paymentStatus: string;
+      inPersonOffline: boolean;
+      invoiceUrl: string;
+      orderUrl: string;
+      pdfFilename: string;
+    },
+  ) => {
+    const fmt = (n: number) =>
+      `₹${Number(n || 0).toLocaleString("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
+    const invDate = new Date(opts.invoiceDate).toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+
+    const fulfilNote =
+      opts.inPersonOffline ?
+        "Thank you for shopping with us in person. Your complete tax invoice is attached as a PDF."
+      : "Great news — your order has been delivered. Your complete tax invoice is attached as a PDF for your records.";
+
+    const body = `
+      <p style="margin:0 0 16px;">Hi ${escEmail(name)},</p>
+      <p style="margin:0 0 20px;">${fulfilNote}</p>
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:100%;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;">
+        <tr>
+          <td style="padding:16px 18px;font-family:Inter,Segoe UI,Arial,sans-serif;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="font-size:14px;line-height:1.6;">
+              <tr>
+                <td style="padding:4px 0;color:#64748b;width:42%;">Order</td>
+                <td style="padding:4px 0;font-weight:600;color:#0f172a;">${escEmail(opts.orderNumber)}</td>
+              </tr>
+              <tr>
+                <td style="padding:4px 0;color:#64748b;">Invoice</td>
+                <td style="padding:4px 0;font-weight:600;color:#0f172a;">${escEmail(opts.invoiceNumber)}</td>
+              </tr>
+              <tr>
+                <td style="padding:4px 0;color:#64748b;">Invoice date</td>
+                <td style="padding:4px 0;color:#0f172a;">${invDate}</td>
+              </tr>
+              <tr>
+                <td style="padding:4px 0;color:#64748b;">Items</td>
+                <td style="padding:4px 0;color:#0f172a;">${opts.itemCount}</td>
+              </tr>
+              <tr>
+                <td style="padding:4px 0;color:#64748b;">Grand total</td>
+                <td style="padding:4px 0;font-size:16px;font-weight:700;color:#0f172a;">${fmt(opts.total)}</td>
+              </tr>
+              <tr>
+                <td style="padding:4px 0;color:#64748b;">Payment</td>
+                <td style="padding:4px 0;color:#0f172a;">${escEmail(opts.paymentMethod)} · ${escEmail(opts.paymentStatus)}</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+      <p style="margin:18px 0 0;font-size:14px;color:#334155;line-height:1.7;">
+        📎 <b>Attached:</b> ${escEmail(opts.pdfFilename)} — full itemised tax invoice (all products, taxes &amp; totals).<br/>
+        Open the PDF on your phone or computer; you can also print it anytime.
+      </p>
+      <p style="margin:16px 0 0;font-size:13px;color:#64748b;line-height:1.6;">
+        <b>GSTIN:</b> 10CCLPR1131E1Z6 · The House of Rani<br/>
+        Amrapali Princely State Sector 76, Noida, UP 201301<br/>
+        <a href="${opts.orderUrl}" style="color:#4f46e5;">View order online →</a>
+      </p>`;
+
+    return {
+      subject: `${opts.inPersonOffline ? "Your purchase receipt" : "Delivered"} — Invoice ${opts.invoiceNumber} (PDF attached)`,
+      html: shell(
+        opts.inPersonOffline ?
+          "Thank you for your purchase"
+        : "Your order has been delivered",
+        body,
+        "View invoice online",
+        opts.invoiceUrl,
       ),
     };
   },
@@ -369,7 +524,7 @@ export const emailTemplates = {
       : "Order update",
       `Hi ${name},<br/><br/>Your order <b>${orderNumber}</b> is now <b>${status}</b>.<br/><br/>
        ${status === "shipped" && opts?.carrier ? `<b>Courier:</b> ${opts.carrier}<br/>${opts.awb ? `<b>AWB:</b> ${opts.awb}<br/>` : ""}${opts?.trackingUrl ? `<b><a href="${opts.trackingUrl}" style="color:#b45309;">Track your shipment →</a></b><br/>` : ""}<br/>` : ""}
-       ${status === "delivered" ? "We hope you love your purchase! If you have any issues, please reach out within 5 days." : ""}
+       ${status === "delivered" ? "We hope you love your purchase!<br/><br/>If you have any issues, please reach out within 5 days." : ""}
        ${status === "cancelled" ? "If you did not request this, please contact our support team immediately." : ""}`,
       "View order",
       `${frontendUrl}/dashboard/orders`,
@@ -701,10 +856,35 @@ export const emailTemplates = {
 };
 
 export const sendEmailNow = async (payload: EmailPayload) => {
-  await sendViaResend({
+  const body = {
     to: payload.to,
     subject: payload.subject,
     html: payload.html,
     text: payload.text,
-  });
+    attachments: payload.attachments,
+  };
+
+  const hasResend = Boolean(process.env.RESEND_API_KEY?.trim());
+
+  if (hasResend) {
+    try {
+      await sendViaResend(body);
+      return;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Resend failed";
+      if (smtpConfigured()) {
+        logger.warn(`Resend failed (${message}); falling back to SMTP for ${payload.to}`);
+        await sendViaSmtpWithRetry(body);
+        return;
+      }
+      throw err;
+    }
+  }
+
+  if (smtpConfigured()) {
+    await sendViaSmtpWithRetry(body);
+    return;
+  }
+
+  throw new Error("No email provider configured (set RESEND_API_KEY or SMTP_HOST).");
 };

@@ -6,6 +6,10 @@ import { invalidatePdpForProductId } from "../productCacheService";
 import logger from "../../types/utils/logger";
 import { getRequestContext } from "../../types/utils/requestContext";
 import { recordInventoryMetric } from "./inventoryMetricsService";
+import {
+  logOutboxDeadLetter,
+  nextOutboxStatusAfterFailure,
+} from "../outboxDeadLetter";
 
 const MAX_ATTEMPTS = 6;
 const BASE_BACKOFF_MS = 1500;
@@ -112,11 +116,12 @@ export async function dispatchInventoryOutboxById(
     const message = err instanceof Error ? err.message : "dispatch failed";
     const attempts = claimed.attempts;
     const terminal = attempts >= MAX_ATTEMPTS;
+    const nextStatus = nextOutboxStatusAfterFailure(attempts, MAX_ATTEMPTS);
     await InventoryEventOutbox.updateOne(
       { _id: claimed._id },
       {
         $set: {
-          status: terminal ? "failed" : "pending",
+          status: nextStatus,
           lastError: message.slice(0, 500),
           nextAttemptAt: new Date(Date.now() + nextBackoffMs(attempts)),
         },
@@ -126,6 +131,15 @@ export async function dispatchInventoryOutboxById(
       terminal,
       attempts,
     });
+    if (terminal) {
+      logOutboxDeadLetter(
+        "inventory",
+        String(claimed._id),
+        claimed.dedupeKey,
+        attempts,
+        message,
+      );
+    }
     return false;
   }
 }

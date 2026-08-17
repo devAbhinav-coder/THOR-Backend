@@ -2,6 +2,7 @@ import { ClientSession, Types } from "mongoose";
 import Product from "../../models/Product";
 import AppError from "../../types/utils/AppError";
 import { recordInventoryMetric } from "./inventoryMetricsService";
+import { resolveCostAfterPurchase } from "./costMethodHelpers";
 
 export interface StockIncrementOp {
   productId: string;
@@ -9,6 +10,8 @@ export interface StockIncrementOp {
   quantity: number;
   unitCost?: number;
   updateCostPrice?: boolean;
+  /** weighted = WAC (default), replace = latest invoice cost only */
+  costMethod?: "weighted" | "replace";
 }
 
 export interface BulkWriteValidation {
@@ -18,21 +21,42 @@ export interface BulkWriteValidation {
   failedSkus: string[];
 }
 
-function buildIncrementOp(
+/**
+ * Apply stock increment with weighted-average cost (WAC) by default.
+ */
+async function applySingleIncrement(
   op: StockIncrementOp,
-): Parameters<typeof Product.bulkWrite>[0][number] {
-  return {
-    updateOne: {
-      filter: { _id: op.productId, "variants.sku": op.sku },
-      update: {
-        $inc: { "variants.$[v].stock": op.quantity, totalStock: op.quantity },
-        ...(op.updateCostPrice !== false && op.unitCost !== undefined ?
-          { $set: { "variants.$[v].costPrice": op.unitCost } }
-        : {}),
-      },
-      arrayFilters: [{ "v.sku": op.sku }],
-    },
-  };
+  session?: ClientSession,
+): Promise<boolean> {
+  const product = await Product.findOne({
+    _id: op.productId,
+    "variants.sku": op.sku,
+  }).session(session ?? null);
+
+  if (!product) return false;
+
+  const variant = product.variants.find((v) => v.sku === op.sku);
+  if (!variant) return false;
+
+  const oldStock = variant.stock ?? 0;
+  variant.stock = oldStock + op.quantity;
+
+  if (op.updateCostPrice !== false && op.unitCost !== undefined) {
+    variant.costPrice = resolveCostAfterPurchase(
+      oldStock,
+      variant.costPrice ?? 0,
+      op.quantity,
+      op.unitCost,
+      op.costMethod ?? "weighted",
+    );
+  }
+
+  product.totalStock = product.variants.reduce(
+    (acc, v) => acc + (v.stock ?? 0),
+    0,
+  );
+  await product.save({ session: session ?? undefined });
+  return true;
 }
 
 /**
@@ -51,27 +75,19 @@ export async function executeStockIncrements(
     };
   }
 
-  const bulkOps = ops.map(buildIncrementOp);
-  const result = await Product.bulkWrite(bulkOps, {
-    ...(session ? { session } : {}),
-    ordered: true,
-  });
+  let matchedCount = 0;
+  const failedSkus: string[] = [];
+
+  for (const op of ops) {
+    const ok = await applySingleIncrement(op, session);
+    if (ok) matchedCount += 1;
+    else failedSkus.push(op.sku);
+  }
 
   const expectedOps = ops.length;
-  const matchedCount = result.matchedCount ?? 0;
-  const modifiedCount = result.modifiedCount ?? 0;
+  const modifiedCount = matchedCount;
 
   if (matchedCount < expectedOps) {
-    const failedSkus: string[] = [];
-    for (const op of ops) {
-      let existsQuery = Product.exists({
-        _id: new Types.ObjectId(op.productId),
-        "variants.sku": op.sku,
-      });
-      if (session) existsQuery = existsQuery.session(session);
-      const exists = await existsQuery;
-      if (!exists) failedSkus.push(op.sku);
-    }
     recordInventoryMetric("inventory.bulk_write.mismatch", {
       expectedOps,
       matchedCount,
@@ -102,6 +118,28 @@ export async function syncProductTotalStock(
   await Product.updateOne(
     { _id: productId },
     { $set: { totalStock: total } },
+    { ...(session ? { session } : {}) },
+  );
+  return total;
+}
+
+/** Recompute product soldCount as sum of variant soldCounts. */
+export async function syncProductSoldCount(
+  productId: string,
+  session?: ClientSession,
+): Promise<number | null> {
+  const product = await Product.findById(productId)
+    .select("variants.soldCount")
+    .session(session ?? null)
+    .lean();
+  if (!product) return null;
+  const total = (product.variants as { soldCount?: number }[]).reduce(
+    (acc, v) => acc + (v.soldCount ?? 0),
+    0,
+  );
+  await Product.updateOne(
+    { _id: productId },
+    { $set: { soldCount: total } },
     { ...(session ? { session } : {}) },
   );
   return total;

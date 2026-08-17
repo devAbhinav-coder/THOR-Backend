@@ -11,6 +11,7 @@ import {
   reconcileProductJson,
   sumVariantStocks,
 } from "../types/utils/productStock";
+import { mergeVariantsIntoProduct } from "../utils/variantMergeHelpers";
 import { getCache, setCache, deleteCache } from "../services/cacheService";
 import { productRepository } from "../repositories/productRepository";
 import { sendPaginated, sendSuccess } from "../types/utils/response";
@@ -25,7 +26,8 @@ import {
 } from "../services/productQueryParser";
 import { listProducts } from "../services/productListService";
 import { getActiveSaleCampaigns } from "../services/sale/saleCacheService";
-import { enrichProductsWithSalePricing } from "../services/sale/saleProductEnrichment";
+import { enrichProductsWithSalePricingAsync } from "../services/sale/saleProductEnrichment";
+import { enrichProductWithPromotions } from "../services/promotion/promotionProductEnrichment";
 import { notifyIndexNowStorefront } from "../services/indexNowService";
 import {
   buildImagesFromMeta,
@@ -226,7 +228,15 @@ export const getProduct = catchAsync(
     const cacheKey = pdpCacheKey(v, slug);
 
     const cached = await getCache<Record<string, unknown>>(cacheKey);
-    if (cached) return sendSuccess(res, { product: cached });
+    if (cached) {
+      const campaigns = await getActiveSaleCampaigns();
+      const [enriched] = await enrichProductsWithSalePricingAsync(
+        [leanProduct(cached) as Record<string, unknown>],
+        campaigns,
+      );
+      const withPromos = await enrichProductWithPromotions(enriched);
+      return sendSuccess(res, { product: withPromos });
+    }
 
     const mutex = new CacheMutex(cacheKey, { ttlMs: 5000 });
     const product = await mutex.withLock(async () => {
@@ -251,11 +261,11 @@ export const getProduct = catchAsync(
 
       if (!dbProduct) return null;
 
-      const [enriched] = enrichProductsWithSalePricing(
+      const [enriched] = await enrichProductsWithSalePricingAsync(
         [leanProduct(dbProduct) as Record<string, unknown>],
         await getActiveSaleCampaigns(),
       );
-      const transformed = enriched;
+      const transformed = await enrichProductWithPromotions(enriched);
       setCache(cacheKey, transformed, PDP_CACHE_TTL).catch(() => {});
       return transformed;
     });
@@ -270,29 +280,44 @@ export const getProduct = catchAsync(
       if (!dbProduct) {
         return next(new AppError("No product found with that slug.", 404));
       }
-      const [enriched] = enrichProductsWithSalePricing(
+      const [enriched] = await enrichProductsWithSalePricingAsync(
         [leanProduct(dbProduct) as Record<string, unknown>],
         await getActiveSaleCampaigns(),
       );
-      return sendSuccess(res, { product: enriched });
+      const withPromos = await enrichProductWithPromotions(enriched);
+      return sendSuccess(res, { product: withPromos });
     }
 
-    sendSuccess(res, { product });
+    const [freshEnriched] = await enrichProductsWithSalePricingAsync(
+      [leanProduct(product) as Record<string, unknown>],
+      await getActiveSaleCampaigns(),
+    );
+    const withPromos = await enrichProductWithPromotions(freshEnriched);
+    sendSuccess(res, { product: withPromos });
   },
 );
 
 export const getFeaturedProducts = catchAsync(
   async (_req: Request, res: Response) => {
+    const campaigns = await getActiveSaleCampaigns();
     const v = await getProductCacheVersion();
     const cacheKey = featuredCacheKey(v);
     const cached = await getCache<Record<string, unknown>[]>(cacheKey);
     if (cached) {
-      return sendSuccess(res, { products: cached.map(leanProduct) });
+      const enriched = await enrichProductsWithSalePricingAsync(
+        cached.map(leanProduct) as Record<string, unknown>[],
+        campaigns,
+      );
+      return sendSuccess(res, { products: enriched.map(leanProduct) });
     }
     const products = await productRepository.findFeatured();
-    const transformed = products.map(leanProduct);
-    setCache(cacheKey, transformed, 120).catch(() => {});
-    sendSuccess(res, { products: transformed });
+    const lean = products.map(leanProduct);
+    setCache(cacheKey, lean, 120).catch(() => {});
+    const enriched = await enrichProductsWithSalePricingAsync(
+      lean as Record<string, unknown>[],
+      campaigns,
+    );
+    sendSuccess(res, { products: enriched.map(leanProduct) });
   },
 );
 
@@ -327,9 +352,15 @@ export const getProductsByCategory = catchAsync(
       getCachedProductCount(mongoFilter),
     ]);
 
+    const campaigns = await getActiveSaleCampaigns();
+    const enriched = await enrichProductsWithSalePricingAsync(
+      products.map(leanProduct) as Record<string, unknown>[],
+      campaigns,
+    );
+
     sendPaginated(
       res,
-      { products: products.map(leanProduct) },
+      { products: enriched.map(leanProduct) },
       {
         page: features.getPage(),
         limit: features.getLimit(),
@@ -828,7 +859,7 @@ export const updateProduct = catchAsync(
         req.body.isActive !== "false" && req.body.isActive !== false;
     }
     if (req.body.variants && typeof req.body.variants === "string") {
-      updateData.variants = canonicalizeVariantColors(
+      const parsedVariants = canonicalizeVariantColors(
         safeJsonParse(
           req.body.variants,
           req.body.variants,
@@ -842,6 +873,10 @@ export const updateProduct = catchAsync(
           costPrice?: number;
           price?: number;
         }>,
+      );
+      updateData.variants = mergeVariantsIntoProduct(
+        parsedVariants,
+        currentProduct,
       );
     }
     if (req.body.customFields !== undefined) {

@@ -86,6 +86,12 @@ export async function adjustVariantStock(
     if (typeof price === "number") variant.price = price;
 
     doc.totalStock = doc.variants.reduce((acc, v) => acc + v.stock, 0);
+
+    if (reason === "sale_return" && stockDelta > 0) {
+      doc.soldCount = Math.max(0, (doc.soldCount ?? 0) - stockDelta);
+      variant.soldCount = Math.max(0, (variant.soldCount ?? 0) - stockDelta);
+    }
+
     await doc.save({ session });
     await syncProductTotalStock(productId, session);
 

@@ -305,4 +305,52 @@ assert.equal(
   true
 );
 
+// Catalog MRP vs list price alone must not count as admin sale
+{
+  const resolved = resolveEffectivePrice(
+    { _id: 'p1', price: 4000, comparePrice: 5000 },
+    [],
+    now,
+  );
+  assert.equal(resolved.onSale, false);
+  assert.equal(resolved.saleCampaignId, null);
+  assert.equal(resolved.saleBadge, null);
+  assert.equal(resolved.effectivePrice, 4000);
+}
+
+// Subcategory scope via name when subcategoryId missing
+{
+  const campaign: SaleCampaignLike = {
+    _id: 'sale-sub',
+    name: 'Cotton Sale',
+    discountType: 'flat',
+    discountValue: 200,
+    scopeType: 'subcategories',
+    subcategoryIds: ['sub-cotton-id'],
+    startDate: new Date('2026-01-01T00:00:00.000Z'),
+    endDate: new Date('2026-12-31T00:00:00.000Z'),
+    isActive: true,
+  };
+  const ctx = {
+    categoryIdByName: new Map<string, string>(),
+    subcategoryIdByName: new Map([['cotton', 'sub-cotton-id']]),
+  };
+  assert.equal(
+    campaignMatchesProduct(
+      campaign,
+      { _id: 'p1', price: 3000, subcategory: 'Cotton' },
+      ctx,
+    ),
+    true,
+  );
+  const resolved = resolveEffectivePrice(
+    { _id: 'p1', price: 3000, subcategory: 'Cotton' },
+    [campaign],
+    now,
+    ctx,
+  );
+  assert.equal(resolved.effectivePrice, 2800);
+  assert.equal(resolved.saleCampaignId, 'sale-sub');
+}
+
 console.log('couponBusinessRules + salePriceService tests passed');

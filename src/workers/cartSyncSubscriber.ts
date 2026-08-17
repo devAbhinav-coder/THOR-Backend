@@ -1,15 +1,16 @@
-import IORedis from "ioredis";
 import logger from "../types/utils/logger";
-import { redisEnabled, redisConnection } from "../config/redis";
+import { getRedisClient } from "../config/redis";
 import { CART_EVENT_CHANNEL_PREFIX } from "../services/cart/cartConstants";
 import type { CartEventPayload } from "../services/cart/cartEventService";
 import { broadcastCartChangeToUser } from "../services/cart/cartSyncHub";
+import type IORedis from "ioredis";
 
 let subscriber: IORedis | null = null;
 
 export function startCartSyncSubscriber(): void {
-  if (!redisEnabled) {
-    logger.info("Cart sync subscriber skipped (Redis not configured)");
+  const redis = getRedisClient();
+  if (!redis) {
+    logger.info("Cart sync subscriber skipped (Redis not available)");
     return;
   }
   if (process.env.CART_SYNC_SUBSCRIBER_ENABLED === "false") {
@@ -18,15 +19,9 @@ export function startCartSyncSubscriber(): void {
     );
     return;
   }
-  if (!(redisConnection instanceof IORedis)) {
-    logger.warn(
-      "Cart sync subscriber requires real Redis (not in-memory fallback)",
-    );
-    return;
-  }
   if (subscriber) return;
 
-  subscriber = redisConnection.duplicate();
+  subscriber = redis.duplicate();
   const pattern = `${CART_EVENT_CHANNEL_PREFIX}*`;
 
   subscriber.on(

@@ -5,6 +5,8 @@ import { CART_QUERY_MAX_MS } from "./cartConstants";
 import type { CartDto } from "./cartDto";
 import { getGiftMinQtyFromRecord } from "./cartValidationService";
 import { recordCartMetric } from "./cartMetricsService";
+import { getActiveSaleCampaigns } from "../sale/saleCacheService";
+import { resolveVariantSellPrice } from "../sale/saleProductEnrichment";
 
 /**
  * Checkout-safe revalidation: prices, active products, variants, soft stock, min qty.
@@ -23,11 +25,14 @@ export const cartRevalidationService = {
     const products = await Product.find({
       _id: { $in: productIds.map((id) => new mongoose.Types.ObjectId(id)) },
     })
-      .select("name isActive variants minOrderQty occasions price")
+      .select(
+        "name isActive variants minOrderQty occasions price comparePrice categoryId subcategoryId",
+      )
       .maxTimeMS(CART_QUERY_MAX_MS)
       .lean<Record<string, unknown>[]>();
 
     const productMap = new Map(products.map((p) => [String(p._id), p]));
+    const campaigns = await getActiveSaleCampaigns();
     let staleCount = 0;
 
     for (const item of cart.items) {
@@ -75,7 +80,17 @@ export const cartRevalidationService = {
         );
       }
 
-      const livePrice = Number(variant.price ?? (product.price as number));
+      const livePrice = resolveVariantSellPrice(
+        {
+          _id: String(product._id),
+          price: Number(product.price) || 0,
+          comparePrice: product.comparePrice as number | null | undefined,
+          categoryId: product.categoryId as string | null | undefined,
+          subcategoryId: product.subcategoryId as string | null | undefined,
+        },
+        variant as { price?: number },
+        campaigns,
+      );
       if (Math.abs(Number(item.price) - livePrice) > 0.001) {
         staleCount += 1;
       }

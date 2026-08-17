@@ -32,6 +32,8 @@ const variantSchema = new Schema({
   price: Number,
   /** Purchase / landed cost per unit — for margin & inventory valuation. */
   costPrice: { type: Number, min: 0 },
+  /** Lifetime units sold for this SKU (size/color). */
+  soldCount: { type: Number, default: 0, min: 0 },
 });
 
 const productSchema = new Schema<IProduct>(

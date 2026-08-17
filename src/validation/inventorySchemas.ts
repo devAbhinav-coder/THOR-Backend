@@ -14,7 +14,7 @@ export const inventoryOverviewQuerySchema = z.object({
       limit: z.coerce.number().int().min(1).max(100).default(20),
       search: z.string().max(200).optional(),
       category: z.string().max(100).optional(),
-      filter: z.enum(['all', 'low', 'out', 'sold']).default('all'),
+      filter: z.enum(['all', 'low', 'out', 'sold', 'missing_cost']).default('all'),
       sort: z
         .enum([
           'name',
@@ -28,6 +28,10 @@ export const inventoryOverviewQuerySchema = z.object({
           'updatedAt',
         ])
         .default('-updatedAt'),
+      period: z.enum(['month', 'year', 'lifetime']).default('lifetime'),
+      year: z.coerce.number().int().min(2000).max(2100).optional(),
+      month: z.coerce.number().int().min(1).max(12).optional(),
+      includeReorder: z.enum(['true', 'false']).optional(),
     })
     .transform((q) => ({
       page: q.page,
@@ -36,6 +40,10 @@ export const inventoryOverviewQuerySchema = z.object({
       category: q.category?.trim(),
       filter: q.filter,
       sort: q.sort,
+      period: q.period,
+      year: q.year,
+      month: q.month,
+      includeReorder: q.includeReorder,
     })),
 });
 

@@ -8,8 +8,16 @@ import {
 } from '../coupon/couponBusinessRules';
 import { buildCouponLinesFromCartItems } from '../coupon/couponLineScopeService';
 import { getUserDeliveredOrderCount } from '../coupon/couponUserStatsService';
+import { resolveCartPromotion } from '../promotion/promotionApplyService';
+import { repriceCartItemsWithActiveSales } from './cartRepricingService';
 import { cartCacheService } from './cartCacheService';
-import { serializeCartDto, emptyCartDto, type CartDto, type CartCouponDto } from './cartDto';
+import {
+  serializeCartDto,
+  emptyCartDto,
+  type CartDto,
+  type CartCouponDto,
+  type CartPromotionDto,
+} from './cartDto';
 import { recordCartMetric } from './cartMetricsService';
 import { CART_QUERY_MAX_MS } from './cartConstants';
 import type { ICartItem } from '../../types';
@@ -20,17 +28,46 @@ async function hydrateTotals(
 ): Promise<CartDto> {
   if (!cart) return emptyCartDto();
 
-  const items = ((cart.items as ICartItem[]) || []).map((item) => ({ ...item }));
+  let items = ((cart.items as ICartItem[]) || []).map((item) => ({ ...item }));
+  const repriced = await repriceCartItemsWithActiveSales(items);
+  items = repriced.items;
+
+  if (repriced.changed && cart._id) {
+    Cart.updateOne({ _id: cart._id }, { $set: { items } })
+      .maxTimeMS(CART_QUERY_MAX_MS)
+      .exec()
+      .catch(() => {});
+  }
+
   const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  let discount = 0;
-  let total = subtotal;
+
+  let promotionDiscount = 0;
+  let couponDiscount = 0;
+  let promotionInfo: CartPromotionDto | null = null;
+  let promotionHint: CartDto['promotionHint'] = null;
   let couponInfo: CartCouponDto | null = null;
+
+  const lines = items.length ? await buildCouponLinesFromCartItems(items) : [];
+
+  if (lines.length) {
+    const promoResult = await resolveCartPromotion(lines);
+    promotionDiscount = promoResult.discount;
+    promotionInfo = promoResult.promotion;
+    promotionHint = promoResult.hint;
+  }
 
   const clearCouponOnCart = () => {
     if (!cart._id) return;
     Cart.updateOne(
       { _id: cart._id },
-      { $unset: { coupon: '' }, $set: { subtotal, discount: 0, total: subtotal } },
+      {
+        $unset: { coupon: '' },
+        $set: {
+          subtotal,
+          discount: promotionDiscount,
+          total: Math.max(0, subtotal - promotionDiscount),
+        },
+      },
     )
       .maxTimeMS(CART_QUERY_MAX_MS)
       .exec()
@@ -45,7 +82,6 @@ async function hydrateTotals(
       .maxTimeMS(COUPON_QUERY_MAX_MS)
       .lean();
     if (couponDoc) {
-      // Enrich category/subcategory names so scoped coupons keep matching after apply.
       let couponForEval = couponDoc as typeof couponDoc & {
         applicableCategories?: string[];
         applicableSubcategoryNames?: string[];
@@ -87,7 +123,6 @@ async function hydrateTotals(
       }
 
       const completedOrders = await getUserDeliveredOrderCount(userId);
-      const lines = await buildCouponLinesFromCartItems(items);
       const validity = evaluateCouponValidity(couponForEval, userId, subtotal, {
         completedOrders,
         lines,
@@ -96,19 +131,17 @@ async function hydrateTotals(
       if (validity.valid) {
         const eligible =
           validity.eligibleAmount !== undefined ? validity.eligibleAmount : subtotal;
-        discount = calculateCouponDiscount(couponForEval, eligible, lines);
-        if (discount <= 0) {
-          discount = 0;
-          total = subtotal;
+        couponDiscount = calculateCouponDiscount(couponForEval, eligible, lines);
+        if (couponDiscount <= 0) {
+          couponDiscount = 0;
           couponInfo = null;
           clearCouponOnCart();
         } else {
-          total = subtotal - discount;
           couponInfo = {
             code: couponDoc.code,
             discountType: couponDoc.discountType,
             discountValue: couponDoc.discountValue,
-            appliedDiscount: discount,
+            appliedDiscount: couponDiscount,
           };
         }
       } else {
@@ -119,10 +152,13 @@ async function hydrateTotals(
     }
   }
 
+  const totalDiscount = promotionDiscount + couponDiscount;
+  const total = Math.max(0, subtotal - totalDiscount);
+
   if (cart._id) {
     Cart.updateOne(
       { _id: cart._id },
-      { $set: { subtotal, discount, total } }
+      { $set: { subtotal, discount: totalDiscount, total } },
     )
       .maxTimeMS(CART_QUERY_MAX_MS)
       .exec()
@@ -133,8 +169,12 @@ async function hydrateTotals(
     ...cart,
     items,
     subtotal,
-    discount,
+    promotionDiscount,
+    couponDiscount,
+    discount: totalDiscount,
     total,
+    promotion: promotionInfo,
+    promotionHint,
     coupon: couponInfo,
   });
 
@@ -154,8 +194,10 @@ export const cartHydrationService = {
       const cached = await cartCacheService.get(userId);
       if (cached) {
         recordCartMetric('cart.fetch.cache_hit', { userId });
-        return cached;
+      } else {
+        recordCartMetric('cart.fetch.cache_miss', { userId });
       }
+    } else {
       recordCartMetric('cart.fetch.cache_miss', { userId });
     }
 

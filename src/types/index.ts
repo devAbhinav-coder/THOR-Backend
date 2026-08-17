@@ -18,6 +18,8 @@ export interface IUser extends Document {
   isActive: boolean;
   /** Auto-created from offline order; cleared when the customer claims the account. */
   offlineLead?: boolean;
+  lastActiveAt?: Date;
+  reengagementEmailAt?: Date;
   passwordChangedAt?: Date;
   passwordResetToken?: string;
   passwordResetExpires?: Date;
@@ -53,6 +55,8 @@ export interface IProductVariant {
   price?: number;
   /** Purchase / landed cost per unit — used for margin calculation in inventory hub. */
   costPrice?: number;
+  /** Lifetime units sold for this SKU. */
+  soldCount?: number;
 }
 
 export interface IProductCustomField {
@@ -171,6 +175,12 @@ export interface IOrderItem {
   };
   quantity: number;
   price: number;
+  /** Category label at time of sale (for offline manual + reporting). */
+  lineCategory?: string;
+  lineCategoryId?: Types.ObjectId;
+  isOfflineManual?: boolean;
+  /** Unit purchase cost frozen at sale time (COGS per unit). */
+  costAtSale?: number;
   customFieldAnswers?: { label: string; value: string }[]; // Gifting
 }
 
@@ -184,9 +194,14 @@ export interface IOrder extends Document {
   paymentStatus: 'pending' | 'paid' | 'failed' | 'refunded';
   paymentMethod: 'razorpay' | 'cod' | 'offline_upi' | 'offline_cash';
   offlineMeta?: {
-    source: 'stall' | 'personal_contact';
+    source: 'stall' | 'personal_contact' | 'b2b';
     fulfillment: 'delhivery' | 'offline_handover';
     createdByAdmin?: Types.ObjectId;
+  };
+  b2bMeta?: {
+    companyName?: string;
+    gstin?: string;
+    poNumber?: string;
   };
   /** First-touch UTM / Meta click id captured at checkout */
   marketingAttribution?: {
@@ -204,11 +219,20 @@ export interface IOrder extends Document {
   razorpaySignature?: string;
   subtotal: number;
   discount: number;
+  /** Admin sale campaign savings vs catalog list price (informational). */
+  saleDiscount?: number;
+  /** Auto-offer (promotion) discount at checkout. */
+  promotionDiscount?: number;
+  /** Coupon code discount at checkout. */
+  couponDiscount?: number;
+  promotion?: Types.ObjectId;
   shippingCharge: number;
   codFee?: number;
   tax: number;
   total: number;
   coupon?: Types.ObjectId;
+  /** Browser tab session (`hor_sv`) for popup ↔ order attribution. */
+  shopSessionKey?: string;
   notes?: string;
   statusHistory: { status: string; timestamp: Date; note?: string }[];
   shippingCarrier?: string;
@@ -222,6 +246,7 @@ export interface IOrder extends Document {
     isGenerated: boolean;
     generatedAt?: Date;
   };
+  taxSalesInvoiceId?: Types.ObjectId;
   returnStatus?: 'none' | 'requested' | 'approved' | 'rejected' | 'returned';
   returnRequest?: {
     reason: string;
@@ -254,6 +279,10 @@ export interface IOrder extends Document {
    * Replaces payment-method heuristics for orders created after this field was introduced.
    */
   inventoryReserved?: boolean;
+  reviewInviteSkippedAt?: Date;
+  /** When admin SLA breach alert was last sent for this order. */
+  slaAlertedAt?: Date;
+  deliveryInvoiceEmailSentAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -349,6 +378,37 @@ export interface ISaleCampaign extends Document {
   startDate: Date;
   endDate: Date;
   isActive: boolean;
+  deletedAt?: Date | null;
+  archivedAt?: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface IPromotion extends Document {
+  _id: Types.ObjectId;
+  name: string;
+  description?: string;
+  termsAndConditions?: string;
+  displayTitle?: string;
+  badgeText?: string;
+  imageUrl?: string;
+  imagePublicId?: string;
+  promotionType: 'bogo' | 'flat' | 'percentage';
+  buyQuantity: number;
+  getQuantity: number;
+  getDiscountPercent: number;
+  discountValue?: number;
+  maxDiscountAmount?: number;
+  minOrderAmount?: number;
+  scopeType: PromoScopeType;
+  categoryIds: Types.ObjectId[];
+  subcategoryIds: Types.ObjectId[];
+  productIds: Types.ObjectId[];
+  startDate: Date;
+  endDate: Date;
+  isActive: boolean;
+  showOnStorefront: boolean;
+  priority: number;
   deletedAt?: Date | null;
   archivedAt?: Date | null;
   createdAt: Date;

@@ -16,6 +16,7 @@ import { recordReviewMetric } from '../reviews/reviewMetricsService';
 import { testimonialService } from '../testimonialService';
 import { emailTemplates } from '../emailService';
 import { enqueueEmail } from '../../queues/emailQueue';
+import { isCustomerDeliverableEmail } from '../../types/utils/customerEmail';
 
 const INVITE_TTL_DAYS = Number(process.env.REVIEW_INVITE_TTL_DAYS || 90);
 const TOKEN_BYTES = 32;
@@ -47,12 +48,6 @@ function resolveId(value: unknown): string {
 
 function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
-}
-
-function isRealCustomerEmail(email?: string | null): boolean {
-  if (!email) return false;
-  const e = email.toLowerCase();
-  return !e.endsWith('@offline.local') && !e.endsWith('@review.local');
 }
 
 async function catalogProductIdsFromOrder(orderId: string): Promise<string[]> {
@@ -169,7 +164,7 @@ export const reviewInviteService = {
         _id: String(order._id),
         orderNumber: order.orderNumber,
         customerName: user?.name || 'Customer',
-        customerEmail: isRealCustomerEmail(user?.email) ? user.email : null,
+        customerEmail: isCustomerDeliverableEmail(user?.email) ? user.email : null,
         customerPhone: user?.phone || null,
       },
     };
@@ -377,7 +372,6 @@ export const reviewInviteService = {
       name: payload.order.customerName,
       orderNumber: payload.order.orderNumber,
       inviteUrl: payload.invite.url,
-      qrDataUrl: payload.invite.qrDataUrl,
       expiresAt: payload.invite.expiresAt,
     });
 

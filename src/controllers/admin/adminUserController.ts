@@ -29,7 +29,7 @@ export const getAllUsers = catchAsync(async (req: Request, res: Response) => {
       .sort("-createdAt")
       .skip(skip)
       .limit(limit)
-      .select("name email phone avatar role isActive createdAt"),
+      .select("name email phone avatar role isActive createdAt adminNote"),
     User.countDocuments(filter),
   ]);
 

@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import { collectCampaignScopeIds, type SaleCampaignLike } from '../services/sale/salePriceService';
 
-/** Products with comparePrice above selling price (legacy storefront “on sale”). */
+/** Products with comparePrice above selling price (legacy catalog MRP). */
 export function comparePriceOnSaleClause(): Record<string, unknown> {
   return {
     comparePrice: { $exists: true, $ne: null, $gt: 0 },
@@ -9,13 +9,13 @@ export function comparePriceOnSaleClause(): Record<string, unknown> {
   };
 }
 
-/** @deprecated use buildOnSaleMongoFilter — kept for callers that only need comparePrice. */
+/** @deprecated use buildOnSaleMongoFilter */
 export function onSaleMongoClause(): Record<string, unknown> {
   return comparePriceOnSaleClause();
 }
 
 export function buildCampaignCoverageClause(
-  campaigns: SaleCampaignLike[]
+  campaigns: SaleCampaignLike[],
 ): Record<string, unknown> | null {
   if (!campaigns.length) return null;
   const scopes = collectCampaignScopeIds(campaigns);
@@ -48,24 +48,24 @@ export function buildCampaignCoverageClause(
   return { $or: or };
 }
 
+/** Admin sale filter — only products covered by an active sale campaign. */
 export function buildOnSaleMongoFilter(
-  campaigns: SaleCampaignLike[]
+  campaigns: SaleCampaignLike[],
 ): Record<string, unknown> {
   const campaignClause = buildCampaignCoverageClause(campaigns);
-  if (!campaignClause) return comparePriceOnSaleClause();
-  // Campaign "all" already matches entire active catalog
-  if ('isActive' in campaignClause && !('$or' in campaignClause)) {
-    return {};
+  if (!campaignClause) {
+    return { _id: { $in: [] } };
   }
-  return {
-    $or: [comparePriceOnSaleClause(), campaignClause],
-  };
+  if ('isActive' in campaignClause && !('$or' in campaignClause)) {
+    return { isActive: true };
+  }
+  return campaignClause;
 }
 
 export function mergeOnSaleFilter(
   base: Record<string, unknown>,
   onSale?: boolean,
-  campaigns: SaleCampaignLike[] = []
+  campaigns: SaleCampaignLike[] = [],
 ): Record<string, unknown> {
   if (!onSale) return base;
   const saleFilter = buildOnSaleMongoFilter(campaigns);
@@ -111,12 +111,11 @@ export function mergeHasOfferFilter(
     categoryIds: string[];
     subcategoryIds: string[];
     productIds: string[];
-  }
+  },
 ): Record<string, unknown> {
   if (!hasOffer) return base;
   const offerFilter = buildHasOfferMongoFilter(scopes);
   if (!offerFilter) {
-    // No targeted offers → empty result set
     return { ...base, _id: { $in: [] } };
   }
   return { $and: [base, offerFilter] };

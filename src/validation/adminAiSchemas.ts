@@ -71,6 +71,22 @@ export const adminAiMarketingDraftSchema = z.object({
   }),
 });
 
+export const adminAiPromotionTermsSchema = z.object({
+  body: z.object({
+    name: z.string().max(120).optional(),
+    displayTitle: z.string().max(120).optional(),
+    description: z.string().max(500).optional(),
+    promotionType: z.enum(['bogo', 'flat', 'percentage']),
+    buyQuantity: z.coerce.number().int().min(1).optional(),
+    getQuantity: z.coerce.number().int().min(1).optional(),
+    getDiscountPercent: z.coerce.number().min(0).max(100).optional(),
+    discountValue: z.coerce.number().min(0).optional(),
+    minOrderAmount: z.coerce.number().min(0).optional(),
+    scopeType: z.enum(['all', 'categories', 'subcategories', 'products']).optional(),
+    adminNotes: z.string().max(500).optional(),
+  }),
+});
+
 export const adminAiBriefQuerySchema = z.object({
   query: z.object({
     force: z.enum(['true', 'false']).optional(),

@@ -7,6 +7,7 @@ export type DeliverableEmail = {
   subject: string;
   html: string;
   text?: string;
+  attachments?: import("./emailService").EmailAttachment[];
 };
 
 let resendClient: Resend | null = null;
@@ -19,16 +20,20 @@ function getResend(): Resend | null {
 }
 
 /**
- * "From" for Resend — must be a domain you verified in Resend.
- * Falls back to MAIL_FROM; set RESEND_FROM explicitly if it differs from Zoho.
+ * "From" for Resend — must be a domain verified in Resend (not @gmail.com).
  */
 export function getResendFromAddress(): string {
-  const explicit = process.env.RESEND_FROM_EMAIL?.trim();
+  const explicit =
+    process.env.RESEND_FROM_EMAIL?.trim() ||
+    process.env.RESEND_EMAIL_FROM?.trim();
   if (explicit) return explicit;
-  return (
-    process.env.MAIL_FROM?.trim() ||
-    "The House of Rani <noreply@thehouseofrani.com>"
-  );
+
+  const mailFrom = process.env.MAIL_FROM?.trim();
+  if (mailFrom && !/@gmail\.com>/i.test(mailFrom) && !/@gmail\.com$/i.test(mailFrom.split("<").pop() || "")) {
+    return mailFrom;
+  }
+
+  return "The House of Rani <noreply@thehouseofrani.com>";
 }
 
 const BROADCAST_RETRIES = 3;
@@ -87,6 +92,17 @@ export async function sendViaResend(
     html: payload.html,
     text: payload.text || htmlToPlainText(payload.html),
     ...(replyTo ? { replyTo } : {}),
+    ...(payload.attachments?.length ?
+      {
+        attachments: payload.attachments.map((a) => ({
+          filename: a.filename,
+          content:
+            typeof a.content === "string" ?
+              Buffer.from(a.content, "base64")
+            : a.content,
+        })),
+      }
+    : {}),
   });
   if (error) {
     throw new Error(error.message || "Resend API error");

@@ -134,6 +134,11 @@ export const sendAuthResponse = async (
   );
   setTokenCookies(res, accessToken, raw, expiresAt);
 
+  void User.updateOne(
+    { _id: user._id },
+    { $set: { lastActiveAt: new Date() } },
+  ).catch(() => {});
+
   const userObj = user.toObject() as unknown as Record<string, unknown>;
   delete userObj["password"];
 

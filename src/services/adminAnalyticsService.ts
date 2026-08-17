@@ -2,18 +2,31 @@ import Order from "../models/Order";
 import User from "../models/User";
 import Product from "../models/Product";
 import Review from "../models/Review";
+import AnalyticsDailySnapshot from "../models/AnalyticsDailySnapshot";
 import { LOW_STOCK_ALERT_EXCLUSIVE_MAX } from "../constants/inventory";
 import { getInventorySummaryStats } from "./inventory/inventoryCacheService";
 import {
   couponDiscountPipeline,
+  promotionDiscountPipeline,
+  saleDiscountPipeline,
   orderFeesPipeline,
   taxCollectedPipeline,
 } from "./orderFinanceAggregations";
 import { getStoreVisitStats } from "./storeVisitService";
 import { getMetaTrackingStatus } from "./metaCapiService";
+import { ORDER_CHANNEL_SWITCH } from "../utils/orderChannel";
+import { paidOrderLineProfitStages } from "./orderProfitAggregationHelpers";
+import { getOfferAttributionSummary } from "./offerAttributionService";
+import { resolveRevenuePeriodBounds } from "./revenuePeriodService";
 
 const stockListProjection = {
-  $project: { _id: 1, name: 1, category: 1, totalStock: "$computedTotal" },
+  $project: {
+    _id: 1,
+    name: 1,
+    category: 1,
+    totalStock: "$computedTotal",
+    soldCount: { $ifNull: ["$soldCount", 0] },
+  },
 };
 
 function activeProductStockPipeline(matchStock: Record<string, unknown>) {
@@ -29,60 +42,6 @@ function activeProductStockPipeline(matchStock: Record<string, unknown>) {
 
 /** Paid + refunded: both represent checkout totals we recognised; refunds are subtracted separately. */
 const PAYMENT_STATUS_GROSS = { paymentStatus: { $in: ["paid", "refunded"] as const } };
-
-/**
- * Unwind paid order lines and attach variant cost from catalog (SKU match).
- * COGS uses current variant costPrice — best available proxy when orders omit unit cost.
- */
-function paidOrderLineProfitStages(extraMatch: Record<string, unknown> = {}) {
-  return [
-    { $match: { paymentStatus: "paid" as const, ...extraMatch } },
-    { $unwind: "$items" },
-    {
-      $lookup: {
-        from: "products",
-        localField: "items.product",
-        foreignField: "_id",
-        as: "productDoc",
-      },
-    },
-    { $unwind: { path: "$productDoc", preserveNullAndEmptyArrays: true } },
-    {
-      $addFields: {
-        matchedVariant: {
-          $arrayElemAt: [
-            {
-              $filter: {
-                input: { $ifNull: ["$productDoc.variants", []] },
-                as: "v",
-                cond: { $eq: ["$$v.sku", "$items.variant.sku"] },
-              },
-            },
-            0,
-          ],
-        },
-      },
-    },
-    {
-      $addFields: {
-        unitCost: { $ifNull: ["$matchedVariant.costPrice", 0] },
-        lineRevenue: { $multiply: ["$items.price", "$items.quantity"] },
-      },
-    },
-    {
-      $addFields: {
-        lineCogs: { $multiply: ["$unitCost", "$items.quantity"] },
-        hasCostData: { $gt: ["$unitCost", 0] },
-        lineProfit: {
-          $subtract: [
-            { $multiply: ["$items.price", "$items.quantity"] },
-            { $multiply: ["$unitCost", "$items.quantity"] },
-          ],
-        },
-      },
-    },
-  ];
-}
 
 /**
  * All "today / this month" boundaries are computed in **Asia/Kolkata** so
@@ -104,6 +63,14 @@ function istMidnight(year: number, monthIdx: number, day: number): Date {
   return new Date(Date.UTC(year, monthIdx, day) - IST_OFFSET_MS);
 }
 
+/** Prefer pre-aggregated daily snapshots (skips heavy 30d rollups on dashboard load). */
+function analyticsSnapshotsEnabled(): boolean {
+  const raw = (process.env.ANALYTICS_USE_SNAPSHOTS || "").toLowerCase().trim();
+  if (raw === "false") return false;
+  if (raw === "true") return true;
+  return process.env.NODE_ENV === "production";
+}
+
 export async function getDashboardAnalyticsData() {
   const now = new Date();
   const ist = istParts(now);
@@ -114,6 +81,25 @@ export async function getDashboardAnalyticsData() {
   const endOfLastMonth = new Date(startOfThisMonthIst.getTime() - 1);
   const startOfDailyWindow = istMidnight(ist.year, ist.month, ist.day - 32);
   const startOfYearWindow = istMidnight(ist.year, ist.month - 11, 1);
+
+  const fmtIso = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: IST_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const istTodayStr = fmtIso.format(now);
+  const thirtyDaysAgoStr = fmtIso.format(
+    new Date(now.getTime() - 30 * 86400000),
+  );
+  const useSnapshots = analyticsSnapshotsEnabled();
+  const snapshots = useSnapshots
+    ? await AnalyticsDailySnapshot.find({
+        date: { $gte: thirtyDaysAgoStr, $lt: istTodayStr },
+      })
+        .lean()
+        .maxTimeMS(3000)
+    : [];
 
   const [
     totalRevenue,
@@ -146,6 +132,10 @@ export async function getDashboardAnalyticsData() {
     // ── New entrepreneur-level aggregations ──────────────────────────────────
     couponDiscountTotal,
     couponDiscountMTD,
+    promotionDiscountTotal,
+    promotionDiscountMTD,
+    saleDiscountTotal,
+    offerAttributionMtd,
     paymentMethodMix,
     onlineVsOfflineMix,
     orderFeesAgg,
@@ -153,6 +143,7 @@ export async function getDashboardAnalyticsData() {
     cancellationCount,
     ordersByHour,
     topVariantSizes,
+    topVariantColors,
     repeatCustomersAgg,
     profitSummaryLifetime,
     profitSummaryMtd,
@@ -227,7 +218,24 @@ export async function getDashboardAnalyticsData() {
       { $unwind: "$items" },
       { $lookup: { from: "products", localField: "items.product", foreignField: "_id", as: "p" } },
       { $unwind: { path: "$p", preserveNullAndEmptyArrays: true } },
-      { $group: { _id: "$p.category", revenue: { $sum: { $multiply: ["$items.price", "$items.quantity"] } }, units: { $sum: "$items.quantity" } } },
+      {
+        $addFields: {
+          resolvedLineCategory: {
+            $cond: [
+              { $ne: [{ $ifNull: ["$items.lineCategory", ""] }, ""] },
+              "$items.lineCategory",
+              { $ifNull: ["$p.category", "Uncategorized"] },
+            ],
+          },
+        },
+      },
+      {
+        $group: {
+          _id: "$resolvedLineCategory",
+          revenue: { $sum: { $multiply: ["$items.price", "$items.quantity"] } },
+          units: { $sum: "$items.quantity" },
+        },
+      },
       { $match: { _id: { $nin: [null, ""] } } },
       { $sort: { revenue: -1 } },
       { $limit: 10 },
@@ -248,21 +256,27 @@ export async function getDashboardAnalyticsData() {
       { $match: { ...PAYMENT_STATUS_GROSS, createdAt: { $gte: startOfToday } } },
       { $group: { _id: null, total: { $sum: "$total" } } },
     ]),
-    Order.aggregate([
-      { $match: { ...PAYMENT_STATUS_GROSS, createdAt: { $gte: startOfDailyWindow } } },
-      {
-        $group: {
-          _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt", timezone: IST_TZ } },
-          revenue: { $sum: "$total" },
-          orders: { $sum: 1 },
-        },
-      },
-      { $sort: { _id: 1 } },
-    ]),
+    useSnapshots
+      ? Promise.resolve([])
+      : Order.aggregate([
+          { $match: { ...PAYMENT_STATUS_GROSS, createdAt: { $gte: startOfDailyWindow } } },
+          {
+            $group: {
+              _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt", timezone: IST_TZ } },
+              revenue: { $sum: "$total" },
+              orders: { $sum: 1 },
+            },
+          },
+          { $sort: { _id: 1 } },
+        ]),
 
     // ── NEW: Coupon discount totals (stored discount or implied when coupon ref exists) ──
     Order.aggregate(couponDiscountPipeline()),
     Order.aggregate(couponDiscountPipeline({ createdAt: { $gte: startOfMonth } })),
+    Order.aggregate(promotionDiscountPipeline()),
+    Order.aggregate(promotionDiscountPipeline({ createdAt: { $gte: startOfMonth } })),
+    Order.aggregate(saleDiscountPipeline()),
+    getOfferAttributionSummary(resolveRevenuePeriodBounds("month")),
 
     // ── NEW: Payment method revenue mix ────────────────────────────────────
     Order.aggregate([
@@ -282,9 +296,7 @@ export async function getDashboardAnalyticsData() {
       { $match: PAYMENT_STATUS_GROSS },
       {
         $group: {
-          _id: {
-            $cond: [{ $ifNull: ["$offlineMeta", false] }, "offline", "online"],
-          },
+          _id: ORDER_CHANNEL_SWITCH,
           revenue: { $sum: "$total" },
           count: { $sum: 1 },
         },
@@ -319,6 +331,37 @@ export async function getDashboardAnalyticsData() {
       {
         $group: {
           _id: "$items.variant.size",
+          units: { $sum: "$items.quantity" },
+          revenue: { $sum: { $multiply: ["$items.price", "$items.quantity"] } },
+        },
+      },
+      { $sort: { units: -1 } },
+      { $limit: 10 },
+    ]),
+
+    // ── NEW: Top variant colors sold ────────────────────────────────────────
+    Order.aggregate([
+      { $match: { paymentStatus: "paid" } },
+      { $unwind: "$items" },
+      {
+        $addFields: {
+          colorLabel: {
+            $cond: [
+              {
+                $and: [
+                  { $ne: ["$items.variant.color", null] },
+                  { $ne: ["$items.variant.color", ""] },
+                ],
+              },
+              "$items.variant.color",
+              "Default",
+            ],
+          },
+        },
+      },
+      {
+        $group: {
+          _id: "$colorLabel",
           units: { $sum: "$items.quantity" },
           revenue: { $sum: { $multiply: ["$items.price", "$items.quantity"] } },
         },
@@ -370,10 +413,10 @@ export async function getDashboardAnalyticsData() {
       ...paidOrderLineProfitStages(),
       {
         $group: {
-          _id: "$items.product",
+          _id: "$profitGroupKey",
           name: { $first: "$items.name" },
           image: { $first: "$items.image" },
-          category: { $first: { $ifNull: ["$productDoc.category", "Uncategorized"] } },
+          category: { $first: "$resolvedLineCategory" },
           unitsSold: { $sum: "$items.quantity" },
           revenue: { $sum: "$lineRevenue" },
           cogs: { $sum: "$lineCogs" },
@@ -414,7 +457,7 @@ export async function getDashboardAnalyticsData() {
       ...paidOrderLineProfitStages(),
       {
         $group: {
-          _id: { $ifNull: ["$productDoc.category", "Uncategorized"] },
+          _id: "$resolvedLineCategory",
           revenue: { $sum: "$lineRevenue" },
           cogs: { $sum: "$lineCogs" },
           profit: { $sum: "$lineProfit" },
@@ -609,22 +652,100 @@ export async function getDashboardAnalyticsData() {
   // ── Post-processing: revenueByDay dense fill ──────────────────────────────
   const sparseDaily = (revenueByDaySparse || []) as { _id: string; revenue: number; orders: number }[];
   const dailyMap = new Map(sparseDaily.map((r) => [r._id, r]));
-  const fmtIso = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: IST_TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  const istTodayStr = fmtIso.format(now);
+
+  for (const snap of snapshots) {
+    dailyMap.set(snap.date, {
+      _id: snap.date,
+      revenue: snap.revenue,
+      orders: snap.orders,
+    });
+  }
+
+  if (useSnapshots) {
+    dailyMap.set(istTodayStr, {
+      _id: istTodayStr,
+      revenue: (revenueTodayAgg as { total?: number }[])[0]?.total ?? 0,
+      orders: ordersToday,
+    });
+  }
+
+  const snapshotByDate = new Map(snapshots.map((s) => [s.date, s]));
+
   const anchor = new Date(`${istTodayStr}T12:00:00+05:30`);
   const revenueByDay: { date: string; revenue: number; orders: number }[] = [];
+  const visitsByDayFromSnapshots: { date: string; visits: number }[] = [];
+  const dailyMetrics: {
+    date: string;
+    revenue: number;
+    orders: number;
+    paidOrders: number;
+    cancelledOrders: number;
+    newUsers: number;
+    avgOrderValue: number;
+    siteVisits: number;
+    couponDiscount: number;
+    refundedAmount: number;
+    fromSnapshot: boolean;
+  }[] = [];
+
+  let snapshotTotals = {
+    revenue: 0,
+    orders: 0,
+    paidOrders: 0,
+    cancelledOrders: 0,
+    newUsers: 0,
+    siteVisits: 0,
+    couponDiscount: 0,
+    refundedAmount: 0,
+  };
+
   // Oldest → newest (today last) for charts and AI "yesterday" = index length - 2
   for (let i = 0; i < 30; i++) {
     const d = new Date(anchor.getTime() - (29 - i) * 86400000);
     const date = fmtIso.format(d);
     const row = dailyMap.get(date);
+    const snap = snapshotByDate.get(date);
+    const isPastDay = date < istTodayStr;
+
     revenueByDay.push({ date, revenue: row?.revenue ?? 0, orders: row?.orders ?? 0 });
+
+    const visitsLive =
+      visitStats.visitsByDay.find((v) => v.date === date)?.visits ?? 0;
+    visitsByDayFromSnapshots.push({
+      date,
+      visits: isPastDay && snap ? (snap.siteVisits ?? 0) : visitsLive,
+    });
+
+    if (isPastDay && snap) {
+      snapshotTotals = {
+        revenue: snapshotTotals.revenue + (snap.revenue ?? 0),
+        orders: snapshotTotals.orders + (snap.orders ?? 0),
+        paidOrders: snapshotTotals.paidOrders + (snap.paidOrders ?? 0),
+        cancelledOrders: snapshotTotals.cancelledOrders + (snap.cancelledOrders ?? 0),
+        newUsers: snapshotTotals.newUsers + (snap.newUsers ?? 0),
+        siteVisits: snapshotTotals.siteVisits + (snap.siteVisits ?? 0),
+        couponDiscount: snapshotTotals.couponDiscount + (snap.couponDiscount ?? 0),
+        refundedAmount: snapshotTotals.refundedAmount + (snap.refundedAmount ?? 0),
+      };
+    }
+
+    dailyMetrics.push({
+      date,
+      revenue: isPastDay && snap ? snap.revenue : (row?.revenue ?? 0),
+      orders: isPastDay && snap ? snap.orders : (row?.orders ?? 0),
+      paidOrders: isPastDay && snap ? (snap.paidOrders ?? 0) : 0,
+      cancelledOrders: isPastDay && snap ? (snap.cancelledOrders ?? 0) : 0,
+      newUsers: isPastDay && snap ? (snap.newUsers ?? 0) : 0,
+      avgOrderValue: isPastDay && snap ? (snap.avgOrderValue ?? 0) : 0,
+      siteVisits:
+        isPastDay && snap ? (snap.siteVisits ?? 0) : visitsLive,
+      couponDiscount: isPastDay && snap ? (snap.couponDiscount ?? 0) : 0,
+      refundedAmount: isPastDay && snap ? (snap.refundedAmount ?? 0) : 0,
+      fromSnapshot: Boolean(isPastDay && snap),
+    });
   }
+
+  const visitsByDay = visitsByDayFromSnapshots;
 
   // ── Post-processing: hour heatmap (fill 0-23) ─────────────────────────────
   const hourMap = new Map<number, { orders: number; revenue: number }>(
@@ -645,14 +766,16 @@ export async function getDashboardAnalyticsData() {
   const repeatRate = totalCustomers > 0 ? Math.round((repeatCustomers / totalCustomers) * 1000) / 10 : 0;
 
   // ── Post-processing: online vs offline ────────────────────────────────────
-  type ChannelRow = { _id: "online" | "offline"; revenue: number; count: number };
+  type ChannelRow = { _id: "online" | "offline" | "b2b"; revenue: number; count: number };
   const channelMap = new Map<string, ChannelRow>(
     (onlineVsOfflineMix as ChannelRow[]).map((r) => [r._id, r])
   );
   const onlineRevenue = channelMap.get("online")?.revenue ?? 0;
   const offlineRevenue = channelMap.get("offline")?.revenue ?? 0;
+  const b2bRevenue = channelMap.get("b2b")?.revenue ?? 0;
   const onlineCount = channelMap.get("online")?.count ?? 0;
   const offlineCount = channelMap.get("offline")?.count ?? 0;
+  const b2bCount = channelMap.get("b2b")?.count ?? 0;
 
   // ── Revenue growth (null = no last-month baseline to compare) ─────────────
   const currentMonthRevenue = monthRevenue[0]?.total || 0;
@@ -744,13 +867,20 @@ export async function getDashboardAnalyticsData() {
       couponDiscountTotal: couponDiscountTotal[0]?.totalDiscount || 0,
       couponDiscountMTD: couponDiscountMTD[0]?.totalDiscount || 0,
       couponOrdersTotal: couponDiscountTotal[0]?.count || 0,
+      promotionDiscountTotal: promotionDiscountTotal[0]?.totalDiscount || 0,
+      promotionDiscountMTD: promotionDiscountMTD[0]?.totalDiscount || 0,
+      promotionOrdersTotal: promotionDiscountTotal[0]?.count || 0,
+      saleDiscountTotal: saleDiscountTotal[0]?.totalDiscount || 0,
+      saleOrdersTotal: saleDiscountTotal[0]?.count || 0,
       shippingCollected: orderFeesAgg[0]?.shipping || 0,
       codFeeCollected: orderFeesAgg[0]?.cod || 0,
       taxCollected: taxCollected[0]?.total || 0,
       onlineRevenue,
       offlineRevenue,
+      b2bRevenue,
       onlineCount,
       offlineCount,
+      b2bCount,
       repeatCustomers,
       totalCustomersWithOrders: totalCustomers,
       repeatRate,
@@ -779,7 +909,13 @@ export async function getDashboardAnalyticsData() {
     topViewedProducts,
     revenueByCategory,
     revenueByDay,
-    visitsByDay: visitStats.visitsByDay,
+    visitsByDay,
+    dailyMetrics,
+    snapshotOverview: {
+      periodDays: 30,
+      completedDaysFromSnapshots: snapshots.length,
+      totals: snapshotTotals,
+    },
     visitInsights: {
       byCountry: visitStats.visitsByCountry,
       bySource: visitStats.visitsBySource,
@@ -795,9 +931,11 @@ export async function getDashboardAnalyticsData() {
       ordersByCampaign,
       ordersBySource,
     },
+    offerAttributionMtd,
     paymentMethodMix: (paymentMethodMix as { _id: string; revenue: number; count: number }[]),
     ordersByHour: ordersByHourFull,
     topVariantSizes: (topVariantSizes as { _id: string; units: number; revenue: number }[]),
+    topVariantColors: (topVariantColors as { _id: string; units: number; revenue: number }[]),
     topProductsByProfit: topProductsByProfit as {
       _id: string;
       name: string;

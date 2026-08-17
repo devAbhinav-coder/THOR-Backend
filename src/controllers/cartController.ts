@@ -34,6 +34,7 @@ import {
   type CouponLike,
 } from "../services/coupon/couponBusinessRules";
 import { buildCouponLinesFromCartItems } from "../services/coupon/couponLineScopeService";
+import { resolveCartPromotion } from "../services/promotion/promotionApplyService";
 import { getUserDeliveredOrderCount } from "../services/coupon/couponUserStatsService";
 import logger from "../types/utils/logger";
 import { getRequestContext } from "../types/utils/requestContext";
@@ -308,5 +309,46 @@ export const removeCoupon = catchAsync(
     const updatedCart = await cartService.removeCoupon(userId(req));
     logCartAction("remove_coupon", req);
     sendSuccess(res, { cart: updatedCart });
+  },
+);
+
+/** Live auto-offer preview for checkout (cart lines or buy-now). */
+export const previewCartPromotion = catchAsync(
+  async (req: AuthRequest, res: Response) => {
+    const { items } = req.body as {
+      items: Array<{ productId: string; price: number; quantity: number }>;
+    };
+
+    const lines = await buildCouponLinesFromCartItems(
+      items.map((item) => ({
+        product: item.productId,
+        price: Number(item.price),
+        quantity: Number(item.quantity),
+      })),
+    );
+
+    const result = await resolveCartPromotion(lines);
+
+    sendSuccess(res, {
+      promotion: result.promotion,
+      promotionDiscount: result.discount,
+      promotionHint: result.hint,
+    });
+  },
+);
+
+/** Live buy-now line price (sale-aware) + auto-offer preview for checkout. */
+export const previewBuyNowCheckout = catchAsync(
+  async (req: AuthRequest, res: Response) => {
+    const body = req.body as {
+      productId: string;
+      variant: { sku: string; size?: string; color?: string; colorCode?: string };
+      quantity: number;
+    };
+
+    const { checkoutService } = await import('../services/checkoutService');
+    const preview = await checkoutService.previewBuyNowCheckout(body);
+
+    sendSuccess(res, preview);
   },
 );

@@ -124,6 +124,38 @@ export const processSaleBanner = async (
   }
 };
 
+export const uploadPromotionBanner = multer({
+  storage: memoryStorage,
+  fileFilter: imageFileFilter,
+  limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+}).single("image");
+
+export const processPromotionBanner = async (
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const file = req.file;
+    if (!file) return next();
+
+    const result = await uploadToCloudinary(file.buffer, "house-of-rani/promotions", [
+      { width: 900, height: 1200, crop: "limit", quality: "auto:good" },
+    ]);
+
+    (
+      req as Request & { uploadedPromotionImage?: { url: string; publicId: string } }
+    ).uploadedPromotionImage = {
+      url: result.secure_url,
+      publicId: result.public_id,
+    };
+
+    next();
+  } catch {
+    next(new AppError("Promotion image upload failed.", 500));
+  }
+};
+
 export const uploadGiftingImages = multer({
   storage: memoryStorage,
   fileFilter: imageFileFilter,

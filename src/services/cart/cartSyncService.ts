@@ -32,6 +32,6 @@ export const cartSyncService = {
 
   async clearAndRefresh(userId: string): Promise<CartDto> {
     await cartMutationService.clearCart(userId);
-    return { items: [], subtotal: 0, discount: 0, total: 0, coupon: null };
+    return { items: [], subtotal: 0, discount: 0, promotionDiscount: 0, couponDiscount: 0, total: 0, coupon: null };
   },
 };

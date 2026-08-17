@@ -1,198 +1,25 @@
 import { Response, NextFunction } from "express";
 import mongoose from "mongoose";
-import SalesInvoice, {
-  type ISalesInvoice,
-  type ISalesInvoiceLine,
-  type SalesInvoiceTaxMode,
-} from "../models/SalesInvoice";
+import SalesInvoice, { type ISalesInvoice } from "../models/SalesInvoice";
+import Order from "../models/Order";
 import AppError from "../types/utils/AppError";
 import catchAsync from "../types/utils/catchAsync";
 import { sendPaginated, sendSuccess } from "../types/utils/response";
 import { writeAdminAudit } from "../services/adminAuditService";
 import type { AuthRequest } from "../types";
-
-/* ── Server-side totals (single source of truth) ─────────────────────── */
-
-function safeNum(v: unknown): number {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function clampPct(n: number): number {
-  return Math.min(100, Math.max(0, n));
-}
-
-type ComputedRow = {
-  taxable: number;
-  discountAmt: number;
-  gstAmt: number;
-};
-
-function computeRow(line: ISalesInvoiceLine): ComputedRow {
-  const qty = Math.max(0, safeNum(line.qty));
-  const rate = Math.max(0, safeNum(line.rate));
-  const discountPct = clampPct(safeNum(line.discountPct));
-  const gstPct = clampPct(safeNum(line.gstPct));
-
-  const gross = qty * rate;
-  const discountAmt = (gross * discountPct) / 100;
-  const taxable = gross - discountAmt;
-  const gstAmt = (taxable * gstPct) / 100;
-  return { taxable, discountAmt, gstAmt };
-}
-
-function computeTotals(
-  lines: ISalesInvoiceLine[],
-  taxMode: SalesInvoiceTaxMode,
-): {
-  subTotal: number;
-  totalDiscount: number;
-  totalGst: number;
-  grandTotal: number;
-} {
-  let subTotal = 0;
-  let totalDiscount = 0;
-  let totalGst = 0;
-  for (const l of lines) {
-    const c = computeRow(l);
-    subTotal += c.taxable;
-    totalDiscount += c.discountAmt;
-    totalGst += c.gstAmt;
-  }
-  const effectiveGst = taxMode === "none" ? 0 : totalGst;
-  const grandTotal = Math.round(subTotal + effectiveGst);
-  return {
-    subTotal: round2(subTotal),
-    totalDiscount: round2(totalDiscount),
-    totalGst: round2(effectiveGst),
-    grandTotal,
-  };
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
-
-/* ── Payload normalisation (defensive — clamps lengths, coerces numbers) ── */
-
-type InboundLine = Partial<ISalesInvoiceLine>;
-type InboundSeller = Partial<ISalesInvoice["seller"]>;
-type InboundBuyer = Partial<ISalesInvoice["buyer"]>;
-type InboundMeta = Partial<ISalesInvoice["meta"]>;
-
-type InboundBody = {
-  seller?: InboundSeller;
-  buyer?: InboundBuyer;
-  meta?: InboundMeta;
-  lines?: InboundLine[];
-};
-
-function strField(raw: unknown, max: number): string {
-  if (typeof raw !== "string") return "";
-  return raw.trim().slice(0, max);
-}
-
-function normalizeLines(raw: unknown): ISalesInvoiceLine[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((x): x is InboundLine => typeof x === "object" && x !== null)
-    .slice(0, 200)
-    .map<ISalesInvoiceLine>((line) => {
-      const unitRaw = strField(line.unit, 30) as ISalesInvoiceLine["unit"];
-      const validUnits: ISalesInvoiceLine["unit"][] = [
-        "pcs",
-        "mtr",
-        "kg",
-        "gm",
-        "ltr",
-        "set",
-        "box",
-        "pkt",
-        "dozen",
-        "hr",
-        "day",
-        "custom",
-      ];
-      const unit = validUnits.includes(unitRaw) ? unitRaw : "pcs";
-      return {
-        description: strField(line.description, 500),
-        hsn: strField(line.hsn, 20),
-        unit,
-        customUnit: strField(line.customUnit, 30),
-        qty: Math.max(0, safeNum(line.qty)),
-        rate: Math.max(0, safeNum(line.rate)),
-        discountPct: clampPct(safeNum(line.discountPct)),
-        gstPct: clampPct(safeNum(line.gstPct)),
-      };
-    });
-}
-
-function normalizeSeller(raw: unknown): ISalesInvoice["seller"] {
-  const r = (raw && typeof raw === "object" ? raw : {}) as InboundSeller;
-  return {
-    name: strField(r.name, 200) || "Seller",
-    address: strField(r.address, 500),
-    email: strField(r.email, 200),
-    phone: strField(r.phone, 30),
-    gstin: strField(r.gstin, 20).toUpperCase(),
-    pan: strField(r.pan, 20).toUpperCase(),
-    state: strField(r.state, 80),
-  };
-}
-
-function normalizeBuyer(raw: unknown): ISalesInvoice["buyer"] {
-  const r = (raw && typeof raw === "object" ? raw : {}) as InboundBuyer;
-  return {
-    name: strField(r.name, 200),
-    companyName: strField(r.companyName, 200),
-    gstin: strField(r.gstin, 20).toUpperCase(),
-    pan: strField(r.pan, 20).toUpperCase(),
-    address: strField(r.address, 500),
-    state: strField(r.state, 80),
-    phone: strField(r.phone, 30),
-    email: strField(r.email, 200),
-  };
-}
-
-function normalizeMeta(raw: unknown): ISalesInvoice["meta"] {
-  const r = (raw && typeof raw === "object" ? raw : {}) as InboundMeta;
-  const taxMode: SalesInvoiceTaxMode =
-    r.taxMode === "igst" || r.taxMode === "none" ? r.taxMode : "cgst_sgst";
-  return {
-    invoiceNumber: strField(r.invoiceNumber, 60),
-    invoiceDate: strField(r.invoiceDate, 20),
-    dueDate: strField(r.dueDate, 20),
-    poNumber: strField(r.poNumber, 80),
-    notes: strField(r.notes, 2000),
-    terms: strField(r.terms, 2000),
-    taxMode,
-    showHsn: r.showHsn !== false,
-    showDiscount: r.showDiscount !== false,
-    showGstColumn: r.showGstColumn !== false,
-  };
-}
-
-/* ── Serialization ────────────────────────────────────────────────────── */
-
-function toClientShape(doc: ISalesInvoice) {
-  return {
-    id: String(doc._id),
-    updatedAt: doc.updatedAt.toISOString(),
-    createdAt: doc.createdAt.toISOString(),
-    invoiceNumber: doc.invoiceNumber,
-    invoiceDate: doc.invoiceDate,
-    taxMode: doc.taxMode,
-    itemCount: doc.itemCount,
-    grandTotal: doc.grandTotal,
-    subTotal: doc.subTotal,
-    totalDiscount: doc.totalDiscount,
-    totalGst: doc.totalGst,
-    seller: doc.seller,
-    buyer: doc.buyer,
-    meta: doc.meta,
-    lines: doc.lines,
-  };
-}
+import {
+  computeTotals,
+  normalizeBuyer,
+  normalizeLines,
+  normalizeMeta,
+  normalizeSeller,
+  type InboundBody,
+} from "../utils/salesInvoiceHelpers";
+import {
+  createTaxInvoiceFromB2bOrder,
+  getTaxInvoiceForOrder,
+  salesInvoiceToClientShape,
+} from "../services/salesInvoice/b2bTaxInvoiceFromOrderService";
 
 /* ── Handlers ─────────────────────────────────────────────────────────── */
 
@@ -212,6 +39,7 @@ export const listSalesInvoices = catchAsync(
       const safe = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       filter.$or = [
         { invoiceNumber: { $regex: safe, $options: "i" } },
+        { orderNumber: { $regex: safe, $options: "i" } },
         { "buyer.companyName": { $regex: safe, $options: "i" } },
         { "buyer.name": { $regex: safe, $options: "i" } },
         { "buyer.gstin": { $regex: safe, $options: "i" } },
@@ -226,7 +54,7 @@ export const listSalesInvoices = catchAsync(
 
     sendPaginated(
       res,
-      { invoices: items.map(toClientShape) },
+      { invoices: items.map(salesInvoiceToClientShape) },
       { page, limit, total },
       "OK",
     );
@@ -242,7 +70,7 @@ export const getSalesInvoice = catchAsync(
     }
     const doc = await SalesInvoice.findById(id);
     if (!doc) return next(new AppError("Invoice not found.", 404));
-    sendSuccess(res, { invoice: toClientShape(doc) });
+    sendSuccess(res, { invoice: salesInvoiceToClientShape(doc) });
   },
 );
 
@@ -299,7 +127,7 @@ export const createSalesInvoice = catchAsync(
       grandTotal: created.grandTotal,
     });
 
-    sendSuccess(res, { invoice: toClientShape(created) }, "Invoice saved", 201);
+    sendSuccess(res, { invoice: salesInvoiceToClientShape(created) }, "Invoice saved", 201);
   },
 );
 
@@ -364,7 +192,7 @@ export const updateSalesInvoice = catchAsync(
       grandTotal: updated.grandTotal,
     });
 
-    sendSuccess(res, { invoice: toClientShape(updated) }, "Invoice saved");
+    sendSuccess(res, { invoice: salesInvoiceToClientShape(updated) }, "Invoice saved");
   },
 );
 
@@ -378,11 +206,68 @@ export const deleteSalesInvoice = catchAsync(
     const doc = await SalesInvoice.findByIdAndDelete(id);
     if (!doc) return next(new AppError("Invoice not found.", 404));
 
+    if (doc.orderId) {
+      await Order.updateMany(
+        { taxSalesInvoiceId: doc._id },
+        { $unset: { taxSalesInvoiceId: 1 } },
+      );
+    }
+
     await writeAdminAudit(req, "invoice.deleted", {
       invoiceId: String(doc._id),
       invoiceNumber: doc.invoiceNumber,
     });
 
     sendSuccess(res, null, "Invoice deleted");
+  },
+);
+
+/** POST /api/admin/orders/:id/create-tax-invoice */
+export const createTaxInvoiceFromOrder = catchAsync(
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    const { id } = req.params;
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return next(new AppError("Invalid order id.", 400));
+    }
+
+    const adminId = req.user?._id as mongoose.Types.ObjectId | undefined;
+    let created: ISalesInvoice;
+    try {
+      created = await createTaxInvoiceFromB2bOrder(id, adminId);
+    } catch (err) {
+      if (err instanceof AppError) return next(err);
+      throw err;
+    }
+
+    await writeAdminAudit(req, "invoice.created_from_order", {
+      invoiceId: String(created._id),
+      invoiceNumber: created.invoiceNumber,
+      orderId: id,
+      orderNumber: created.orderNumber,
+      grandTotal: created.grandTotal,
+    });
+
+    sendSuccess(
+      res,
+      { invoice: salesInvoiceToClientShape(created) },
+      "Tax invoice created from order",
+      201,
+    );
+  },
+);
+
+/** GET /api/admin/orders/:id/tax-invoice */
+export const getOrderTaxInvoice = catchAsync(
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    const { id } = req.params;
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return next(new AppError("Invalid order id.", 400));
+    }
+
+    const order = await Order.findById(id).select("_id");
+    if (!order) return next(new AppError("Order not found.", 404));
+
+    const invoice = await getTaxInvoiceForOrder(id);
+    sendSuccess(res, { invoice });
   },
 );

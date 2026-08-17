@@ -3,3 +3,5 @@
 .env
 .env.local
 /logs
+debug.log
+**/debug.log

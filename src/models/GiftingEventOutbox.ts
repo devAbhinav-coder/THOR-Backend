@@ -1,6 +1,6 @@
 import { Schema, model, Document } from 'mongoose';
 
-export type GiftingOutboxStatus = 'pending' | 'processing' | 'completed' | 'failed';
+export type GiftingOutboxStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'dead_letter';
 
 export type GiftingOutboxEventType =
   | 'email_admin_new_request'
@@ -43,7 +43,7 @@ const giftingEventOutboxSchema = new Schema<IGiftingEventOutbox>(
     payload: { type: Schema.Types.Mixed, required: true },
     status: {
       type: String,
-      enum: ['pending', 'processing', 'completed', 'failed'],
+      enum: ['pending', 'processing', 'completed', 'failed', 'dead_letter'],
       default: 'pending',
     },
     attempts: { type: Number, default: 0 },

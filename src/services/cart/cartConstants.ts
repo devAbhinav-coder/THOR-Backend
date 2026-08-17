@@ -22,7 +22,7 @@ export const CART_IDEMPOTENCY_KEY_PREFIX = 'cache:cart:idempotency:';
 
 /** Product fields required for add-to-cart validation and line building. */
 export const PRODUCT_FOR_CART_SELECT =
-  'name slug images isActive price variants customFields occasions minOrderQty';
+  'name slug images isActive price comparePrice categoryId subcategoryId variants customFields occasions minOrderQty';
 
 export const PRODUCT_MIN_QTY_SELECT = 'minOrderQty occasions';
 

@@ -231,7 +231,7 @@ export async function explainUser(userId: string): Promise<AiResultPayload> {
   return cachedGroqExplain(
     cacheKey,
     aiConfig.explainCacheTtlSec,
-    `Advise the admin how to treat this customer (loyalty, risk, support tone). No invented spend.
+    `Advise the admin how to treat this customer (retention, risk, support tone). No invented spend.
 FORMAT: 1 intro line, then 4-6 bullets each on a new line starting with "• ".
 ${AI_ENGLISH_ONLY_RULE}
 JSON:
@@ -614,6 +614,97 @@ Rules for messageHtml:
     bullets: [],
     subject: norm.subject,
     messageHtml: norm.messageHtml,
+    cached: false,
+    generatedAt: new Date().toISOString(),
+    model,
+  };
+
+  setCache(cacheKey, payload, aiConfig.draftCacheTtlSec).catch(() => {});
+  return payload;
+}
+
+/** Auto-offer T&C — plain-language terms for PDP / popup */
+export async function draftPromotionTerms(body: {
+  name?: string;
+  displayTitle?: string;
+  description?: string;
+  promotionType: 'bogo' | 'flat' | 'percentage';
+  buyQuantity?: number;
+  getQuantity?: number;
+  getDiscountPercent?: number;
+  discountValue?: number;
+  minOrderAmount?: number;
+  scopeType?: string;
+  adminNotes?: string;
+}): Promise<AiResultPayload> {
+  const title = String(body.displayTitle || body.name || 'Auto offer').trim();
+  const type = body.promotionType;
+  const buy = Math.max(1, Number(body.buyQuantity) || 1);
+  const get = Math.max(1, Number(body.getQuantity) || 1);
+  const notes = String(body.adminNotes || '').trim();
+
+  let ruleSummary = '';
+  if (type === 'bogo') {
+    const pct = Number(body.getDiscountPercent ?? 100);
+    ruleSummary =
+      pct >= 100
+        ? `Buy ${buy} Get ${get} Free (cheapest eligible item(s) discounted)`
+        : `Buy ${buy} Get ${get} at ${pct}% off on eligible item(s)`;
+  } else if (type === 'flat') {
+    ruleSummary = `Buy ${buy}+ eligible item(s) → flat ₹${body.discountValue ?? 0} off cart on those items`;
+  } else {
+    ruleSummary = `Buy ${buy}+ eligible item(s) → ${body.discountValue ?? 0}% off on those items`;
+  }
+
+  const scope = body.scopeType || 'all';
+  const minOrder = Number(body.minOrderAmount) || 0;
+
+  const cacheKey = `ai:admin:draft:promo-tc:v1:${cacheHash(JSON.stringify({ title, ruleSummary, scope, minOrder, notes }))}`;
+  const cached = await getCache<AiResultPayload>(cacheKey);
+  if (cached?.text) return { ...cached, cached: true };
+
+  const prompt = `Write Terms & Conditions for an e-commerce AUTO OFFER (no coupon code — applies automatically in cart).
+
+Brand: The House of Rani (Indian ethnic wear)
+
+Offer title: ${title}
+Offer rule: ${ruleSummary}
+Applies to: ${scope === 'all' ? 'entire cart' : scope}
+${minOrder > 0 ? `Minimum order on eligible items: ₹${minOrder}` : ''}
+${body.description ? `Description: ${body.description}` : ''}
+${notes ? `Admin notes (follow these): ${notes}` : ''}
+
+Return ONLY valid JSON:
+{ "termsAndConditions": "..." }
+
+Rules for termsAndConditions:
+- 3-5 short bullet points as a single plain-text block (use " • " between points OR newline-separated lines)
+- Simple English customers can understand (no legal jargon)
+- Must mention: auto-applies in cart, no code needed, eligible products/scope, cannot combine with other auto offers (only one auto offer per order), BOGO cheapest-item-free if BOGO
+- If scope is subcategories/categories/products, say "selected items only"
+- Max 600 characters total
+- ${AI_ENGLISH_ONLY_RULE}
+- Do not invent dates or coupon codes`;
+
+  const { text, model } = await groqChatCompletion(prompt, {
+    maxTokens: 500,
+    jsonObject: true,
+    systemExtra:
+      'Return ONLY one JSON object with key "termsAndConditions". No markdown fences.',
+  });
+
+  const parsed = parseJsonFromModel<{ termsAndConditions?: string }>(text);
+  const terms = String(parsed?.termsAndConditions || text || '').trim();
+  if (terms.length < 20) {
+    throw new AppError(
+      'AI could not write T&C. Fill offer type and quantities first, then try again.',
+      502,
+    );
+  }
+
+  const payload: AiResultPayload = {
+    text: terms,
+    bullets: [],
     cached: false,
     generatedAt: new Date().toISOString(),
     model,

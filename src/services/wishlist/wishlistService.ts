@@ -16,6 +16,9 @@ import {
   recordProductWishlisted,
 } from "./wishlistMetricsService";
 import { emitWishlistEvent } from "./wishlistEventService";
+import WishlistPriceAlert from "../../models/WishlistPriceAlert";
+import { getActiveSaleCampaigns } from "../sale/saleCacheService";
+import { resolveEffectivePrice } from "../sale/salePriceService";
 
 export type WishlistListOptions = {
   paginated: boolean;
@@ -158,6 +161,24 @@ async function addProductToWishlist(
     }
     throw err;
   }
+}
+
+async function recordWishlistPriceBaseline(
+  userId: string,
+  productId: string,
+): Promise<void> {
+  const product = await Product.findById(productId).select("price").lean();
+  if (!product) return;
+  const campaigns = await getActiveSaleCampaigns();
+  const baselinePrice = resolveEffectivePrice(
+    { price: product.price, _id: productId },
+    campaigns,
+  ).effectivePrice;
+  await WishlistPriceAlert.findOneAndUpdate(
+    { user: userId, product: productId },
+    { $setOnInsert: { baselinePrice } },
+    { upsert: true },
+  );
 }
 
 async function fetchWishlistProductsOrdered(
@@ -392,6 +413,8 @@ export const wishlistService = {
       requestId: ctx?.requestId,
       traceId: ctx?.traceId,
     });
+
+    void recordWishlistPriceBaseline(userId, normalizedId).catch(() => {});
 
     return { wishlistCount, action: "added" };
   },

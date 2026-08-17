@@ -88,7 +88,9 @@ async function restoreOrderStock(
         pid,
         item.variant.sku,
         item.quantity,
-        session ? { session } : {},
+        session ?
+          { session, soldCountDelta: -item.quantity }
+        : { soldCountDelta: -item.quantity },
       );
       await logStockMovement(pid, item.variant.sku, item.quantity, {
         reason: "sale_return",

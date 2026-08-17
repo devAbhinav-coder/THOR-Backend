@@ -1,11 +1,25 @@
 import { Types } from "mongoose";
 import Product from "../../models/Product";
 import PurchaseInvoice from "../../models/PurchaseInvoice";
+import { catalogInventoryProductMatch } from "../../constants/offlineOrder";
 import { LOW_STOCK_ALERT_EXCLUSIVE_MAX } from "../../constants/inventory";
 import { INVENTORY_QUERY_MAX_MS } from "../../constants/inventoryQuery";
 import { getInventorySummaryStats } from "./inventoryCacheService";
 import { recordInventoryTiming } from "./inventoryMetricsService";
 import { sumMoney } from "../../types/utils/financialMath";
+import {
+  computeAvgCost,
+  computeCatalogProfitFromVariants,
+  computeEffectiveSellPrice,
+  computeTurnover,
+} from "./inventoryCalcHelpers";
+import type { RevenuePeriod } from "../revenuePeriodService";
+import {
+  getMissingCostSkus,
+  getPeriodMetricsByProduct,
+  getPeriodMetricsBySku,
+  getReorderSuggestions,
+} from "./inventoryInsightsService";
 
 function escapeRegex(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -24,14 +38,20 @@ export async function getInventoryOverview(params: {
   category?: string;
   filter?: string;
   sort?: string;
+  period?: RevenuePeriod;
+  year?: number;
+  month?: number;
+  includeReorder?: boolean;
 }): Promise<InventoryOverviewResult> {
   const skip = (params.page - 1) * params.limit;
   const search = params.search?.trim() ?? "";
   const category = params.category?.trim() ?? "";
   const filter = params.filter ?? "all";
   const sortParam = params.sort ?? "-updatedAt";
-  //also not is isgiftable  true
-  const match: Record<string, unknown> = { isActive: true };
+  const period = params.period ?? "lifetime";
+  const useOrderPeriod = period !== "lifetime";
+
+  const match: Record<string, unknown> = catalogInventoryProductMatch();
   if (search) {
     const escapedSearch = escapeRegex(search);
     match.$or = [
@@ -47,6 +67,8 @@ export async function getInventoryOverview(params: {
     match.totalStock = 0;
   } else if (filter === "sold") {
     match.soldCount = { $gt: 0 };
+  } else if (filter === "missing_cost") {
+    match["variants.costPrice"] = { $in: [null, 0] };
   }
 
   const sortMap: Record<string, Record<string, 1 | -1>> = {
@@ -62,82 +84,155 @@ export async function getInventoryOverview(params: {
   };
   const sort = sortMap[sortParam] || { updatedAt: -1 };
 
-  const [products, total, stockStats] = await Promise.all([
-    Product.find(match)
-      .sort(sort)
-      .skip(skip)
-      .limit(params.limit)
-      .select(
-        "name category fabric images variants totalStock soldCount price updatedAt hsnCode",
-      )
-      .lean()
-      .maxTimeMS(INVENTORY_QUERY_MAX_MS),
-    Product.countDocuments(match).maxTimeMS(INVENTORY_QUERY_MAX_MS),
-    getInventorySummaryStats(),
-  ]);
+  const [products, total, stockStats, periodMetrics, periodSkuMetrics, missingCost, reorderSuggestions] =
+    await Promise.all([
+      Product.find(match)
+        .sort(sort)
+        .skip(skip)
+        .limit(params.limit)
+        .select(
+          "name category fabric images variants totalStock soldCount price comparePrice updatedAt hsnCode",
+        )
+        .lean()
+        .maxTimeMS(INVENTORY_QUERY_MAX_MS),
+      Product.countDocuments(match).maxTimeMS(INVENTORY_QUERY_MAX_MS),
+      getInventorySummaryStats(),
+      useOrderPeriod ?
+        getPeriodMetricsByProduct({
+          period,
+          year: params.year,
+          month: params.month,
+        })
+      : null,
+      useOrderPeriod ?
+        getPeriodMetricsBySku({
+          period,
+          year: params.year,
+          month: params.month,
+        })
+      : null,
+      getMissingCostSkus(50),
+      params.includeReorder !== false ?
+        getReorderSuggestions({ limit: 15 })
+      : [],
+    ]);
 
   const productsWithTurnover = products.map((p) => {
     const variants = (p.variants ?? []) as Array<{
+      sku?: string;
       stock?: number;
       costPrice?: number;
       price?: number;
+      soldCount?: number;
+      size?: string;
+      color?: string;
     }>;
-    const soldCount = Number(p.soldCount ?? 0);
-    const sellPrice = Number(p.price ?? 0);
+    const productId = String(p._id);
+    const periodProduct = periodMetrics?.byProductId.get(productId);
+    const soldCount =
+      useOrderPeriod && periodProduct ?
+        periodProduct.unitsSold
+      : Number(p.soldCount ?? 0);
+    const productPrice = Number(p.price ?? 0);
 
     let stockUnits = 0;
     let stockCostValue = 0;
-    let costWeightedSum = 0;
-    let costWeightUnits = 0;
+    let variantsMissingCost = 0;
 
-    for (const v of variants) {
+    const enrichedVariants = variants.map((v) => {
       const stock = Number(v.stock ?? 0);
       const cost = Number(v.costPrice ?? 0);
       stockUnits += stock;
       stockCostValue += cost * stock;
-      if (cost > 0 && stock > 0) {
-        costWeightedSum += cost * stock;
-        costWeightUnits += stock;
-      }
-    }
+      if (!(cost > 0)) variantsMissingCost += 1;
 
-    const avgCost =
-      costWeightUnits > 0 ?
-        roundMoney(costWeightedSum / costWeightUnits)
-      : roundMoney(
-          variants.find(
-            (v) => typeof v.costPrice === "number" && v.costPrice > 0,
-          )?.costPrice ?? 0,
+      const skuMetrics =
+        useOrderPeriod && periodSkuMetrics && v.sku ?
+          periodSkuMetrics.bySku.get(periodSkuMetrics.skuKey(productId, v.sku))
+        : undefined;
+
+      return {
+        ...v,
+        soldCount:
+          useOrderPeriod && skuMetrics ?
+            skuMetrics.unitsSold
+          : Number(v.soldCount ?? 0),
+        periodRevenue: skuMetrics?.revenue,
+        periodProfit: skuMetrics?.profit,
+        missingCost: !(cost > 0),
+      };
+    });
+
+    const avgCost = computeAvgCost(variants);
+    const { sellPrice, hasVariantPriceSpread } = computeEffectiveSellPrice(
+      productPrice,
+      variants,
+    );
+
+    const profitMetrics =
+      useOrderPeriod && periodProduct ?
+        {
+          grossRevenue: periodProduct.revenue,
+          grossCostOfSales: periodProduct.cogs,
+          grossProfit: periodProduct.profit,
+          estimatedRevenue: periodProduct.revenue,
+          estimatedCost: periodProduct.cogs,
+          estimatedProfit: periodProduct.profit,
+          marginPercent:
+            periodProduct.revenue > 0 ?
+              Math.round((periodProduct.profit / periodProduct.revenue) * 100)
+            : null,
+          periodLinesMissingCost: periodProduct.linesMissingCost,
+        }
+      : computeCatalogProfitFromVariants(
+          productPrice,
+          Number(p.soldCount ?? 0),
+          enrichedVariants,
         );
 
-    const estimatedRevenue = roundMoney(soldCount * sellPrice);
-    const estimatedCost = roundMoney(soldCount * avgCost);
-    const estimatedProfit = roundMoney(estimatedRevenue - estimatedCost);
-    const marginPercent =
-      sellPrice > 0 && avgCost > 0 ?
-        Math.round(((sellPrice - avgCost) / sellPrice) * 100)
-      : null;
+    const turnover = computeTurnover(soldCount, p.totalStock);
 
     return {
       ...p,
+      variants: enrichedVariants,
       avgCost,
+      effectiveSellPrice: sellPrice,
+      hasVariantPriceSpread,
+      variantsMissingCost,
       stockValue: roundMoney(stockCostValue),
       stockUnits,
-      grossRevenue: estimatedRevenue,
-      grossCostOfSales: estimatedCost,
-      grossProfit: estimatedProfit,
-      estimatedRevenue,
-      estimatedCost,
-      estimatedProfit,
-      marginPercent,
-      turnover:
-        p.totalStock > 0 ? soldCount / p.totalStock
-        : soldCount > 0 ? 99
-        : 0,
+      ...profitMetrics,
+      soldCount,
+      lifetimeSoldCount: Number(p.soldCount ?? 0),
+      turnover,
+      isPeriodView: useOrderPeriod,
     };
   });
 
-  return { products: productsWithTurnover, summary: stockStats, total };
+  const summary: Record<string, unknown> = {
+    ...stockStats,
+    period,
+    periodLabel: periodMetrics?.bounds.label ?? "Lifetime (catalog)",
+    costMethod: "weighted_average",
+    missingCostSkus: missingCost.totalMissing,
+    missingCostTotalSkus: missingCost.totalSkus,
+    missingCostSamples: missingCost.skus.slice(0, 10),
+    reorderSuggestions,
+  };
+
+  if (useOrderPeriod && periodMetrics) {
+    summary.totalSoldUnits = periodMetrics.totals.unitsSold;
+    summary.totalGrossRevenue = periodMetrics.totals.revenue;
+    summary.totalGrossCostOfSales = periodMetrics.totals.cogs;
+    summary.totalGrossProfit = periodMetrics.totals.profit;
+    summary.overallMarginPercent = periodMetrics.totals.marginPercent;
+    summary.totalEstimatedRevenue = periodMetrics.totals.revenue;
+    summary.totalEstimatedProfit = periodMetrics.totals.profit;
+    summary.periodLinesMissingCost = periodMetrics.totals.linesMissingCost;
+    summary.periodOrderLines = periodMetrics.totals.orderLines;
+  }
+
+  return { products: productsWithTurnover, summary, total };
 }
 
 function roundMoney(n: number): number {
@@ -149,7 +244,7 @@ export async function getInventoryValuation() {
 
   const [overall, byCategory] = await Promise.all([
     Product.aggregate([
-      { $match: { isActive: true } },
+      { $match: catalogInventoryProductMatch() },
       { $unwind: "$variants" },
       {
         $group: {
@@ -201,7 +296,7 @@ export async function getInventoryValuation() {
       },
     ]).option(aggOptions),
     Product.aggregate([
-      { $match: { isActive: true } },
+      { $match: catalogInventoryProductMatch() },
       { $unwind: "$variants" },
       {
         $group: {
@@ -356,4 +451,42 @@ export async function getGstPurchaseSummary(params: {
   });
 
   return { bySupplier, monthly, totals, year };
+}
+
+/** Full catalog export rows for CSV (active products, all variants). */
+export async function getInventoryExportRows(): Promise<Record<string, unknown>[]> {
+  const products = await Product.find(catalogInventoryProductMatch())
+    .select("name category price totalStock soldCount variants hsnCode")
+    .sort({ name: 1 })
+    .lean()
+    .maxTimeMS(INVENTORY_QUERY_MAX_MS);
+
+  const rows: Record<string, unknown>[] = [];
+  for (const p of products) {
+    for (const v of (p.variants ?? []) as Array<{
+      sku: string;
+      size?: string;
+      color?: string;
+      stock?: number;
+      price?: number;
+      costPrice?: number;
+      soldCount?: number;
+    }>) {
+      rows.push({
+        productName: p.name,
+        category: p.category,
+        sku: v.sku,
+        size: v.size ?? "",
+        color: v.color ?? "",
+        stock: v.stock ?? 0,
+        mrp: v.price ?? p.price,
+        costPrice: v.costPrice ?? "",
+        soldCountSku: v.soldCount ?? 0,
+        soldCountProduct: p.soldCount ?? 0,
+        hsnCode: p.hsnCode ?? "",
+        stockValue: roundMoney((v.costPrice ?? 0) * (v.stock ?? 0)),
+      });
+    }
+  }
+  return rows;
 }

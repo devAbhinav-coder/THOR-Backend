@@ -3,6 +3,10 @@ import { enqueuePush, PushJobData } from "../../queues/pushQueue";
 import logger from "../../types/utils/logger";
 import { getRequestContext } from "../../types/utils/requestContext";
 import { recordNotificationMetric } from "./notificationMetricsService";
+import {
+  logOutboxDeadLetter,
+  nextOutboxStatusAfterFailure,
+} from "../outboxDeadLetter";
 import { sanitizePushPayload } from "./notificationDto";
 import { buildPushDedupeKey } from "./pushDedupe";
 
@@ -126,11 +130,12 @@ export async function dispatchPushOutboxById(
     const message = err instanceof Error ? err.message : "dispatch failed";
     const attempts = claimed.attempts;
     const terminal = attempts >= MAX_ATTEMPTS;
+    const nextStatus = nextOutboxStatusAfterFailure(attempts, MAX_ATTEMPTS);
     await PushNotificationOutbox.updateOne(
       { _id: claimed._id },
       {
         $set: {
-          status: terminal ? "failed" : "pending",
+          status: nextStatus,
           lastError: message.slice(0, 500),
           nextAttemptAt: new Date(Date.now() + nextBackoffMs(attempts)),
         },
@@ -140,6 +145,15 @@ export async function dispatchPushOutboxById(
       terminal,
       attempts,
     });
+    if (terminal) {
+      logOutboxDeadLetter(
+        "push",
+        String(claimed._id),
+        claimed.dedupeKey,
+        attempts,
+        message,
+      );
+    }
     return false;
   }
 }

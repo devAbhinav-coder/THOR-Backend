@@ -24,7 +24,9 @@ import AppError from "./types/utils/AppError";
 import {
   closeAllRedisConnections,
   redisConnection,
-  redisEnabled,
+  bootstrapRedis,
+  isRedisOperational,
+  shouldUseRedisRateLimit,
 } from "./config/redis";
 
 import authRoutes from "./routes/authRoutes";
@@ -37,6 +39,7 @@ import testimonialRoutes from "./routes/testimonialRoutes";
 import wishlistRoutes from "./routes/wishlistRoutes";
 import couponRoutes from "./routes/couponRoutes";
 import saleCampaignRoutes from "./routes/saleCampaignRoutes";
+import promotionRoutes from "./routes/promotionRoutes";
 import adminRoutes from "./routes/adminRoutes";
 import categoryRoutes from "./routes/categoryRoutes";
 import storefrontRoutes from "./routes/storefrontRoutes";
@@ -49,70 +52,12 @@ import navigationRoutes from "./routes/navigationRoutes";
 import collectionRoutes from "./routes/collectionRoutes";
 import raniCareRoutes from "./routes/raniCareRoutes";
 
-import { runPaymentRecoveryJob } from "./services/paymentRecoveryJob";
 import {
-  startEmailWorker,
-  closeEmailWorker,
-  emailQueue,
-} from "./queues/emailQueue";
-import {
-  startPushWorker,
-  closePushWorker,
-  pushQueue,
-} from "./queues/pushQueue";
-import {
-  startImageWorker,
-  closeImageWorker,
-  imageQueue,
-} from "./queues/imageQueue";
-import { startOrderWorker, closeOrderWorker } from "./workers/orderWorker";
-import { orderQueue } from "./queues/orderQueue";
-import {
-  startOrderOutboxPoller,
-  stopOrderOutboxPoller,
-} from "./jobs/orderOutboxPoller";
-import {
-  startInventoryOutboxPoller,
-  stopInventoryOutboxPoller,
-} from "./jobs/inventoryOutboxPoller";
-import {
-  startCouponOutboxPoller,
-  stopCouponOutboxPoller,
-} from "./jobs/couponOutboxPoller";
-import {
-  startInventoryReconciliationJob,
-  stopInventoryReconciliationJob,
-} from "./jobs/inventoryReconciliationJob";
-import {
-  startGiftingOutboxPoller,
-  stopGiftingOutboxPoller,
-} from "./jobs/giftingOutboxPoller";
-import {
-  startPushOutboxPoller,
-  stopPushOutboxPoller,
-} from "./jobs/pushOutboxPoller";
-import {
-  startCartOutboxPoller,
-  stopCartOutboxPoller,
-} from "./jobs/cartOutboxPoller";
-import {
-  startCartSyncSubscriber,
-  stopCartSyncSubscriber,
-} from "./workers/cartSyncSubscriber";
-import {
-  startNotificationMaintenanceJob,
-  stopNotificationMaintenanceJob,
-} from "./jobs/notificationMaintenanceJob";
-import {
-  startBlogPublishJob,
-  stopBlogPublishJob,
-  setBlogPublishHook,
-} from "./jobs/blogPublishJob";
-import { broadcastNewBlog } from "./controllers/blogController";
-import {
-  backfillBlogEmbeddings,
-  backfillProductEmbeddings,
-} from "./services/ai/vectorIndexService";
+  startAllBackgroundWork,
+  stopAllBackgroundWork,
+} from "./jobs/jobBootstrap";
+import { shouldRunHttpServer, getRunMode, shouldRunBackgroundJobs } from "./config/runMode";
+import { setupBullBoard } from "./config/bullBoard";
 import { requestContext } from "./types/utils/requestContext";
 import { botHeuristics } from "./middleware/botHeuristics";
 import { xssSanitize } from "./middleware/xssSanitize";
@@ -125,46 +70,10 @@ import {
   normalizeOriginUrl,
 } from "./config/allowedOrigins";
 import { csrfOriginGuard } from "./middleware/csrfOriginGuard";
-import { delhiveryIsConfigured } from "./config/delhivery";
-import { runDelhiveryTrackingSyncJob } from "./services/delhiveryTrackingSyncService";
 const app = express();
 
 if (process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true") {
   app.set("trust proxy", 1);
-}
-
-connectDB();
-startEmailWorker();
-startPushWorker();
-startImageWorker();
-startOrderWorker();
-startOrderOutboxPoller();
-startInventoryOutboxPoller();
-startCouponOutboxPoller();
-startInventoryReconciliationJob();
-startGiftingOutboxPoller();
-startPushOutboxPoller();
-startCartOutboxPoller();
-startCartSyncSubscriber();
-startNotificationMaintenanceJob();
-setBlogPublishHook(broadcastNewBlog);
-startBlogPublishJob();
-
-// Background embedding sync (vector RAG) — never blocks API requests
-setTimeout(() => {
-  void Promise.all([
-    backfillProductEmbeddings(500),
-    backfillBlogEmbeddings(200),
-  ]).catch((err) =>
-    logger.warn(`Embedding backfill skipped: ${(err as Error).message}`),
-  );
-}, 8000);
-
-if (process.env.NODE_ENV === "production" && redisEnabled) {
-  redisConnection.ping().catch((err: Error) => {
-    logger.error(`Redis ping failed in production: ${err.message}`);
-    process.exit(1);
-  });
 }
 
 const corsAllowSet = getCorsAllowedOriginSet();
@@ -263,6 +172,9 @@ if (process.env.NODE_ENV === "production" && configuredMax > 2000) {
   );
 }
 
+/** Dev uses in-memory store only when Redis probe failed at startup. */
+const useRedisRateLimitStore = shouldUseRedisRateLimit();
+
 const limiter = rateLimit({
   windowMs,
   max,
@@ -273,7 +185,7 @@ const limiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  ...(redisEnabled ?
+  ...(useRedisRateLimitStore ?
     {
       store: new RedisStore({
         prefix: "rl:api:",
@@ -300,7 +212,7 @@ const authLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  ...(redisEnabled ?
+  ...(useRedisRateLimitStore ?
     {
       store: new RedisStore({
         prefix: "rl:auth:",
@@ -327,7 +239,7 @@ const webhookLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  ...(redisEnabled ?
+  ...(useRedisRateLimitStore ?
     {
       store: new RedisStore({
         prefix: "rl:webhook:",
@@ -385,24 +297,34 @@ app.use(
 app.get("/api/health", async (_req: Request, res: Response) => {
   const mongoOk = mongoose.connection.readyState === 1;
   let redisOk = false;
-  try {
-    if (redisEnabled) {
-      const pong = await redisConnection.ping();
+  if (isRedisOperational()) {
+    try {
+      const pong = await Promise.race([
+        redisConnection.ping(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Redis ping timeout")), 2000),
+        ),
+      ]);
       redisOk = pong === "PONG";
+    } catch {
+      redisOk = false;
     }
-  } catch {
-    redisOk = false;
   }
 
-  const ok = mongoOk; // ONLY Mongo decides health
+  const isProd = process.env.NODE_ENV === "production";
+  const redisRequired = isProd && isRedisOperational();
+  const ok = mongoOk && (!redisRequired || redisOk);
 
   res.status(ok ? 200 : 503).json({
     status: ok ? "ok" : "degraded",
-    message: ok ? "API is running" : "Database connection failed",
+    message:
+      !mongoOk ? "Database connection failed"
+      : redisRequired && !redisOk ? "Redis connection failed"
+      : "API is running",
     timestamp: new Date().toISOString(),
     checks: {
       mongodb: mongoOk,
-      redis: redisEnabled ? redisOk : "disabled",
+      redis: isRedisOperational() ? redisOk : "disabled",
     },
   });
 });
@@ -434,6 +356,7 @@ app.use("/api/testimonials", testimonialRoutes);
 app.use("/api/wishlist", wishlistRoutes);
 app.use("/api/coupons", couponRoutes);
 app.use("/api/sales", saleCampaignRoutes);
+app.use("/api/promotions", promotionRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/storefront", storefrontRoutes);
@@ -455,96 +378,106 @@ if (process.env.SENTRY_DSN?.trim()) {
 app.use(errorHandler);
 
 const PORT = parseInt(process.env.PORT || "5000", 10);
-const server = app.listen(PORT, "0.0.0.0", () => {
-  logger.info(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+let server: ReturnType<typeof app.listen> | null = null;
+
+async function bootstrap(): Promise<void> {
+  await bootstrapRedis();
+  await connectDB();
+  startAllBackgroundWork();
+  await setupBullBoard(app);
+
+  if (process.env.NODE_ENV === "production") {
+    const mode = getRunMode();
+    if (mode === "all") {
+      logger.warn(
+        "RUN_MODE=all in production: API and all background jobs share one process. Prefer RUN_MODE=api on API pods + npm run worker on a job pod.",
+      );
+    } else if (mode === "api" && shouldRunBackgroundJobs()) {
+      logger.warn(
+        "Unexpected: RUN_MODE=api but background jobs started — check JOBS_ENABLED.",
+      );
+    } else if (mode === "api") {
+      logger.info(
+        "Production API mode: background jobs disabled (use worker process for jobs).",
+      );
+    }
+  }
+
+  if (process.env.NODE_ENV === "production" && isRedisOperational()) {
+    const pong = await redisConnection.ping();
+    if (pong !== "PONG") {
+      logger.error("Redis ping failed in production");
+      process.exit(1);
+    }
+  }
+
+  if (shouldRunHttpServer()) {
+    server = app.listen(PORT, "0.0.0.0", () => {
+      logger.info(
+        `Server running in ${process.env.NODE_ENV} mode on port ${PORT}`,
+      );
+    });
+
+    server.headersTimeout = parseInt(
+      process.env.HEADERS_TIMEOUT_MS || "65000",
+      10,
+    );
+    server.requestTimeout = parseInt(
+      process.env.REQUEST_TIMEOUT_MS || "120000",
+      10,
+    );
+    server.keepAliveTimeout = parseInt(
+      process.env.KEEP_ALIVE_TIMEOUT_MS || "65000",
+      10,
+    );
+    const maxConnections = parseInt(process.env.MAX_CONNECTIONS || "0", 10);
+    if (maxConnections > 0) {
+      server.maxConnections = maxConnections;
+    }
+  } else {
+    logger.info("HTTP server disabled (RUN_MODE=worker)");
+  }
+}
+
+void bootstrap().catch((err: unknown) => {
+  logger.error(`Startup failed: ${(err as Error).message}`);
+  process.exit(1);
 });
-
-// Harden against slowloris / hung connections under load.
-server.headersTimeout = parseInt(process.env.HEADERS_TIMEOUT_MS || "65000", 10);
-server.requestTimeout = parseInt(process.env.REQUEST_TIMEOUT_MS || "120000", 10);
-server.keepAliveTimeout = parseInt(process.env.KEEP_ALIVE_TIMEOUT_MS || "65000", 10);
-const maxConnections = parseInt(process.env.MAX_CONNECTIONS || "0", 10);
-if (maxConnections > 0) {
-  server.maxConnections = maxConnections;
-}
-
-const delhiverySyncMs = parseInt(
-  process.env.DELHIVERY_TRACK_SYNC_MS || String(20 * 60 * 1000),
-  10,
-);
-if (delhiveryIsConfigured() && delhiverySyncMs > 0) {
-  setInterval(() => {
-    runDelhiveryTrackingSyncJob().catch((e) =>
-      logger.error(`Delhivery tracking sync: ${(e as Error).message}`),
-    );
-  }, delhiverySyncMs);
-  setTimeout(() => {
-    runDelhiveryTrackingSyncJob().catch(() => {});
-  }, 20_000);
-}
-
-const paymentRecoveryMs = parseInt(
-  process.env.PAYMENT_RECOVERY_MS || String(30 * 60 * 1000),
-  10,
-);
-if (paymentRecoveryMs > 0 && process.env.RAZORPAY_KEY_ID?.trim()) {
-  setInterval(() => {
-    runPaymentRecoveryJob().catch((e) =>
-      logger.error(`Payment recovery job: ${(e as Error).message}`),
-    );
-  }, paymentRecoveryMs);
-  setTimeout(() => {
-    runPaymentRecoveryJob().catch(() => {});
-  }, 60_000);
-}
 
 const shutdown = async (signal: string) => {
   logger.info(`${signal} received. Shutting down gracefully...`);
-  server.close(async () => {
-    try {
-      if (process.env.SENTRY_DSN?.trim()) {
-        await Sentry.close(2000);
-      }
-      await closeEmailWorker();
-      await closePushWorker();
-      await closeImageWorker();
-      stopOrderOutboxPoller();
-      stopInventoryOutboxPoller();
-      stopCouponOutboxPoller();
-      stopInventoryReconciliationJob();
-      stopGiftingOutboxPoller();
-      stopPushOutboxPoller();
-      stopCartOutboxPoller();
-      await stopCartSyncSubscriber();
-      stopNotificationMaintenanceJob();
-      stopBlogPublishJob();
-      await closeOrderWorker();
-      if (emailQueue) {
-        await emailQueue.close();
-      }
-      if (pushQueue) {
-        await pushQueue.close();
-      }
-      if (imageQueue) {
-        await imageQueue.close();
-      }
-      if (orderQueue) {
-        await orderQueue.close();
-      }
-      await mongoose.connection.close();
-      await closeAllRedisConnections();
-      await shutdownOtel();
-      logger.info("Connections closed.");
-    } catch (e) {
-      logger.error(`Shutdown error: ${(e as Error).message}`);
-    } finally {
-      process.exit(0);
-    }
-  });
-  setTimeout(() => {
+
+  const forceTimer = setTimeout(() => {
     logger.error("Forced shutdown after timeout");
     process.exit(1);
-  }, 10000).unref();
+  }, 10000);
+  forceTimer.unref();
+
+  const closeHttp = () =>
+    new Promise<void>((resolve) => {
+      if (server) {
+        server.close(() => resolve());
+      } else {
+        resolve();
+      }
+    });
+
+  try {
+    await closeHttp();
+    if (process.env.SENTRY_DSN?.trim()) {
+      await Sentry.close(2000);
+    }
+    await stopAllBackgroundWork();
+    await mongoose.connection.close();
+    await closeAllRedisConnections();
+    await shutdownOtel();
+    logger.info("Connections closed.");
+  } catch (e) {
+    logger.error(`Shutdown error: ${(e as Error).message}`);
+  } finally {
+    clearTimeout(forceTimer);
+    process.exit(0);
+  }
 };
 
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
@@ -555,7 +488,18 @@ process.on("unhandledRejection", (err: Error) => {
   if (process.env.SENTRY_DSN?.trim()) {
     Sentry.captureException(err);
   }
-  server.close(() => process.exit(1));
+  const redisNoise =
+    process.env.NODE_ENV !== "production" &&
+    /redis|command timed out|connection is closed|econnrefused/i.test(err.message);
+  if (redisNoise) {
+    logger.warn("Ignoring Redis rejection in development — API continues with fallbacks.");
+    return;
+  }
+  if (server) {
+    server.close(() => process.exit(1));
+  } else {
+    process.exit(1);
+  }
 });
 
 export default app;

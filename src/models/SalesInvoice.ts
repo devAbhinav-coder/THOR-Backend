@@ -3,9 +3,8 @@ import mongoose, { Schema, Document } from "mongoose";
 /**
  * SalesInvoice — admin-only B2B / bulk-order tax invoice generator.
  *
- * Intentionally decoupled from `Order`: these are stand-alone bills the admin
- * creates manually for offline B2B sales. No stock movements, no shipping,
- * no customer-facing surface; purely a billing artefact stored on the server
+ * Stand-alone bills for manual B2B sales, or generated from a B2B catalog order
+ * via `orderId`. No stock movements — purely a billing artefact stored on the server
  * so the same invoice can be re-opened and reprinted from any device.
  *
  * Money fields are stored as plain numbers in INR with up to 2 decimals.
@@ -88,6 +87,9 @@ export interface ISalesInvoice extends Document {
   buyer: ISalesInvoiceBuyer;
   meta: ISalesInvoiceMeta;
   lines: ISalesInvoiceLine[];
+  /** Source B2B order when invoice was generated from catalog order lines. */
+  orderId?: mongoose.Types.ObjectId;
+  orderNumber?: string;
   createdBy?: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -199,6 +201,8 @@ const salesInvoiceSchema = new Schema<ISalesInvoice>(
     buyer: { type: buyerSchema, required: true },
     meta: { type: metaSchema, required: true },
     lines: { type: [lineSchema], required: true, default: [] },
+    orderId: { type: Schema.Types.ObjectId, ref: "Order", index: true },
+    orderNumber: { type: String, trim: true, maxlength: 40 },
     createdBy: { type: Schema.Types.ObjectId, ref: "User" },
   },
   { timestamps: true },
@@ -211,6 +215,11 @@ salesInvoiceSchema.index({ updatedAt: -1 });
 salesInvoiceSchema.index(
   { createdBy: 1, invoiceNumber: 1 },
   { unique: true, partialFilterExpression: { createdBy: { $exists: true } } },
+);
+/** One GST tax invoice per source order. */
+salesInvoiceSchema.index(
+  { orderId: 1 },
+  { unique: true, partialFilterExpression: { orderId: { $exists: true } } },
 );
 
 const SalesInvoice =

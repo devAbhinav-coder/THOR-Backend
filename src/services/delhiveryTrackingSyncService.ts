@@ -2,11 +2,7 @@ import Order from "../models/Order";
 import { trackPackages } from "./delhiveryService";
 import { delhiveryIsConfigured } from "../config/delhivery";
 import logger from "../types/utils/logger";
-import { enqueueEmail } from "../queues/emailQueue";
-import { emailTemplates } from "./emailService";
-import { notifyUser } from "./notificationService";
-import { getOrderDeliveredCopy } from "./notifications/orderNotificationCopy";
-import { onOrderMarkedDelivered } from "./coupon/couponUserStatsService";
+import { onOrderDelivered } from "./orderDeliverySideEffects";
 
 function carrierIsDelhivery(carrier?: string): boolean {
   return (carrier || "").toLowerCase().includes("delhivery");
@@ -284,35 +280,7 @@ export async function syncDelhiveryOrderById(orderId: string): Promise<{
     await order.save();
 
     if (statusChanged) {
-      void onOrderMarkedDelivered(String(order.user)).catch(() => {});
-      const populated = await Order.findById(order._id).populate(
-        "user",
-        "name email",
-      );
-      const user = populated?.user as unknown as
-        | { name?: string; email?: string; _id?: string }
-        | undefined;
-      if (populated && user?.email) {
-        const tpl = emailTemplates.orderStatusUpdate(
-          user.name || "Customer",
-          populated.orderNumber,
-          "delivered",
-          undefined,
-        );
-        await enqueueEmail({
-          to: user.email,
-          subject: tpl.subject,
-          html: tpl.html,
-        });
-        const deliveredCopy = getOrderDeliveredCopy(populated.orderNumber!);
-        await notifyUser(
-          populated.user._id,
-          deliveredCopy.title,
-          deliveredCopy.message,
-          `/dashboard/orders/${populated._id}`,
-          deliveredCopy.type,
-        );
-      }
+      void onOrderDelivered(String(order._id), String(order.user)).catch(() => {});
     }
 
     const lastSc = parsed.scans[parsed.scans.length - 1];

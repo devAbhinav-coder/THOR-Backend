@@ -8,6 +8,7 @@ import {
   draftBlogPost,
   draftCatalogSeo,
   draftMarketingEmail,
+  draftPromotionTerms,
   draftProductCopy,
   draftReviewReply,
   explainOrder,
@@ -126,6 +127,14 @@ export const draftAdminMarketingEmail = [
   catchAsync(async (req: Request, res: Response) => {
     const data = await draftMarketingEmail(req.body);
     sendSuccess(res, data, "Email drafted.");
+  }),
+];
+
+export const draftAdminPromotionTerms = [
+  ensureEnabled,
+  catchAsync(async (req: Request, res: Response) => {
+    const data = await draftPromotionTerms(req.body);
+    sendSuccess(res, { ...data, termsAndConditions: data.text }, "Terms drafted.");
   }),
 ];
 

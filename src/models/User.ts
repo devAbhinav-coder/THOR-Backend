@@ -140,6 +140,8 @@ const userSchema = new Schema<IUser>(
      * Cleared when the customer completes signup, sets a password (reset), or links Google.
      */
     offlineLead: { type: Boolean, default: false },
+    lastActiveAt: Date,
+    reengagementEmailAt: Date,
     passwordChangedAt: Date,
     passwordResetToken: String,
     passwordResetExpires: Date,

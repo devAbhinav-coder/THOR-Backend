@@ -8,6 +8,8 @@ import {
   clearCart,
   applyCoupon,
   removeCoupon,
+  previewCartPromotion,
+  previewBuyNowCheckout,
 } from '../controllers/cartController';
 import { cartSyncStream } from '../controllers/cartSyncController';
 import { protect } from '../middleware/auth';
@@ -16,6 +18,8 @@ import {
   addToCartSchema,
   updateCartItemSchema,
   applyCouponSchema,
+  previewCartPromotionSchema,
+  previewBuyNowCheckoutSchema,
 } from '../validation/cartSchemas';
 import {
   uploadCartCustomFieldImage,
@@ -44,6 +48,16 @@ router.patch(
 );
 router.delete('/item/:cartItemId', removeFromCart);
 router.delete('/', clearCart);
+router.post(
+  '/promotion-preview',
+  validate(previewCartPromotionSchema),
+  previewCartPromotion,
+);
+router.post(
+  '/buy-now-preview',
+  validate(previewBuyNowCheckoutSchema),
+  previewBuyNowCheckout,
+);
 router.post('/apply-coupon', cartCouponLimiter, validate(applyCouponSchema), applyCoupon);
 router.delete('/coupon', removeCoupon);
 

@@ -1,6 +1,6 @@
 import { Schema, model, Document } from 'mongoose';
 
-export type InventoryOutboxStatus = 'pending' | 'processing' | 'completed' | 'failed';
+export type InventoryOutboxStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'dead_letter';
 
 export type InventoryOutboxEventType = 'invalidate_summary' | 'invalidate_pdp';
 
@@ -28,7 +28,7 @@ const inventoryEventOutboxSchema = new Schema<IInventoryEventOutbox>(
     payload: { type: Schema.Types.Mixed, required: true },
     status: {
       type: String,
-      enum: ['pending', 'processing', 'completed', 'failed'],
+      enum: ['pending', 'processing', 'completed', 'failed', 'dead_letter'],
       default: 'pending',
     },
     attempts: { type: Number, default: 0 },

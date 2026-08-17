@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "crypto";
 import { Request, Response, NextFunction } from "express";
 import AppError from "../types/utils/AppError";
 import { verifyTurnstileToken } from "../services/turnstileService";
@@ -19,18 +20,40 @@ function isMobileClient(req: Request): boolean {
   return client === "mobile" || client === "app" || client === "expo";
 }
 
+function mobileAppKeyValid(req: Request): boolean {
+  const expected = process.env.MOBILE_APP_API_KEY?.trim();
+  if (!expected) return false;
+  const provided = String(req.headers["x-app-key"] || "").trim();
+  if (!provided || provided.length !== expected.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+  } catch {
+    return false;
+  }
+}
+
+/** Whether Turnstile can be skipped for this request (native app with shared secret only). */
+function canSkipTurnstile(req: Request): boolean {
+  if (!isMobileClient(req)) return false;
+
+  if (process.env.NODE_ENV !== "production") {
+    return process.env.TURNSTILE_MOBILE_SKIP_DEV === "true";
+  }
+
+  return mobileAppKeyValid(req);
+}
+
 /**
  * Cloudflare Turnstile on auth mutations.
  * Accepts `turnstileToken` or canonical `cf-turnstile-response`; strips both
- * before handlers run. Native mobile clients (no Origin + X-Client) skip —
- * they have no widget surface.
+ * before handlers run. Native mobile skips only with valid X-App-Key in production.
  */
 export const turnstileGuard = async (
   req: Request,
   _res: Response,
   next: NextFunction,
 ): Promise<void> => {
-  if (isMobileClient(req)) {
+  if (canSkipTurnstile(req)) {
     return next();
   }
 

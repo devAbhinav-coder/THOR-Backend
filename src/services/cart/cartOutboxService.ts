@@ -4,6 +4,10 @@ import CartEventOutbox, {
 import logger from "../../types/utils/logger";
 import { getRequestContext } from "../../types/utils/requestContext";
 import { recordCartMetric } from "./cartMetricsService";
+import {
+  logOutboxDeadLetter,
+  nextOutboxStatusAfterFailure,
+} from "../outboxDeadLetter";
 
 const MAX_ATTEMPTS = 6;
 const BASE_BACKOFF_MS = 1500;
@@ -105,17 +109,27 @@ export async function dispatchCartOutboxById(
     const message = err instanceof Error ? err.message : "dispatch failed";
     const attempts = claimed.attempts;
     const terminal = attempts >= MAX_ATTEMPTS;
+    const nextStatus = nextOutboxStatusAfterFailure(attempts, MAX_ATTEMPTS);
     await CartEventOutbox.updateOne(
       { _id: claimed._id },
       {
         $set: {
-          status: terminal ? "failed" : "pending",
+          status: nextStatus,
           lastError: message,
           nextAttemptAt: new Date(Date.now() + nextBackoffMs(attempts)),
         },
       },
     );
     recordCartMetric("cart.outbox.dispatch_failure", { phase: "dispatch" });
+    if (terminal) {
+      logOutboxDeadLetter(
+        "cart",
+        String(claimed._id),
+        claimed.dedupeKey,
+        attempts,
+        message,
+      );
+    }
     return false;
   }
 }
@@ -126,6 +140,7 @@ export async function processPendingCartOutboxBatch(
   const pending = await CartEventOutbox.find({
     status: { $in: ["pending", "failed"] },
     nextAttemptAt: { $lte: new Date() },
+    attempts: { $lt: MAX_ATTEMPTS },
   })
     .sort({ nextAttemptAt: 1 })
     .limit(limit)

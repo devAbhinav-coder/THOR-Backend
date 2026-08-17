@@ -7,7 +7,13 @@ export function assertRequiredEnv(): void {
   const required = ['MONGODB_URI', 'JWT_SECRET'];
 
   if (isProd) {
-    required.push('RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET');
+    required.push(
+      'RAZORPAY_KEY_ID',
+      'RAZORPAY_KEY_SECRET',
+      'RAZORPAY_WEBHOOK_SECRET',
+      'JWT_REFRESH_SECRET',
+      'REDIS_URL',
+    );
   }
 
   const missing = required.filter((k) => !process.env[k]?.trim());
@@ -18,6 +24,11 @@ export function assertRequiredEnv(): void {
   const jwt = process.env.JWT_SECRET ?? '';
   if (isProd && jwt.length < 32) {
     throw new Error('JWT_SECRET must be at least 32 characters in production.');
+  }
+
+  const refreshSecret = process.env.JWT_REFRESH_SECRET ?? '';
+  if (isProd && refreshSecret.length < 32) {
+    throw new Error('JWT_REFRESH_SECRET must be at least 32 characters in production.');
   }
 }
 

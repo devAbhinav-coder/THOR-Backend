@@ -4,11 +4,12 @@ import {
   bullmqSkipRedisVersionChecks,
   getBullMqQueueConnection,
   getBullMqWorkerConnection,
-  redisEnabled,
+  isRedisOperational,
 } from "../config/redis";
 import logger from "../types/utils/logger";
 import { sendWebPushToUser } from "../services/webPushService";
 import { markPushDelivered } from "../services/notifications/pushDeliveryTrackingService";
+import { bullmqPushRetention } from "../config/bullmqRetention";
 
 export type PushJobData = {
   userId: string;
@@ -20,7 +21,7 @@ export type PushJobData = {
 
 const queueName = "push-notification-jobs";
 const skipBullMqRedisChecks = bullmqSkipRedisVersionChecks();
-const pushQueueRedis = redisEnabled ? getBullMqQueueConnection() : null;
+const pushQueueRedis = isRedisOperational() ? getBullMqQueueConnection() : null;
 
 export const pushQueue =
   pushQueueRedis ?
@@ -33,8 +34,8 @@ export const pushQueue =
 const defaultOpts: JobsOptions = {
   attempts: 4,
   backoff: { type: "exponential", delay: 3000 },
-  removeOnComplete: 1000,
-  removeOnFail: 1000,
+  removeOnComplete: bullmqPushRetention.removeOnComplete,
+  removeOnFail: bullmqPushRetention.removeOnFail,
 };
 
 export async function enqueuePush(
@@ -74,7 +75,7 @@ let workerStarted = false;
 let pushWorker: Worker<PushJobData> | null = null;
 
 export const startPushWorker = (): void => {
-  if (workerStarted || !redisEnabled) return;
+  if (workerStarted || !isRedisOperational()) return;
   workerStarted = true;
 
   const pushWorkerRedis = getBullMqWorkerConnection();

@@ -5,8 +5,13 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "kill-port": "powershell -NoProfile -Command \"Get-NetTCPConnection -LocalPort 5000 -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Listen' } | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }\"",
+    "dev:clean": "npm run kill-port && npm run dev",
+    "worker:dev": "ts-node-dev --respawn --transpile-only src/worker.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "worker": "node dist/worker.js",
+    "worker:local": "ts-node-dev --respawn --transpile-only src/worker.ts",
     "start:with-build": "npm run build && node dist/index.js",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
@@ -18,9 +23,13 @@
     "indexnow:bootstrap": "ts-node --transpile-only scripts/submit-indexnow-bootstrap.ts",
     "sync:embeddings": "ts-node --transpile-only scripts/sync-content-embeddings.ts",
     "indexes:orders": "ts-node --transpile-only scripts/ensure-order-indexes.ts",
-    "seed:shop-catalog": "ts-node --transpile-only scripts/seed-shop-catalog.ts"
+    "seed:shop-catalog": "ts-node --transpile-only scripts/seed-shop-catalog.ts",
+    "backfill:variant-sold-count": "ts-node --transpile-only scripts/backfill-variant-sold-count.ts",
+    "backfill:order-cost-at-sale": "ts-node --transpile-only scripts/backfill-order-cost-at-sale.ts"
   },
   "dependencies": {
+    "@bull-board/api": "^8.6.0",
+    "@bull-board/express": "^8.6.0",
     "@opentelemetry/auto-instrumentations-node": "^0.77.0",
     "@opentelemetry/exporter-metrics-otlp-http": "^0.219.0",
     "@opentelemetry/exporter-trace-otlp-grpc": "^0.219.0",
@@ -42,6 +51,7 @@
     "@types/morgan": "^1.9.9",
     "@types/multer": "^1.4.11",
     "@types/node": "^20.10.0",
+    "@types/node-cron": "^3.0.11",
     "@types/nodemailer": "^7.0.11",
     "@types/qrcode": "^1.5.6",
     "@types/sanitize-html": "^2.16.1",
@@ -67,7 +77,9 @@
     "mongoose": "^8.0.3",
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
+    "node-cron": "^4.6.0",
     "nodemailer": "^8.0.4",
+    "pdfkit": "^0.19.1",
     "qrcode": "^1.5.4",
     "rate-limit-redis": "^4.3.1",
     "razorpay": "^2.9.2",
@@ -82,6 +94,7 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
+    "@types/pdfkit": "^0.17.6",
     "ts-node-dev": "^2.0.0"
   }
 }

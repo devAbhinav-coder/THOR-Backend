@@ -1,3 +1,4 @@
+import { catalogInventoryProductMatch } from "../../constants/offlineOrder";
 import { getCache, setCache } from "../cacheService";
 import { LOW_STOCK_ALERT_EXCLUSIVE_MAX } from "../../constants/inventory";
 import { INVENTORY_SUMMARY_AGG_MAX_MS } from "../../constants/inventoryQuery";
@@ -5,7 +6,7 @@ import Product from "../../models/Product";
 import { recordInventoryTiming } from "./inventoryMetricsService";
 import { roundMoney } from "../../types/utils/financialMath";
 
-export const INVENTORY_SUMMARY_CACHE_KEY = "inventory:summary:v2";
+export const INVENTORY_SUMMARY_CACHE_KEY = "inventory:summary:v4";
 export const INVENTORY_SUMMARY_TTL = 60;
 
 export function scheduleInventorySummaryInvalidation(): void {
@@ -37,7 +38,7 @@ export async function getInventorySummaryStats(): Promise<
 
   const started = Date.now();
   const aggRows = await Product.aggregate([
-    { $match: { isActive: true } },
+    { $match: catalogInventoryProductMatch() },
     {
       $addFields: {
         computedTotal: { $sum: "$variants.stock" },
@@ -119,7 +120,53 @@ export async function getInventorySummaryStats(): Promise<
           },
         },
         soldUnits: { $ifNull: ["$soldCount", 0] },
+        variantSoldSum: {
+          $sum: {
+            $map: {
+              input: "$variants",
+              as: "v",
+              in: { $ifNull: ["$$v.soldCount", 0] },
+            },
+          },
+        },
+        catalogGrossRevenue: {
+          $sum: {
+            $map: {
+              input: "$variants",
+              as: "v",
+              in: {
+                $multiply: [
+                  { $ifNull: ["$$v.soldCount", 0] },
+                  { $ifNull: ["$$v.price", "$price"] },
+                ],
+              },
+            },
+          },
+        },
+        catalogGrossCostOfSales: {
+          $sum: {
+            $map: {
+              input: "$variants",
+              as: "v",
+              in: {
+                $multiply: [
+                  { $ifNull: ["$$v.soldCount", 0] },
+                  { $ifNull: ["$$v.costPrice", 0] },
+                ],
+              },
+            },
+          },
+        },
         sellPrice: { $ifNull: ["$price", 0] },
+        avgSellPrice: {
+          $avg: {
+            $map: {
+              input: "$variants",
+              as: "v",
+              in: { $ifNull: ["$$v.price", "$price"] },
+            },
+          },
+        },
       },
     },
     {
@@ -131,12 +178,38 @@ export async function getInventorySummaryStats(): Promise<
             { $ifNull: ["$firstVariantCost", 0] },
           ],
         },
+        effectiveSellPrice: {
+          $cond: [
+            { $gt: [{ $ifNull: ["$avgSellPrice", 0] }, 0] },
+            "$avgSellPrice",
+            "$sellPrice",
+          ],
+        },
+        soldUnitsResolved: {
+          $cond: [
+            { $gt: ["$variantSoldSum", 0] },
+            "$variantSoldSum",
+            "$soldUnits",
+          ],
+        },
       },
     },
     {
       $addFields: {
-        grossRevenue: { $multiply: ["$soldUnits", "$sellPrice"] },
-        grossCostOfSales: { $multiply: ["$soldUnits", "$avgCost"] },
+        grossRevenue: {
+          $cond: [
+            { $gt: ["$catalogGrossRevenue", 0] },
+            "$catalogGrossRevenue",
+            { $multiply: ["$soldUnits", "$effectiveSellPrice"] },
+          ],
+        },
+        grossCostOfSales: {
+          $cond: [
+            { $gt: ["$catalogGrossCostOfSales", 0] },
+            "$catalogGrossCostOfSales",
+            { $multiply: ["$soldUnits", "$avgCost"] },
+          ],
+        },
       },
     },
     {
@@ -166,12 +239,12 @@ export async function getInventorySummaryStats(): Promise<
         },
         totalInventoryValue: { $sum: "$inventoryValue" },
         totalSaleValueOnHand: { $sum: "$saleValueOnHand" },
-        totalSoldUnits: { $sum: "$soldUnits" },
+        totalSoldUnits: { $sum: "$soldUnitsResolved" },
         totalGrossRevenue: { $sum: "$grossRevenue" },
         totalGrossCostOfSales: { $sum: "$grossCostOfSales" },
         totalGrossProfit: { $sum: "$grossProfit" },
         productsWithSales: {
-          $sum: { $cond: [{ $gt: ["$soldUnits", 0] }, 1, 0] },
+          $sum: { $cond: [{ $gt: ["$soldUnitsResolved", 0] }, 1, 0] },
         },
       },
     },

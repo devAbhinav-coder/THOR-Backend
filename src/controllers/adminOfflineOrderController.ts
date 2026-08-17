@@ -15,7 +15,8 @@ import {
 } from "../services/inventoryService";
 import { sendSuccess } from "../types/utils/response";
 import { writeAdminAudit } from "../services/adminAuditService";
-import { onOrderMarkedDelivered } from "../services/coupon/couponUserStatsService";
+import { onOrderDelivered } from "../services/orderDeliverySideEffects";
+import { isCustomerDeliverableEmail } from "../types/utils/customerEmail";
 import { emailTemplates } from "../services/emailService";
 import { enqueueEmail } from "../queues/emailQueue";
 import { reviewInviteService } from "../services/reviewInvite/reviewInviteService";
@@ -33,6 +34,7 @@ import {
   isOfflineManualProductId,
   OFFLINE_MANUAL_VARIANT_SKU,
 } from "../services/offlineManualProductService";
+import { resolveOfflineManualLineImage } from "../constants/offlineOrder";
 import {
   removeOfflineCustomerByEmail,
   upsertOfflineCustomerRecord,
@@ -70,6 +72,21 @@ function randomStrongPassword(): string {
   return pw;
 }
 
+function resolveUnitCostAtSale(
+  adminUnitCost: number | undefined | null,
+  variantCostPrice: number | undefined | null,
+): number {
+  if (
+    adminUnitCost !== undefined &&
+    adminUnitCost !== null &&
+    Number.isFinite(Number(adminUnitCost))
+  ) {
+    return Math.max(0, Number(adminUnitCost));
+  }
+  const fromVariant = Number(variantCostPrice ?? 0);
+  return Number.isFinite(fromVariant) && fromVariant >= 0 ? fromVariant : 0;
+}
+
 type LineIn =
   | {
       type: "catalog";
@@ -77,6 +94,7 @@ type LineIn =
       variantSku: string;
       quantity: number;
       unitPrice?: number;
+      unitCost?: number;
     }
   | {
       type: "manual";
@@ -84,6 +102,7 @@ type LineIn =
       title?: string;
       quantity: number;
       unitPrice: number;
+      unitCost?: number;
     };
 
 type AddrIn = {
@@ -108,12 +127,17 @@ export const createOfflineOrder = catchAsync(
       customerName: string;
       email: string;
       phone: string;
-      orderSource: "stall" | "personal_contact";
+      orderSource: "stall" | "personal_contact" | "b2b";
       fulfillment: "delhivery" | "offline_handover";
       paymentMethod: "offline_upi" | "offline_cash";
       shippingAddress?: AddrIn;
       lineItems: LineIn[];
       notes?: string;
+      b2bMeta?: {
+        companyName?: string;
+        gstin?: string;
+        poNumber?: string;
+      };
     };
 
     const {
@@ -126,7 +150,15 @@ export const createOfflineOrder = catchAsync(
       shippingAddress: shipIn,
       lineItems,
       notes,
+      b2bMeta,
     } = body;
+
+    if (orderSource === "b2b" && b2bMeta?.gstin?.trim()) {
+      const gst = b2bMeta.gstin.trim().toUpperCase();
+      if (!/^[0-9]{2}[A-Z0-9]{13}$/.test(gst)) {
+        return next(new AppError("Invalid buyer GSTIN format.", 400));
+      }
+    }
 
     const phone10 = phone ? normalizeInPhone(String(phone)) : "";
     if (phone && !/^[6-9]\d{9}$/.test(phone10)) {
@@ -185,7 +217,7 @@ export const createOfflineOrder = catchAsync(
         }
 
         let lineName: string;
-        let lineImage = offlineManualProduct.images[0]!.url;
+        let categoryImage = "";
 
         const catIdRaw =
           typeof line.categoryId === "string" ? line.categoryId.trim() : "";
@@ -217,7 +249,7 @@ export const createOfflineOrder = catchAsync(
             typeof cat.image === "string" && cat.image.trim() ?
               cat.image.trim()
             : "";
-          if (cimg) lineImage = cimg;
+          if (cimg) categoryImage = cimg;
         } else {
           lineName = String(line.title || "")
             .trim()
@@ -233,14 +265,21 @@ export const createOfflineOrder = catchAsync(
         }
 
         subtotal += unit * qty;
+        const costAtSale = resolveUnitCostAtSale(line.unitCost, undefined);
         orderItems.push({
           product: offlinePid,
           name: lineName,
           slug: "offline-manual-item",
-          image: lineImage,
+          image: resolveOfflineManualLineImage(categoryImage),
           variant: { sku: OFFLINE_MANUAL_VARIANT_SKU },
           quantity: qty,
           price: unit,
+          costAtSale,
+          lineCategory: lineName,
+          ...(catIdRaw ?
+            { lineCategoryId: new mongoose.Types.ObjectId(catIdRaw) }
+          : {}),
+          isOfflineManual: true,
         });
         continue;
       }
@@ -303,6 +342,8 @@ export const createOfflineOrder = catchAsync(
         );
       }
 
+      const costAtSale = resolveUnitCostAtSale(line.unitCost, variant.costPrice);
+
       orderItems.push({
         product: pid,
         name: product.name,
@@ -315,6 +356,8 @@ export const createOfflineOrder = catchAsync(
         },
         quantity: qty,
         price: unit,
+        costAtSale,
+        lineCategory: product.category,
       });
       catalogStockOps.push({ productId: pid, sku: variant.sku, qty });
     }
@@ -447,12 +490,6 @@ export const createOfflineOrder = catchAsync(
           sku: op.sku,
           qty: op.qty,
         });
-
-        // Audit: Log the stock movement
-        await logStockMovement(op.productId, op.sku, -op.qty, {
-          reason: "sale",
-          note: "Offline sale recorded by admin",
-        }).catch((err) => console.error("Stock ledger fail (sale):", err));
       }
 
       const adminId = req.user?._id as mongoose.Types.ObjectId | undefined;
@@ -464,6 +501,7 @@ export const createOfflineOrder = catchAsync(
         status: isHandover ? "delivered" : "confirmed",
         paymentStatus: "paid",
         paymentMethod,
+        inventoryReserved: catalogStockOps.length > 0,
         subtotal,
         discount: 0,
         shippingCharge,
@@ -476,6 +514,21 @@ export const createOfflineOrder = catchAsync(
           fulfillment,
           createdByAdmin: adminId,
         },
+        ...(orderSource === "b2b" && b2bMeta ?
+          {
+            b2bMeta: {
+              ...(b2bMeta.companyName?.trim() ?
+                { companyName: b2bMeta.companyName.trim().slice(0, 120) }
+              : {}),
+              ...(b2bMeta.gstin?.trim() ?
+                { gstin: b2bMeta.gstin.trim().toUpperCase().slice(0, 20) }
+              : {}),
+              ...(b2bMeta.poNumber?.trim() ?
+                { poNumber: b2bMeta.poNumber.trim().slice(0, 60) }
+              : {}),
+            },
+          }
+        : {}),
         ...(isHandover ?
           {
             deliveredAt: new Date(),
@@ -484,8 +537,24 @@ export const createOfflineOrder = catchAsync(
         : {}),
       });
 
+      const channelLabel =
+        orderSource === "b2b" ? "B2B"
+        : orderSource === "stall" ? "Offline"
+        : "Offline";
+      for (const op of decremented) {
+        await logStockMovement(op.productId, op.sku, -op.qty, {
+          reason: "sale",
+          referenceId: String(order._id),
+          referenceType: "order",
+          actor: adminId,
+          note: `${channelLabel} order ${order.orderNumber}`,
+        }).catch((err) => console.error("Stock ledger fail (admin sale):", err));
+      }
+
       if (isHandover) {
-        void onOrderMarkedDelivered(String(user._id)).catch(() => {});
+        void onOrderDelivered(String(order._id), String(user._id)).catch(
+          () => {},
+        );
       }
 
       await writeAdminAudit(
@@ -501,7 +570,9 @@ export const createOfflineOrder = catchAsync(
         String(user._id),
       );
 
-      if (hasEmail) {
+      const deliverableEmail = isCustomerDeliverableEmail(user.email);
+
+      if (deliverableEmail && !isHandover) {
         const userTemplate = emailTemplates.offlineOrderThankYou(
           user.name,
           order.orderNumber,
@@ -518,8 +589,9 @@ export const createOfflineOrder = catchAsync(
           subject: userTemplate.subject,
           html: userTemplate.html,
         });
+      }
 
-        // Secure review+story invite (catalog lines only) — fail soft if none
+      if (deliverableEmail) {
         try {
           await reviewInviteService.sendInviteEmail(
             String(order._id),
@@ -539,7 +611,7 @@ export const createOfflineOrder = catchAsync(
       await notifyAdminsEmail(adminTemplate.subject, adminTemplate.html);
 
       await notifyAdmins(
-        "Offline order recorded",
+        orderSource === "b2b" ? "B2B order recorded" : "Offline order recorded",
         `Order ${order.orderNumber} (${paymentMethod}, ${fulfillment}) for ${user.name}.`,
         `/admin/orders/${order._id}`,
         "order",
@@ -565,17 +637,81 @@ export const createOfflineOrder = catchAsync(
         });
       }
 
-      sendSuccess(res, { order: order.toJSON() }, "Offline order created", 201);
+      sendSuccess(
+        res,
+        { order: order.toJSON() },
+        orderSource === "b2b" ? "B2B order created" : "Offline order created",
+        201,
+      );
     } catch (err) {
       for (const d of decremented.reverse()) {
-        await incrementVariantStock(d.productId, d.sku, d.qty).catch(() => {});
-        // Audit: Log the rollback
+        await incrementVariantStock(d.productId, d.sku, d.qty, {
+          soldCountDelta: -d.qty,
+        }).catch(() => {});
         await logStockMovement(d.productId, d.sku, d.qty, {
           reason: "manual_correction",
-          note: "Offline order creation rollback",
+          note: "Admin channel order creation rollback",
         }).catch(() => {});
       }
       throw err;
     }
   },
 );
+
+/** B2B orders that do not yet have a linked GST tax invoice (for admin invoice picker). */
+export const listB2bOrdersPendingTaxInvoice = catchAsync(
+  async (req: AuthRequest, res: Response) => {
+    const search = String(req.query.search || "").trim();
+    const limit = Math.min(
+      50,
+      Math.max(1, parseInt(String(req.query.limit || "25"), 10) || 25),
+    );
+
+    const filter: Record<string, unknown> = {
+      "offlineMeta.source": "b2b",
+      $or: [
+        { taxSalesInvoiceId: { $exists: false } },
+        { taxSalesInvoiceId: null },
+      ],
+    };
+
+    if (search) {
+      const safe = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      filter.$and = [
+        {
+          $or: [
+            { orderNumber: { $regex: safe, $options: "i" } },
+            { "b2bMeta.companyName": { $regex: safe, $options: "i" } },
+            { "b2bMeta.gstin": { $regex: safe, $options: "i" } },
+            { "shippingAddress.name": { $regex: safe, $options: "i" } },
+          ],
+        },
+      ];
+    }
+
+    const orders = await Order.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .select(
+        "orderNumber total createdAt b2bMeta shippingAddress.name paymentStatus status",
+      )
+      .lean();
+
+    sendSuccess(res, {
+      orders: orders.map((o) => ({
+        _id: String(o._id),
+        orderNumber: o.orderNumber,
+        total: o.total,
+        createdAt: o.createdAt,
+        companyName: o.b2bMeta?.companyName || "",
+        gstin: o.b2bMeta?.gstin || "",
+        buyerName: o.shippingAddress?.name || "",
+        paymentStatus: o.paymentStatus,
+        status: o.status,
+      })),
+    });
+  },
+);
+
+/** B2B wholesale sale from admin — same handler as offline; schema forces orderSource=b2b. */
+export const createB2bOrder = createOfflineOrder;

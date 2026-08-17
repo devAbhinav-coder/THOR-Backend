@@ -456,17 +456,21 @@ export const createOrderSchema = z.object({
     }),
     paymentMethod: z.enum(['razorpay', 'cod']),
     couponCode: z.string().max(40).optional(),
+    shopSessionKey: z.string().trim().min(8).max(128).optional(),
     notes: z.string().max(500).optional(),
     marketingAttribution: marketingAttributionBody,
     metaBrowser: metaBrowserBody,
     buyNowItem: z
       .object({
-        productId: z.string().min(1),
+        productId: z
+          .string()
+          .trim()
+          .regex(/^[a-fA-F0-9]{24}$/, 'Invalid product id'),
         variant: z.object({
           size: z.string().optional(),
           color: z.string().optional(),
           colorCode: z.string().optional(),
-          sku: z.string().min(1),
+          sku: z.string().trim().min(1),
         }),
         quantity: z.coerce.number().int().min(1).max(10),
         customFieldAnswers: z
@@ -750,6 +754,16 @@ export const processRefundSchema = z.object({
   }),
 });
 
+export const updateOrderLineCostAtSaleSchema = z.object({
+  params: z.object({
+    id: z.string().min(1),
+    lineIndex: z.coerce.number().int().min(0),
+  }),
+  body: z.object({
+    costAtSale: z.coerce.number().min(0),
+  }),
+});
+
 export const delhiveryEstimateSchema = z.object({
   body: z.object({
     md: z.enum(['E', 'S']),
@@ -827,6 +841,8 @@ const offlineCatalogLineSchema = z.object({
   variantSku: z.string().min(1).max(80),
   quantity: z.coerce.number().int().min(1).max(50),
   unitPrice: z.coerce.number().min(0).optional(),
+  /** Cost of goods per unit; falls back to variant cost when omitted. */
+  unitCost: z.coerce.number().min(0).optional(),
 });
 
 const offlineManualLineSchema = z
@@ -838,6 +854,8 @@ const offlineManualLineSchema = z
     title: z.string().max(200).optional(),
     quantity: z.coerce.number().int().min(1).max(50),
     unitPrice: z.coerce.number().min(0),
+    /** Cost of goods per unit for this manual line. */
+    unitCost: z.coerce.number().min(0).optional(),
   })
   .superRefine((d, ctx) => {
     const hasCat = Boolean(d.categoryId?.trim());
@@ -851,32 +869,54 @@ const offlineManualLineSchema = z
     }
   });
 
-export const createOfflineOrderSchema = z.object({
-  body: z
+const adminChannelOrderBodyFields = z.object({
+  customerName: z.string().min(2).max(50),
+  email: z.string().email().or(z.literal('')).optional(),
+  phone: z.string().min(8).max(20).or(z.literal('')).optional(),
+  fulfillment: z.enum(['delhivery', 'offline_handover']),
+  paymentMethod: z.enum(['offline_upi', 'offline_cash']),
+  shippingAddress: offlineShippingAddressSchema.optional(),
+  lineItems: z
+    .array(z.union([offlineCatalogLineSchema, offlineManualLineSchema]))
+    .min(1)
+    .max(30),
+  notes: z.string().max(2000).optional(),
+  b2bMeta: z
     .object({
-      customerName: z.string().min(2).max(50),
-      email: z.string().email().or(z.literal('')).optional(),
-      phone: z.string().min(8).max(20).or(z.literal('')).optional(),
-      orderSource: z.enum(['stall', 'personal_contact']),
-      fulfillment: z.enum(['delhivery', 'offline_handover']),
-      paymentMethod: z.enum(['offline_upi', 'offline_cash']),
-      shippingAddress: offlineShippingAddressSchema.optional(),
-      // `discriminatedUnion` cannot mix a plain object with `.superRefine()` (ZodEffects) — use `union`.
-      lineItems: z
-        .array(z.union([offlineCatalogLineSchema, offlineManualLineSchema]))
-        .min(1)
-        .max(30),
-      notes: z.string().max(2000).optional(),
+      companyName: z.string().max(120).optional(),
+      gstin: z.string().max(20).optional(),
+      poNumber: z.string().max(60).optional(),
     })
-    .superRefine((data, ctx) => {
-      if (data.fulfillment === 'delhivery' && !data.shippingAddress) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'Shipping address is required when fulfillment is Delhivery.',
-          path: ['shippingAddress'],
-        });
-      }
+    .optional(),
+});
+
+function refineAdminChannelOrderBody<T extends z.ZodTypeAny>(schema: T) {
+  return schema.superRefine((data, ctx) => {
+    const d = data as { fulfillment?: string; shippingAddress?: unknown };
+    if (d.fulfillment === 'delhivery' && !d.shippingAddress) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Shipping address is required when fulfillment is Delhivery.',
+        path: ['shippingAddress'],
+      });
+    }
+  });
+}
+
+export const createOfflineOrderSchema = z.object({
+  body: refineAdminChannelOrderBody(
+    adminChannelOrderBodyFields.extend({
+      orderSource: z.enum(['stall', 'personal_contact']),
     }),
+  ),
+});
+
+export const createB2bOrderSchema = z.object({
+  body: refineAdminChannelOrderBody(
+    adminChannelOrderBodyFields.extend({
+      orderSource: z.literal('b2b').default('b2b'),
+    }),
+  ),
 });
 
 export const updateUserRoleSchema = z.object({

@@ -1,6 +1,6 @@
 import { Schema, model, Document } from 'mongoose';
 
-export type CouponOutboxStatus = 'pending' | 'processing' | 'completed' | 'failed';
+export type CouponOutboxStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'dead_letter';
 
 export interface ICouponBroadcastOutbox extends Document {
   dedupeKey: string;
@@ -24,7 +24,7 @@ const couponBroadcastOutboxSchema = new Schema<ICouponBroadcastOutbox>(
     description: { type: String, default: '' },
     status: {
       type: String,
-      enum: ['pending', 'processing', 'completed', 'failed'],
+      enum: ['pending', 'processing', 'completed', 'failed', 'dead_letter'],
       default: 'pending',
     },
     attempts: { type: Number, default: 0 },

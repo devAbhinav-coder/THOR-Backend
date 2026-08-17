@@ -20,6 +20,10 @@ import {
 } from "../types/utils/blogContent";
 import { findRelatedBlogs } from "../services/ai/blogRagContextBuilder";
 import { syncBlogEmbedding } from "../services/ai/vectorIndexService";
+import {
+  cancelBlogPublishOutbox,
+  recordBlogPublishOutbox,
+} from "../services/blogPublishOutboxService";
 import { notifyIndexNowStorefront } from "../services/indexNowService";
 import { Types } from "mongoose";
 
@@ -308,6 +312,12 @@ export const createBlog = catchAsync(
     const blog = await Blog.create(blogData);
     syncBlogEmbedding(String(blog._id)).catch(() => {});
 
+    if (scheduled && scheduled.getTime() > Date.now()) {
+      await recordBlogPublishOutbox(String(blog._id), scheduled);
+    } else if (blog.isPublished) {
+      await cancelBlogPublishOutbox(String(blog._id));
+    }
+
     if (blog.isPublished) {
       broadcastNewBlog(blog).catch((err: unknown) =>
         logger.error("Blog broadcast failed", { err }),
@@ -436,6 +446,12 @@ export const updateBlog = catchAsync(
 
     if (updatedBlog) {
       syncBlogEmbedding(String(updatedBlog._id)).catch(() => {});
+
+      if (scheduled && scheduled.getTime() > Date.now()) {
+        await recordBlogPublishOutbox(String(updatedBlog._id), scheduled);
+      } else if (updateData.isPublished === true) {
+        await cancelBlogPublishOutbox(String(updatedBlog._id));
+      }
     }
 
     if (updateData.isPublished && !blog.isPublished && updatedBlog) {

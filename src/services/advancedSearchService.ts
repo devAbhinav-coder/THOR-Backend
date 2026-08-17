@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import Product from "../models/Product";
-import { OFFLINE_MANUAL_PRODUCT_TAG } from "../constants/offlineOrder";
+import { excludeOfflineManualProductFilter, shopCatalogBaseFilter } from "../constants/offlineOrder";
 import { LISTING_PROJECTION } from "../constants/productListing";
 import { getCache, setCache } from "./cacheService";
 import { getCachedProductCount } from "./productCountService";
@@ -833,14 +833,7 @@ export class AdvancedSearchService {
 
     const safeQuery = normalizeSearchQuery(query);
 
-    let baseFilter: Record<string, unknown> =
-      adminScope ?
-        { category: { $ne: "Gifting" } }
-      : {
-          isActive: true,
-          tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
-          category: { $ne: "Gifting" },
-        };
+    let baseFilter: Record<string, unknown> = shopCatalogBaseFilter(adminScope);
 
     const collectionFilter = await buildShopCollectionFilter(
       categories,
@@ -1085,14 +1078,7 @@ export class AdvancedSearchService {
       adminScope = false,
     } = options;
 
-    let baseFilter: Record<string, unknown> =
-      adminScope ?
-        { category: { $ne: "Gifting" } }
-      : {
-          isActive: true,
-          tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
-          category: { $ne: "Gifting" },
-        };
+    let baseFilter: Record<string, unknown> = shopCatalogBaseFilter(adminScope);
 
     const collectionFilter = await buildShopCollectionFilter(
       categories,
@@ -1274,7 +1260,7 @@ export class AdvancedSearchService {
     const andClauses: Record<string, unknown>[] = [
       {
         isActive: true,
-        tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
+        ...excludeOfflineManualProductFilter(),
         category: { $ne: "Gifting" },
       },
     ];
@@ -1509,7 +1495,7 @@ export class AdvancedSearchService {
       {
         $match: {
           isActive: true,
-          tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
+          ...excludeOfflineManualProductFilter(),
         },
       },
       {

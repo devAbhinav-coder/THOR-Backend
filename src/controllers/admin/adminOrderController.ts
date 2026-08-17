@@ -25,7 +25,16 @@ import {
 } from "../../services/adminOrderService";
 import { AuthRequest } from "../../types";
 import logger from "../../types/utils/logger";
-import { onOrderMarkedDelivered } from "../../services/coupon/couponUserStatsService";
+import { onOrderDelivered } from "../../services/orderDeliverySideEffects";
+import { isCustomerDeliverableEmail } from "../../types/utils/customerEmail";
+import { writeAdminAudit } from "../../services/adminAuditService";
+import {
+  isManualOfflineOrderItem,
+} from "../../utils/offlineOrderLine";
+import {
+  orderChannelMatch,
+  type OrderSalesChannelFilter,
+} from "../../utils/orderChannel";
 
 // ─── List & Detail ────────────────────────────────────────────────────────────
 
@@ -103,13 +112,53 @@ export const getAllOrders = catchAsync(async (req: Request, res: Response) => {
     ];
   }
 
+  if (req.query.missingManualCost === "true") {
+    filter.paymentStatus = "paid";
+    filter.offlineMeta = { $exists: true };
+    filter.items = {
+      $elemMatch: {
+        $and: [
+          {
+            $or: [
+              { isOfflineManual: true },
+              { slug: "offline-manual-item" },
+              { "variant.sku": "SYS-OFFLINE-MANUAL" },
+            ],
+          },
+          {
+            $or: [
+              { costAtSale: { $exists: false } },
+              { costAtSale: null },
+              { costAtSale: { $lte: 0 } },
+            ],
+          },
+        ],
+      },
+    };
+  }
+
+  const VALID_CHANNELS: OrderSalesChannelFilter[] = [
+    "all",
+    "online",
+    "offline",
+    "b2b",
+  ];
+  const rawChannel = String(req.query.channel ?? "all");
+  const channel: OrderSalesChannelFilter =
+    VALID_CHANNELS.includes(rawChannel as OrderSalesChannelFilter) ?
+      (rawChannel as OrderSalesChannelFilter)
+    : "all";
+  if (channel !== "all") {
+    Object.assign(filter, orderChannelMatch(channel));
+  }
+
   const [orders, total] = await Promise.all([
     Order.find(filter)
       .sort(mongoSort)
       .skip(skip)
       .limit(limit)
       .select(
-        "orderNumber status paymentStatus total createdAt user items shippingAddress",
+        "orderNumber status paymentStatus total createdAt user items shippingAddress offlineMeta b2bMeta taxSalesInvoiceId",
       )
       .populate("user", "name email phone"),
     Order.countDocuments(filter),
@@ -125,10 +174,66 @@ export const getOrderDetails = catchAsync(
     }
     const order = await Order.findById(req.params.id)
       .populate("user", "name email phone")
-      .populate("items.product", "name images");
+      .populate("items.product", "name images hsnCode")
+      .populate("taxSalesInvoiceId", "invoiceNumber");
 
     if (!order) return next(new AppError("Order not found.", 404));
     sendSuccess(res, { order });
+  },
+);
+
+export const updateOrderLineCostAtSale = catchAsync(
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!Types.ObjectId.isValid(req.params.id)) {
+      return next(new AppError("Invalid order id.", 400));
+    }
+
+    const lineIndex = Number(req.params.lineIndex);
+    if (!Number.isInteger(lineIndex) || lineIndex < 0) {
+      return next(new AppError("Invalid line index.", 400));
+    }
+
+    const costAtSale = Number(req.body?.costAtSale);
+    if (!Number.isFinite(costAtSale) || costAtSale < 0) {
+      return next(new AppError("Enter a valid cost of goods (0 or more).", 400));
+    }
+
+    const order = await Order.findById(req.params.id);
+    if (!order) return next(new AppError("Order not found.", 404));
+    if (lineIndex >= order.items.length) {
+      return next(new AppError("Order line not found.", 404));
+    }
+
+    const item = order.items[lineIndex]!;
+    if (!isManualOfflineOrderItem(item)) {
+      return next(
+        new AppError(
+          "Cost of goods can only be updated on manual category/offline lines.",
+          400,
+        ),
+      );
+    }
+
+    const previous = item.costAtSale ?? 0;
+    item.costAtSale = Math.round(Math.max(0, costAtSale) * 100) / 100;
+    order.markModified("items");
+    await order.save();
+
+    await writeAdminAudit(req, "order.line_cost_at_sale", {
+      orderId: String(order._id),
+      orderNumber: order.orderNumber,
+      lineIndex,
+      lineName: item.name,
+      previous,
+      next: item.costAtSale,
+    });
+
+    sendSuccess(res, {
+      orderId: order._id,
+      lineIndex,
+      costAtSale: item.costAtSale,
+      lineName: item.name,
+    });
   },
 );
 
@@ -213,7 +318,7 @@ export const updateOrderStatus = catchAsync(
         | { _id?: unknown; name?: string; email?: string }
         | undefined;
 
-      if (populated && user?.email) {
+      if (populated && user?.email && isCustomerDeliverableEmail(user.email)) {
         const tpl = emailTemplates.orderStatusUpdate(
           user.name || "Customer",
           populated.orderNumber,
@@ -293,7 +398,9 @@ export const updateOrderStatus = catchAsync(
     await order.save();
 
     if (status === "delivered" && previousStatus !== "delivered") {
-      void onOrderMarkedDelivered(String(order.user)).catch(() => {});
+      void onOrderDelivered(String(order._id), String(order.user)).catch(
+        () => {},
+      );
     }
 
     const populated = await Order.findById(order._id).populate(
@@ -304,7 +411,7 @@ export const updateOrderStatus = catchAsync(
       | { _id?: unknown; name?: string; email?: string }
       | undefined;
 
-    if (!sameStatus && populated && user?.email) {
+    if (!sameStatus && populated && user?.email && isCustomerDeliverableEmail(user.email) && status !== "delivered") {
       const trackingOpts =
         status === "shipped" ?
           {
@@ -413,7 +520,7 @@ export const processRefundController = catchAsync(
       }
     ).returnRequest?.userBankDetails;
 
-    if (populated && user?.email) {
+    if (populated && user?.email && isCustomerDeliverableEmail(user.email)) {
       const methodToUse = order.refundData?.method ?? refundMethod ?? "cash";
       const smartMessage =
         methodToUse === "razorpay_auto" ?

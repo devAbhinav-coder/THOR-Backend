@@ -1,6 +1,6 @@
 import { Schema, model, Document } from 'mongoose';
 
-export type PushOutboxStatus = 'pending' | 'processing' | 'completed' | 'failed';
+export type PushOutboxStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'dead_letter';
 
 export interface IPushNotificationOutbox extends Document {
   dedupeKey: string;
@@ -28,7 +28,7 @@ const pushNotificationOutboxSchema = new Schema<IPushNotificationOutbox>(
     notificationId: String,
     status: {
       type: String,
-      enum: ['pending', 'processing', 'completed', 'failed'],
+      enum: ['pending', 'processing', 'completed', 'failed', 'dead_letter'],
       default: 'pending',
     },
     attempts: { type: Number, default: 0 },

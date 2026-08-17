@@ -1,8 +1,10 @@
+import { catalogInventoryProductMatch } from "../../constants/offlineOrder";
 import Product from "../../models/Product";
 import StockLedger from "../../models/StockLedger";
 import logger from "../../types/utils/logger";
 import { recordInventoryMetric } from "./inventoryMetricsService";
-import { syncProductTotalStock } from "./stockBulkService";
+import { syncProductTotalStock, syncProductSoldCount } from "./stockBulkService";
+import { backfillVariantSoldCounts } from "./inventoryInsightsService";
 
 const RECONCILE_BATCH = Number(process.env.INVENTORY_RECONCILE_BATCH || 50);
 
@@ -17,7 +19,7 @@ export interface ReconciliationResult {
  * Optionally sample ledger rows missing a matching product (read-only audit).
  */
 export async function runInventoryReconciliation(): Promise<ReconciliationResult> {
-  const products = await Product.find({ isActive: true })
+  const products = await Product.find(catalogInventoryProductMatch())
     .select("_id variants.stock totalStock")
     .limit(RECONCILE_BATCH)
     .lean();
@@ -53,6 +55,11 @@ export async function runInventoryReconciliation(): Promise<ReconciliationResult
   for (const row of sampleLedgers) {
     const exists = await Product.exists({ _id: row.product });
     if (!exists) orphanCount += 1;
+  }
+
+  // One-time style backfill: align variant soldCount from order history (safe, idempotent)
+  if (process.env.INVENTORY_BACKFILL_SOLD_COUNT === "true") {
+    await backfillVariantSoldCounts().catch(() => {});
   }
 
   return {

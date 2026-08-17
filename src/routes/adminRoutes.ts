@@ -7,6 +7,7 @@ import {
   getOrderDetails,
   deleteOrder,
   updateOrderStatus,
+  updateOrderLineCostAtSale,
   generateOrderInvoice,
   processRefundController as processRefund,
 } from '../controllers/admin/adminOrderController';
@@ -40,7 +41,12 @@ import {
   getMarketingAudiencePreview,
   sendCustomMarketingEmail,
 } from '../controllers/admin/adminMarketingController';
-import { createOfflineOrder } from '../controllers/adminOfflineOrderController';
+import { createOfflineOrder, listB2bOrdersPendingTaxInvoice } from '../controllers/adminOfflineOrderController';
+import {
+  listDeadLetterOutboxHandler,
+  replayDeadLetterOutboxHandler,
+} from '../controllers/admin/adminOutboxController';
+import { getAdminJobHealth } from '../controllers/admin/adminJobsController';
 import {
   adminCreateReviewInvite,
   adminEmailReviewInvite,
@@ -51,6 +57,8 @@ import {
   createSalesInvoice,
   updateSalesInvoice,
   deleteSalesInvoice,
+  createTaxInvoiceFromOrder,
+  getOrderTaxInvoice,
 } from '../controllers/adminSalesInvoiceController';
 import {
   getAdminProducts,
@@ -68,6 +76,7 @@ import {
   updatePurchaseInvoice,
   deletePurchaseInvoice,
   getGstPurchaseSummary,
+  exportInventoryHandler,
 } from '../controllers/inventoryController';
 import {
   listOperatingExpensesHandler,
@@ -112,6 +121,7 @@ import { protect, restrictTo } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import {
   updateOrderStatusSchema,
+  updateOrderLineCostAtSaleSchema,
   processRefundSchema,
   createCategorySchema,
   sendMarketingEmailSchema,
@@ -123,6 +133,7 @@ import {
   delhiveryServiceabilityQuerySchema,
   delhiveryPackingSlipQuerySchema,
   createOfflineOrderSchema,
+  createB2bOrderSchema,
   stockAdjustmentSchema,
   createPurchaseInvoiceSchema,
   updatePurchaseInvoiceSchema,
@@ -164,6 +175,7 @@ import {
   draftAdminCatalogSeo,
   draftAdminReviewReply,
   draftAdminMarketingEmail,
+  draftAdminPromotionTerms,
   draftAdminBlogPost,
   planAdminBlogCalendar,
   askAdminStore,
@@ -176,6 +188,7 @@ import {
   adminAiProductDraftSchema,
   adminAiCatalogSeoDraftSchema,
   adminAiMarketingDraftSchema,
+  adminAiPromotionTermsSchema,
   adminAiBlogDraftSchema,
   adminAiBlogCalendarSchema,
   adminAiBriefQuerySchema,
@@ -212,11 +225,16 @@ router.post('/ai/draft/product', adminAiLimiter, validate(adminAiProductDraftSch
 router.post('/ai/draft/catalog-seo', adminAiLimiter, validate(adminAiCatalogSeoDraftSchema), ...draftAdminCatalogSeo);
 router.post('/ai/draft/review/:reviewId', adminAiLimiter, validate(adminAiReviewIdSchema), ...draftAdminReviewReply);
 router.post('/ai/draft/marketing-email', adminAiLimiter, validate(adminAiMarketingDraftSchema), ...draftAdminMarketingEmail);
+router.post('/ai/draft/promotion-terms', adminAiLimiter, validate(adminAiPromotionTermsSchema), ...draftAdminPromotionTerms);
 router.post('/ai/draft/blog', adminAiLimiter, validate(adminAiBlogDraftSchema), ...draftAdminBlogPost);
 router.post('/ai/blog-calendar/plan', adminAiLimiter, validate(adminAiBlogCalendarSchema), ...planAdminBlogCalendar);
 router.post('/ai/ask', adminAiLimiter, validate(adminAiAskSchema), ...askAdminStore);
 
 router.get('/security/audit', getAdminAuditLogs);
+
+router.get('/outbox/:type/dead-letter', listDeadLetterOutboxHandler);
+router.post('/outbox/:type/:id/replay', replayDeadLetterOutboxHandler);
+router.get('/jobs/health', getAdminJobHealth);
 
 router.get('/products', validate(adminProductListQuerySchema), getAdminProducts);
 router.get('/products/search', validate(adminProductSearchQuerySchema), searchAdminProducts);
@@ -229,6 +247,13 @@ router.post(
   validate(createOfflineOrderSchema),
   createOfflineOrder,
 );
+router.post(
+  '/orders/b2b',
+  adminSensitiveLimiter,
+  validate(createB2bOrderSchema),
+  createOfflineOrder,
+);
+router.get('/orders/b2b/pending-tax-invoice', listB2bOrdersPendingTaxInvoice);
 router.get('/orders/:id', getOrderDetails);
 router.post('/orders/:id/review-invite', adminCreateReviewInvite);
 router.post('/orders/:id/review-invite/email', adminEmailReviewInvite);
@@ -259,7 +284,14 @@ router.get(
   getDelhiveryPackingSlipJson,
 );
 router.patch('/orders/:id/status', validate(updateOrderStatusSchema), updateOrderStatus);
+router.patch(
+  '/orders/:id/items/:lineIndex/cost-at-sale',
+  validate(updateOrderLineCostAtSaleSchema),
+  updateOrderLineCostAtSale,
+);
 router.post('/orders/:id/generate-invoice', generateOrderInvoice);
+router.post('/orders/:id/create-tax-invoice', adminSensitiveLimiter, createTaxInvoiceFromOrder);
+router.get('/orders/:id/tax-invoice', getOrderTaxInvoice);
 router.post('/orders/:id/refund', validate(processRefundSchema), processRefund);
 router.patch('/orders/:id/return/resolve', resolveReturn);
 
@@ -332,6 +364,7 @@ router.delete('/subcategories/:id', adminSensitiveLimiter, deleteSubcategory);
 
 // ─── Inventory Management ─────────────────────────────────────────────────────
 router.get('/inventory', validate(inventoryOverviewQuerySchema), getInventoryOverview);
+router.get('/inventory/export', exportInventoryHandler);
 router.patch('/inventory/products/:id/variants/:sku/stock', adminSensitiveLimiter, validate(stockAdjustmentSchema), adjustVariantStock);
 router.get('/inventory/ledger', getStockLedger);
 router.get('/inventory/valuation', getInventoryValuation);

@@ -17,6 +17,7 @@ import {
   getGstPurchaseSummary as fetchGstPurchaseSummary,
   getInventoryOverview,
   getInventoryValuation,
+  getInventoryExportRows,
 } from "../services/inventory/inventoryReportService";
 import { enqueueInventorySideEffect } from "../services/inventory/inventoryOutboxService";
 
@@ -30,6 +31,10 @@ export const getInventoryOverviewHandler = catchAsync(
       category?: string;
       filter?: string;
       sort?: string;
+      period?: "month" | "year" | "lifetime";
+      year?: number;
+      month?: number;
+      includeReorder?: string;
     };
     const page = Math.max(1, Number(q.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(q.limit) || 20));
@@ -41,6 +46,10 @@ export const getInventoryOverviewHandler = catchAsync(
       category: q.category ?? "",
       filter: q.filter ?? "all",
       sort: q.sort ?? "-updatedAt",
+      period: q.period ?? "lifetime",
+      year: q.year ? Number(q.year) : undefined,
+      month: q.month ? Number(q.month) : undefined,
+      includeReorder: q.includeReorder !== "false",
     });
 
     sendPaginated(res, { products, summary }, { page, limit, total });
@@ -96,6 +105,14 @@ export const getStockLedger = catchAsync(
     });
 
     sendPaginated(res, { entries }, { page, limit, total });
+  },
+);
+
+/** GET /admin/inventory/export */
+export const exportInventoryHandler = catchAsync(
+  async (_req: Request, res: Response) => {
+    const rows = await getInventoryExportRows();
+    sendSuccess(res, { rows }, "Inventory export ready.");
   },
 );
 

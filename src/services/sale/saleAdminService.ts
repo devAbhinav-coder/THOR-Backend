@@ -4,6 +4,7 @@ import Product from '../../models/Product';
 import AppError from '../../types/utils/AppError';
 import { invalidateSaleCaches } from './saleCacheService';
 import { normalizeExpiryDate } from '../coupon/couponBusinessRules';
+import { bumpProductCacheVersion } from '../productCacheService';
 
 const QUERY_MAX_MS = Number(process.env.SALE_QUERY_MAX_MS || 5000);
 
@@ -59,6 +60,7 @@ export const saleAdminService = {
       endDate,
     });
     await invalidateSaleCaches();
+    await bumpProductCacheVersion();
     return campaign;
   },
 
@@ -147,6 +149,7 @@ export const saleAdminService = {
 
     if (!campaign) throw new AppError('Sale campaign not found.', 404);
     await invalidateSaleCaches();
+    await bumpProductCacheVersion();
     return campaign;
   },
 
@@ -161,6 +164,7 @@ export const saleAdminService = {
     ).select('name');
     if (!campaign) throw new AppError('Sale campaign not found.', 404);
     await invalidateSaleCaches();
+    await bumpProductCacheVersion();
     return campaign;
   },
 
@@ -175,6 +179,7 @@ export const saleAdminService = {
     ).select(ADMIN_SELECT);
     if (!campaign) throw new AppError('Sale campaign not found.', 404);
     await invalidateSaleCaches();
+    await bumpProductCacheVersion();
     return campaign;
   },
 

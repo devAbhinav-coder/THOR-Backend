@@ -1,6 +1,6 @@
 import rateLimit from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
-import { redisConnection, redisEnabled } from "../config/redis";
+import { redisConnection, shouldUseRedisRateLimit } from "../config/redis";
 import AppError from "../types/utils/AppError";
 
 const baseOptions = {
@@ -13,7 +13,7 @@ const baseOptions = {
 };
 
 function redisStore(prefix: string) {
-  if (!redisEnabled) return undefined;
+  if (!shouldUseRedisRateLimit()) return undefined;
   return new RedisStore({
     prefix,
     sendCommand: (...args: string[]) =>

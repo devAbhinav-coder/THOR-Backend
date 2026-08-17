@@ -4,6 +4,10 @@ import logger from "../../types/utils/logger";
 import { getRequestContext } from "../../types/utils/requestContext";
 import { recordCouponMetric } from "./couponMetricsService";
 import { couponBroadcastService } from "./couponBroadcastService";
+import {
+  logOutboxDeadLetter,
+  nextOutboxStatusAfterFailure,
+} from "../outboxDeadLetter";
 
 const MAX_ATTEMPTS = 6;
 const BASE_BACKOFF_MS = 2000;
@@ -111,11 +115,12 @@ export async function dispatchCouponBroadcastById(
     const message = err instanceof Error ? err.message : "dispatch failed";
     const attempts = claimed.attempts;
     const terminal = attempts >= MAX_ATTEMPTS;
+    const nextStatus = nextOutboxStatusAfterFailure(attempts, MAX_ATTEMPTS);
     await CouponBroadcastOutbox.updateOne(
       { _id: claimed._id },
       {
         $set: {
-          status: terminal ? "failed" : "pending",
+          status: nextStatus,
           lastError: message,
           nextAttemptAt: new Date(Date.now() + nextBackoffMs(attempts)),
         },
@@ -125,6 +130,15 @@ export async function dispatchCouponBroadcastById(
       outboxId,
       terminal,
     });
+    if (terminal) {
+      logOutboxDeadLetter(
+        "coupon",
+        String(claimed._id),
+        claimed.dedupeKey,
+        attempts,
+        message,
+      );
+    }
     return false;
   }
 }
@@ -135,6 +149,7 @@ export async function processPendingCouponBroadcastBatch(
   const pending = await CouponBroadcastOutbox.find({
     status: { $in: ["pending", "failed"] },
     nextAttemptAt: { $lte: new Date() },
+    attempts: { $lt: MAX_ATTEMPTS },
   })
     .sort({ nextAttemptAt: 1 })
     .limit(limit)

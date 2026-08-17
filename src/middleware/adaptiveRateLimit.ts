@@ -2,7 +2,7 @@ import rateLimit from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
 import { Request } from "express";
 import { createHash } from "crypto";
-import { redisConnection, redisEnabled } from "../config/redis";
+import { redisConnection, shouldUseRedisRateLimit } from "../config/redis";
 
 const sendCommand = (...args: string[]) =>
   redisConnection.call(args[0], ...(args.slice(1) as string[])) as Promise<
@@ -55,7 +55,7 @@ export function createAdaptiveLimiter(options: { windowMs: number; max: number; 
     message: { status: "error", message: options.message },
     standardHeaders: true,
     legacyHeaders: false,
-    ...(redisEnabled
+    ...(shouldUseRedisRateLimit()
       ? {
           store: new RedisStore({
             prefix: options.prefix,

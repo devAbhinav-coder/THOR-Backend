@@ -74,6 +74,7 @@ export async function decrementVariantStock(
       $inc: {
         totalStock: -quantity,
         'variants.$[v].stock': -quantity,
+        'variants.$[v].soldCount': quantity,
         soldCount: quantity,
       },
     },
@@ -82,6 +83,9 @@ export async function decrementVariantStock(
       arrayFilters: [{ 'v.sku': sku, 'v.stock': { $gte: quantity } }],
     }
   );
+  if (res.modifiedCount === 1) {
+    schedulePdpInvalidationForProductId(productId);
+  }
   return res.modifiedCount === 1;
 }
 
@@ -90,10 +94,24 @@ export async function incrementVariantStock(
   productId: mongoose.Types.ObjectId | string,
   sku: string,
   quantity: number,
-  opts?: SessionOpt & { variantLabel?: string; costPrice?: number }
+  opts?: SessionOpt & {
+    variantLabel?: string;
+    costPrice?: number;
+    /** When reversing a sale (return/cancel), pass negative quantity to reduce soldCount. */
+    soldCountDelta?: number;
+  }
 ): Promise<boolean> {
   if (quantity <= 0) return true;
-  
+
+  const inc: Record<string, number> = {
+    totalStock: quantity,
+    'variants.$[v].stock': quantity,
+  };
+  if (typeof opts?.soldCountDelta === 'number' && opts.soldCountDelta !== 0) {
+    inc.soldCount = opts.soldCountDelta;
+    inc['variants.$[v].soldCount'] = opts.soldCountDelta;
+  }
+
   // Try update existing
   const res = await Product.updateOne(
     {
@@ -101,10 +119,7 @@ export async function incrementVariantStock(
       'variants.sku': sku,
     },
     {
-      $inc: {
-        totalStock: quantity,
-        'variants.$[v].stock': quantity,
-      },
+      $inc: inc,
     },
     {
       ...(opts?.session ? { session: opts.session } : {}),

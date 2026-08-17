@@ -9,11 +9,16 @@ import { orderRepository } from "../repositories/orderRepository";
 import {
   getGiftMinQty,
   computeOrderTotals,
-  buildOrderItemsFromProducts,
+  buildOrderItemsFromProductsWithSalePricing,
 } from "./orderService";
 import { cartService } from "./cartService";
 import { emitCartEvent } from "./cart/cartEventService";
 import { cartRevalidationService } from "./cart/cartRevalidationService";
+import { getActiveSaleCampaigns } from "./sale/saleCacheService";
+import { resolveVariantSellPrice } from "./sale/saleProductEnrichment";
+import { buildSaleScopeContext } from "./sale/saleScopeResolver";
+import { buildCouponLinesFromCartItems } from "./coupon/couponLineScopeService";
+import { resolveCartPromotion } from "./promotion/promotionApplyService";
 import { createRazorpayOrder } from "./razorpay";
 import { decrementVariantStock } from "./inventoryService";
 import type { CheckoutIntentSnapshotItem } from "../models/CheckoutPaymentIntent";
@@ -22,42 +27,148 @@ import {
   withOptionalTransaction,
 } from "../types/utils/mongoTransaction";
 
+function findVariantBySku(
+  product: InstanceType<typeof Product>,
+  sku: string,
+) {
+  const normalized = String(sku || "").trim();
+  if (!normalized) return undefined;
+  return product.variants?.find(
+    (v) => String(v.sku || "").trim() === normalized,
+  );
+}
+
 export const checkoutService = {
-  async processBuyNowItem(buyNowItem: any) {
-    const product = await Product.findById(buyNowItem.productId);
-    if (!product || !product.isActive) {
-      throw new AppError("Product is no longer available.", 400);
+  async resolveBuyNowLine(buyNowItem: {
+    productId: string;
+    variant: { sku: string; size?: string; color?: string; colorCode?: string };
+    quantity: number;
+    customFieldAnswers?: { label: string; value: string }[];
+  }) {
+    const productId = String(buyNowItem?.productId || "").trim();
+    if (!mongoose.Types.ObjectId.isValid(productId)) {
+      throw new AppError("Invalid product.", 400);
     }
+
+    const product = await Product.findById(productId);
+    if (!product) {
+      throw new AppError("This product is no longer available.", 404);
+    }
+    if (!product.isActive) {
+      throw new AppError(`"${product.name}" is currently unavailable.`, 400);
+    }
+
+    const quantity = Math.max(1, Math.floor(Number(buyNowItem.quantity) || 1));
     const minQty = getGiftMinQty(product);
-    if (buyNowItem.quantity < minQty) {
+    if (quantity < minQty) {
       throw new AppError(
         `Minimum quantity for "${product.name}" is ${minQty}.`,
         400,
       );
     }
-    const variant = product.variants.find(
-      (v) => v.sku === buyNowItem.variant.sku,
-    );
-    if (!variant || variant.stock < buyNowItem.quantity) {
-      throw new AppError(`Insufficient stock for "${product.name}".`, 400);
+
+    const variant = findVariantBySku(product, buyNowItem.variant?.sku);
+    if (!variant) {
+      throw new AppError(
+        `Selected variant for "${product.name}" is no longer available.`,
+        400,
+      );
+    }
+    if (variant.stock < quantity) {
+      throw new AppError(`Insufficient stock for "${product.name}".`, 409);
     }
 
-    const linePrice = Number(variant.price ?? product.price ?? 0);
+    const campaigns = await getActiveSaleCampaigns();
+    const scopeCtx = await buildSaleScopeContext([
+      {
+        _id: product._id,
+        categoryId: product.categoryId,
+        subcategoryId: product.subcategoryId,
+        category: product.category,
+        subcategory: product.subcategory,
+      },
+    ] as Record<string, unknown>[]);
+
+    const linePrice = resolveVariantSellPrice(
+      {
+        _id: String(product._id),
+        price: Number(product.price) || 0,
+        comparePrice: product.comparePrice,
+        categoryId: product.categoryId ? String(product.categoryId) : null,
+        subcategoryId: product.subcategoryId ? String(product.subcategoryId) : null,
+        category: product.category ? String(product.category) : null,
+        subcategory: product.subcategory ? String(product.subcategory) : null,
+      },
+      variant,
+      campaigns,
+      scopeCtx,
+    );
+
+    const normalizedVariant = {
+      ...buyNowItem.variant,
+      sku: String(variant.sku || buyNowItem.variant.sku).trim(),
+    };
+
     const checkoutItems = [
       {
         product: product._id as mongoose.Types.ObjectId,
-        variant: buyNowItem.variant,
-        quantity: buyNowItem.quantity,
+        variant: normalizedVariant,
+        quantity,
         price: linePrice,
         customFieldAnswers: buyNowItem.customFieldAnswers,
       },
     ];
-    const checkoutSubtotal = linePrice * buyNowItem.quantity;
-    const productMap = new Map([[String(product._id), product]]);
+    const checkoutSubtotal = linePrice * quantity;
 
     return {
+      product,
+      variant,
+      linePrice,
+      quantity,
       checkoutItems,
       checkoutSubtotal,
+    };
+  },
+
+  async previewBuyNowCheckout(buyNowItem: {
+    productId: string;
+    variant: { sku: string; size?: string; color?: string; colorCode?: string };
+    quantity: number;
+  }) {
+    const resolved = await this.resolveBuyNowLine(buyNowItem);
+    const { product, variant, linePrice, quantity, checkoutSubtotal } = resolved;
+
+    const lines = await buildCouponLinesFromCartItems(
+      resolved.checkoutItems.map((item) => ({
+        product: item.product,
+        price: item.price,
+        quantity: item.quantity,
+      })),
+    );
+    const promo = await resolveCartPromotion(lines);
+
+    return {
+      productId: String(product._id),
+      name: product.name,
+      price: linePrice,
+      subtotal: checkoutSubtotal,
+      quantity,
+      maxStock: variant.stock,
+      minQuantity: getGiftMinQty(product),
+      variantSku: String(variant.sku || "").trim(),
+      promotion: promo.promotion,
+      promotionDiscount: promo.discount,
+      promotionHint: promo.hint,
+    };
+  },
+
+  async processBuyNowItem(buyNowItem: any) {
+    const resolved = await this.resolveBuyNowLine(buyNowItem);
+    const productMap = new Map([[String(resolved.product._id), resolved.product]]);
+
+    return {
+      checkoutItems: resolved.checkoutItems,
+      checkoutSubtotal: resolved.checkoutSubtotal,
       productMap,
       cartIdToDelete: null,
       cartCouponId: undefined,
@@ -78,8 +189,11 @@ export const checkoutService = {
 
     let cartCouponDiscount = 0;
     let cartCouponId: mongoose.Types.ObjectId | undefined;
+    let cartPromotionDiscount = cartDto.promotionDiscount ?? 0;
+    let cartPromotionId: string | undefined = cartDto.promotion?._id;
+
     if (cart.coupon) {
-      cartCouponDiscount = cart.discount;
+      cartCouponDiscount = cartDto.couponDiscount ?? cart.discount;
       cartCouponId = cart.coupon as mongoose.Types.ObjectId;
     }
 
@@ -91,8 +205,11 @@ export const checkoutService = {
     const products = await orderRepository.findProductsByIds(productIds);
     const productMap = new Map(products.map((p) => [String(p._id), p]));
 
-    // Always price order lines from live catalog (never trust stored cart price).
-    const pricedLines = buildOrderItemsFromProducts(cart.items, productMap);
+    // Always price order lines from live catalog + active sales.
+    const pricedLines = await buildOrderItemsFromProductsWithSalePricing(
+      cart.items,
+      productMap,
+    );
     const checkoutItems = cart.items.map((item, idx) => ({
       ...item,
       price: pricedLines[idx]?.price ?? item.price,
@@ -109,6 +226,8 @@ export const checkoutService = {
       cartIdToDelete,
       cartCouponId,
       cartCouponDiscount,
+      cartPromotionDiscount,
+      cartPromotionId,
     };
   },
 
@@ -146,15 +265,19 @@ export const checkoutService = {
           400,
         );
       }
-      const variant = product.variants.find(
-        (v: any) => v.sku === item.variant.sku,
-      );
-      if (!variant || variant.stock < item.quantity) {
-        throw new AppError(`Insufficient stock for "${product.name}".`, 400);
+      const variant = findVariantBySku(product, item.variant?.sku);
+      if (!variant) {
+        throw new AppError(
+          `Selected variant for "${product.name}" is no longer available.`,
+          400,
+        );
+      }
+      if (variant.stock < item.quantity) {
+        throw new AppError(`Insufficient stock for "${product.name}".`, 409);
       }
     }
 
-    return buildOrderItemsFromProducts(checkoutItems, productMap);
+    return buildOrderItemsFromProductsWithSalePricing(checkoutItems, productMap);
   },
 
   async createRazorpayIntent(userId: string, intentData: any) {
@@ -165,6 +288,11 @@ export const checkoutService = {
       shippingAddress,
       checkoutSubtotal,
       discount,
+      saleDiscount,
+      promotionDiscount,
+      couponDiscount,
+      promotionId,
+      shopSessionKey,
       shippingCharge,
       codFee,
       tax,
@@ -198,6 +326,11 @@ export const checkoutService = {
         stockLines,
         subtotal: checkoutSubtotal,
         discount,
+        saleDiscount: saleDiscount ?? 0,
+        promotionDiscount: promotionDiscount ?? 0,
+        couponDiscount: couponDiscount ?? 0,
+        ...(promotionId ? { promotion: promotionId } : {}),
+        ...(shopSessionKey ? { shopSessionKey } : {}),
         shippingCharge,
         codFee,
         tax,

@@ -5,8 +5,10 @@ import {
   getRevenuePeriodSummary,
   type RevenuePeriod,
 } from "../../services/revenuePeriodService";
+import type { OrderSalesChannelFilter } from "../../utils/orderChannel";
 
 const VALID_PERIODS: RevenuePeriod[] = ["month", "year", "lifetime"];
+const VALID_CHANNELS: OrderSalesChannelFilter[] = ["all", "online", "offline", "b2b"];
 
 export const getRevenuePeriodSummaryHandler = catchAsync(
   async (req: Request, res: Response) => {
@@ -18,6 +20,11 @@ export const getRevenuePeriodSummaryHandler = catchAsync(
 
     const year = req.query.year ? Number(req.query.year) : undefined;
     const month = req.query.month ? Number(req.query.month) : undefined;
+    const rawChannel = String(req.query.channel ?? "all");
+    const channel: OrderSalesChannelFilter =
+      VALID_CHANNELS.includes(rawChannel as OrderSalesChannelFilter) ?
+        (rawChannel as OrderSalesChannelFilter)
+      : "all";
 
     const data = await getRevenuePeriodSummary(period, {
       year: Number.isFinite(year) ? year : undefined,
@@ -25,6 +32,7 @@ export const getRevenuePeriodSummaryHandler = catchAsync(
         Number.isFinite(month) && month! >= 1 && month! <= 12 ?
           month
         : undefined,
+      channel,
     });
 
     sendSuccess(res, data);

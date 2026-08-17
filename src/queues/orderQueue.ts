@@ -1,11 +1,12 @@
 import { Queue } from "bullmq";
-import { redisEnabled, getBullMqQueueConnection } from "../config/redis";
+import { isRedisOperational, getBullMqQueueConnection } from "../config/redis";
 import logger from "../types/utils/logger";
 import { OrderEventPayload } from "../events/orderEvents";
 import { recordOrderMetric } from "../services/orderMetricsService";
+import { bullmqRetention } from "../config/bullmqRetention";
 
 export const orderQueue =
-  redisEnabled ?
+  isRedisOperational() ?
     new Queue<OrderEventPayload>("orderQueue", {
       connection: getBullMqQueueConnection(),
     })
@@ -25,8 +26,8 @@ export const enqueueOrderEvent = async (
         jobId: buildJobId(payload),
         attempts: 5,
         backoff: { type: "exponential", delay: 2000 },
-        removeOnComplete: 500,
-        removeOnFail: 1000,
+        removeOnComplete: bullmqRetention.removeOnComplete,
+        removeOnFail: bullmqRetention.removeOnFail,
       });
       logger.info(
         `Queued order event: ${payload.eventType} for order ${payload.orderNumber}`,

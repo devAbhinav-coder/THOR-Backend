@@ -31,6 +31,11 @@ export type CheckoutIntentSnapshot = {
   stockLines: CheckoutIntentStockLine[];
   subtotal: number;
   discount: number;
+  saleDiscount?: number;
+  promotionDiscount?: number;
+  couponDiscount?: number;
+  promotion?: Types.ObjectId;
+  shopSessionKey?: string;
   shippingCharge: number;
   codFee: number;
   tax: number;
@@ -120,6 +125,11 @@ const checkoutPaymentIntentSchema = new Schema<ICheckoutPaymentIntent>(
           stockLines: { type: [stockLineSchema], required: true },
           subtotal: { type: Number, required: true },
           discount: { type: Number, default: 0 },
+          saleDiscount: { type: Number, default: 0 },
+          promotionDiscount: { type: Number, default: 0 },
+          couponDiscount: { type: Number, default: 0 },
+          promotion: { type: Schema.Types.ObjectId, ref: 'Promotion' },
+          shopSessionKey: { type: String, trim: true, maxlength: 128 },
           shippingCharge: { type: Number, default: 0 },
           codFee: { type: Number, default: 0 },
           tax: { type: Number, default: 0 },

@@ -4,9 +4,10 @@ import {
   bullmqSkipRedisVersionChecks,
   getBullMqQueueConnection,
   getBullMqWorkerConnection,
-  redisEnabled,
+  isRedisOperational,
 } from "../config/redis";
 import logger from "../types/utils/logger";
+import { bullmqImageRetention } from "../config/bullmqRetention";
 
 // ─── Job Types ────────────────────────────────────────────────────────────────
 
@@ -18,7 +19,7 @@ export type ImageDeleteJobData = {
 
 const IMAGE_QUEUE_NAME = "image-delete-jobs";
 const skipBullMqRedisChecks = bullmqSkipRedisVersionChecks();
-const imageQueueRedis = redisEnabled ? getBullMqQueueConnection() : null;
+const imageQueueRedis = isRedisOperational() ? getBullMqQueueConnection() : null;
 
 export const imageQueue =
   imageQueueRedis ?
@@ -31,8 +32,8 @@ export const imageQueue =
 const defaultOpts: JobsOptions = {
   attempts: 3,
   backoff: { type: "exponential", delay: 5000 },
-  removeOnComplete: 100,
-  removeOnFail: 200,
+  removeOnComplete: bullmqImageRetention.removeOnComplete,
+  removeOnFail: bullmqImageRetention.removeOnFail,
 };
 
 // ─── Enqueue helper ───────────────────────────────────────────────────────────
@@ -72,7 +73,7 @@ export async function enqueueImageDelete(publicIds: string[]): Promise<void> {
 let imageWorker: Worker<ImageDeleteJobData> | null = null;
 
 export const startImageWorker = (): void => {
-  if (imageWorker || !redisEnabled) return;
+  if (imageWorker || !isRedisOperational()) return;
 
   const workerRedis = getBullMqWorkerConnection();
   imageWorker = new Worker<ImageDeleteJobData>(

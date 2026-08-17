@@ -3,6 +3,7 @@ import {
   getOrderStatsForIstMonth,
 } from "./istDayOrderStats";
 import { istParts } from "../../types/utils/istDate";
+import { getReorderSuggestions } from "../inventory/inventoryInsightsService";
 
 type OperatingSummary = {
   yearTotal?: number;
@@ -189,7 +190,17 @@ export async function buildRichStoreSnapshot(
     soldCount?: number;
   }[];
 
+  const reorderSuggestions = await getReorderSuggestions({ limit: 12 });
+
   const restockPriority = [
+    ...reorderSuggestions.slice(0, 6).map((r) => ({
+      name: r.productName,
+      sku: r.sku,
+      stock: r.currentStock,
+      soldCount: r.unitsSoldInPeriod,
+      suggestedReorderQty: r.suggestedReorderQty,
+      reason: r.currentStock === 0 ? "Out of stock + velocity" : "Low stock + reorder qty",
+    })),
     ...oos
       .filter((p) => (p.soldCount ?? 0) >= 2)
       .map((p) => ({

@@ -3,14 +3,26 @@ import logger from "../types/utils/logger";
 
 const redisUrl = process.env.REDIS_URL;
 const hasHostConfig = Boolean(process.env.REDIS_HOST || process.env.REDIS_PORT);
-export const redisEnabled = Boolean(redisUrl || hasHostConfig);
+const configuredRedis = Boolean(redisUrl || hasHostConfig);
 const isProd = process.env.NODE_ENV === "production";
 
+/** False only when Redis is configured but startup probe fails — then memory fallbacks apply. */
+let redisOperational = configuredRedis;
+
+export function isRedisOperational(): boolean {
+  return redisOperational;
+}
+
+/** Redis-backed rate limits whenever Redis is up (dev + prod). */
+export function shouldUseRedisRateLimit(): boolean {
+  return isRedisOperational();
+}
+
 const commonOptions: RedisOptions = {
-  maxRetriesPerRequest: null as null,
-  enableReadyCheck: true,
+  maxRetriesPerRequest: isProd ? (null as null) : 3,
+  enableReadyCheck: isProd,
   lazyConnect: true,
-  connectTimeout: 3000,
+  connectTimeout: 5000,
   retryStrategy: (times: number) => {
     if (times > 8) return null;
     return Math.min(times * 250, 2000);
@@ -36,13 +48,15 @@ type RedisLike = Pick<
   | "quit"
   | "on"
   | "keys"
+  | "connect"
+  | "disconnect"
+  | "status"
 >;
 
 const memoryStore = new Map<string, string>();
 const memoryExpiry = new Map<string, number>();
 const memoryCounters = new Map<string, number>();
 
-/** In-memory KEYS fallback: only `*` is treated as a glob segment; other regex metacharacters are escaped. */
 function redisGlobPatternToRegExp(pattern: string): RegExp {
   const escapeRe = (s: string) => s.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
   const body = pattern.split("*").map(escapeRe).join(".*");
@@ -112,6 +126,9 @@ const fallbackRedis: RedisLike = {
   },
   ping: async () => "PONG",
   quit: async () => "OK",
+  connect: async () => undefined,
+  disconnect: () => undefined,
+  status: "ready",
 } as unknown as RedisLike;
 
 function createRedisClient(): IORedis {
@@ -125,12 +142,26 @@ function createRedisClient(): IORedis {
       });
 }
 
-export const redisConnection: RedisLike =
-  redisEnabled ? createRedisClient() : fallbackRedis;
+const realRedisClient: IORedis | null = configuredRedis ? createRedisClient() : null;
 
-/** Shared BullMQ queue connection (one per process — was leaking ~8 duplicates before). */
+function activeConnection(): RedisLike {
+  if (redisOperational && realRedisClient) return realRedisClient;
+  return fallbackRedis;
+}
+
+/** App Redis — falls back to in-memory only if startup probe fails. */
+export const redisConnection: RedisLike = new Proxy({} as RedisLike, {
+  get(_target, prop: keyof RedisLike) {
+    const conn = activeConnection();
+    const value = conn[prop];
+    return typeof value === "function" ? value.bind(conn) : value;
+  },
+});
+
+/** @deprecated Prefer isRedisOperational() — true when REDIS_URL/REDIS_HOST is set. */
+export const redisEnabled = configuredRedis;
+
 let bullMqQueueConnection: IORedis | null = null;
-/** Shared BullMQ worker connection (blocking commands; separate from queue). */
 let bullMqWorkerConnection: IORedis | null = null;
 
 function attachRedisErrorLogger(client: IORedis, label: string): void {
@@ -144,61 +175,97 @@ function attachRedisErrorLogger(client: IORedis, label: string): void {
   });
 }
 
-if (isProd && !redisEnabled) {
+if (isProd && !configuredRedis) {
   throw new Error(
     "Redis is required in production for queue/locks/rate-limits. Configure REDIS_URL.",
   );
 }
 
-if (redisEnabled && redisConnection instanceof IORedis) {
-  redisConnection.on("connect", () => logger.info("Redis connected"));
-  attachRedisErrorLogger(redisConnection, "app");
-} else if (!redisEnabled) {
+if (realRedisClient) {
+  realRedisClient.on("connect", () => logger.info("Redis connected"));
+  attachRedisErrorLogger(realRedisClient, "app");
+} else if (!configuredRedis) {
   logger.warn(
     "Redis not configured. Running with in-memory fallbacks for cache/locks/limits.",
   );
 }
 
-/**
- * @deprecated Prefer getBullMqQueueConnection / getBullMqWorkerConnection.
- */
+/** Connect + ping at startup; memory fallback only if Redis is down. */
+export async function bootstrapRedis(): Promise<void> {
+  if (!realRedisClient) return;
+
+  try {
+    if (realRedisClient.status === "wait") {
+      await realRedisClient.connect();
+    } else if (realRedisClient.status === "connecting") {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error("Redis connect timeout")),
+          5000,
+        );
+        realRedisClient!.once("ready", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+        realRedisClient!.once("error", (e: Error) => {
+          clearTimeout(timer);
+          reject(e);
+        });
+      });
+    }
+
+    const pong = await Promise.race([
+      realRedisClient.ping(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Redis ping timeout")), 3000),
+      ),
+    ]);
+    if (pong !== "PONG") throw new Error("Redis ping failed");
+    redisOperational = true;
+    logger.info("Redis ready");
+  } catch (err: unknown) {
+    redisOperational = false;
+    logger.warn(
+      `Redis unavailable (${(err as Error).message}). Using in-memory fallbacks — ` +
+        "start Redis (redis://localhost:6379) for auth sessions, cart sync, and rate limits.",
+    );
+  }
+}
+
+export function getRedisClient(): IORedis | null {
+  return redisOperational && realRedisClient ? realRedisClient : null;
+}
+
 export function duplicateRedisForBullMq(): IORedis {
   return getBullMqQueueConnection();
 }
 
 export function getBullMqQueueConnection(): IORedis {
-  if (!redisEnabled) {
+  if (!isRedisOperational() || !realRedisClient) {
     throw new Error("getBullMqQueueConnection: Redis is not configured");
   }
-  if (!(redisConnection instanceof IORedis)) {
-    throw new Error(
-      "getBullMqQueueConnection: in-memory Redis cannot run BullMQ",
-    );
-  }
   if (!bullMqQueueConnection) {
-    bullMqQueueConnection = redisConnection.duplicate();
+    bullMqQueueConnection = realRedisClient.duplicate({
+      maxRetriesPerRequest: null,
+    });
     attachRedisErrorLogger(bullMqQueueConnection, "bullmq-queue");
   }
   return bullMqQueueConnection;
 }
 
 export function getBullMqWorkerConnection(): IORedis {
-  if (!redisEnabled) {
+  if (!isRedisOperational() || !realRedisClient) {
     throw new Error("getBullMqWorkerConnection: Redis is not configured");
   }
-  if (!(redisConnection instanceof IORedis)) {
-    throw new Error(
-      "getBullMqWorkerConnection: in-memory Redis cannot run BullMQ",
-    );
-  }
   if (!bullMqWorkerConnection) {
-    bullMqWorkerConnection = redisConnection.duplicate();
+    bullMqWorkerConnection = realRedisClient.duplicate({
+      maxRetriesPerRequest: null,
+    });
     attachRedisErrorLogger(bullMqWorkerConnection, "bullmq-worker");
   }
   return bullMqWorkerConnection;
 }
 
-/** Close app + BullMQ Redis connections (call on graceful shutdown / before hot reload). */
 export async function closeAllRedisConnections(): Promise<void> {
   const closes: Promise<unknown>[] = [];
   if (bullMqQueueConnection) {
@@ -209,17 +276,12 @@ export async function closeAllRedisConnections(): Promise<void> {
     closes.push(bullMqWorkerConnection.quit().catch(() => {}));
     bullMqWorkerConnection = null;
   }
-  if (redisConnection instanceof IORedis) {
-    closes.push(redisConnection.quit().catch(() => {}));
+  if (realRedisClient) {
+    closes.push(realRedisClient.quit().catch(() => {}));
   }
   await Promise.all(closes);
 }
 
-/**
- * BullMQ runs INFO and warns if maxmemory-policy is not noeviction. In development, managed
- * Redis often uses volatile-lru — skip those checks by default. In production, checks stay on
- * unless BULLMQ_SKIP_REDIS_VERSION_CHECK=true (not recommended).
- */
 export function bullmqSkipRedisVersionChecks(): boolean {
   if (process.env.NODE_ENV === "production") {
     return process.env.BULLMQ_SKIP_REDIS_VERSION_CHECK === "true";

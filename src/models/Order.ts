@@ -1,5 +1,6 @@
 import { Schema, model } from 'mongoose';
 import { IOrder } from '../types';
+import { ORDER_REF_PREFIX } from '../utils/documentNumbers';
 
 const orderItemSchema = new Schema({
   product: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
@@ -19,6 +20,12 @@ const orderItemSchema = new Schema({
       value: { type: String, required: true },
     },
   ],
+  /** Shop category label for reporting (offline manual lines + catalog snapshot). */
+  lineCategory: { type: String, trim: true },
+  lineCategoryId: { type: Schema.Types.ObjectId, ref: 'Category' },
+  isOfflineManual: { type: Boolean, default: false },
+  /** Unit purchase cost frozen at sale time (COGS per unit). */
+  costAtSale: { type: Number, min: 0 },
 });
 
 const addressSchema = new Schema({
@@ -69,6 +76,11 @@ const orderSchema = new Schema<IOrder>(
     razorpaySignature: String,
     subtotal: { type: Number, required: true },
     discount: { type: Number, default: 0 },
+    saleDiscount: { type: Number, default: 0 },
+    promotionDiscount: { type: Number, default: 0 },
+    couponDiscount: { type: Number, default: 0 },
+    promotion: { type: Schema.Types.ObjectId, ref: 'Promotion' },
+    shopSessionKey: { type: String, trim: true, maxlength: 128, index: true },
     shippingCharge: { type: Number, default: 0 },
     /** Cash on delivery convenience / handling fee (₹); 0 for online prepay */
     codFee: { type: Number, default: 0 },
@@ -78,9 +90,15 @@ const orderSchema = new Schema<IOrder>(
     notes: String,
     /** Admin-recorded offline sale (stall / contact); optional on normal checkout orders */
     offlineMeta: {
-      source: { type: String, enum: ['stall', 'personal_contact'] },
+      source: { type: String, enum: ['stall', 'personal_contact', 'b2b'] },
       fulfillment: { type: String, enum: ['delhivery', 'offline_handover'] },
       createdByAdmin: { type: Schema.Types.ObjectId, ref: 'User' },
+    },
+    /** Wholesale buyer details when offlineMeta.source === b2b */
+    b2bMeta: {
+      companyName: { type: String, trim: true, maxlength: 120 },
+      gstin: { type: String, trim: true, maxlength: 20 },
+      poNumber: { type: String, trim: true, maxlength: 60 },
     },
     marketingAttribution: {
       utmSource: { type: String, trim: true, maxlength: 120 },
@@ -113,6 +131,8 @@ const orderSchema = new Schema<IOrder>(
       isGenerated: { type: Boolean, default: false },
       generatedAt: Date,
     },
+    /** Linked admin GST tax invoice (SalesInvoice) when created from a B2B order. */
+    taxSalesInvoiceId: { type: Schema.Types.ObjectId, ref: 'SalesInvoice' },
     customRequestId: {
       type: Schema.Types.ObjectId,
       ref: 'GiftingRequest',
@@ -157,6 +177,11 @@ const orderSchema = new Schema<IOrder>(
      * Replaces payment-method heuristics for orders created after this field was introduced.
      */
     inventoryReserved: { type: Boolean, default: false },
+    reviewInviteSkippedAt: Date,
+    /** Prevents duplicate delivered + invoice emails. */
+    deliveryInvoiceEmailSentAt: Date,
+    /** Set when admin SLA alert was sent for this order (prevents repeat emails). */
+    slaAlertedAt: Date,
   },
   {
     timestamps: true,
@@ -181,7 +206,7 @@ orderSchema.pre<IOrder>('save', async function (next) {
   if (this.isNew) {
     const tsPart = Date.now().toString(36).toUpperCase();
     const randPart = Math.random().toString(36).slice(2, 6).toUpperCase();
-    this.orderNumber = `HOR-${tsPart}-${randPart}`;
+    this.orderNumber = `${ORDER_REF_PREFIX}-${tsPart}-${randPart}`;
     this.statusHistory = [{ status: this.status, timestamp: new Date() }];
   }
   next();

@@ -3,18 +3,28 @@ import {
   bullmqSkipRedisVersionChecks,
   getBullMqQueueConnection,
   getBullMqWorkerConnection,
-  redisEnabled,
+  isRedisOperational,
 } from "../config/redis";
 import logger from "../types/utils/logger";
-import { sendEmailNow } from "../services/emailService";
+import { sendEmailNow, type EmailAttachment, type EmailPayload } from "../services/emailService";
 import { deliverBroadcastEmailWithRetries } from "../services/emailDeliveryService";
 import { ConnectionOptions } from "bullmq";
+import {
+  bullmqRetention,
+  bullmqBroadcastRetention,
+} from "../config/bullmqRetention";
 
 export type EmailJobData = {
   to: string;
   subject: string;
   html: string;
   text?: string;
+  /** Base64-encoded attachment payloads (queue-safe). */
+  attachments?: {
+    filename: string;
+    contentBase64: string;
+    contentType?: string;
+  }[];
 };
 
 /** One job processes up to 10 addresses sequentially (no Promise.all). */
@@ -30,7 +40,7 @@ const BROADCAST_CHUNK_SIZE = 10;
 
 const skipBullMqRedisChecks = bullmqSkipRedisVersionChecks();
 const transactionalQueueRedis =
-  redisEnabled ? getBullMqQueueConnection() : null;
+  isRedisOperational() ? getBullMqQueueConnection() : null;
 const broadcastChunkQueueRedis = transactionalQueueRedis;
 
 export const emailQueue =
@@ -52,15 +62,15 @@ export const broadcastChunkQueue =
 const defaultOpts: JobsOptions = {
   attempts: 4,
   backoff: { type: "exponential", delay: 3000 },
-  removeOnComplete: 500,
-  removeOnFail: 1000,
+  removeOnComplete: bullmqRetention.removeOnComplete,
+  removeOnFail: bullmqRetention.removeOnFail,
 };
 
 const broadcastChunkOpts: JobsOptions = {
   attempts: 2,
   backoff: { type: "fixed", delay: 5000 },
-  removeOnComplete: 200,
-  removeOnFail: 500,
+  removeOnComplete: bullmqBroadcastRetention.removeOnComplete,
+  removeOnFail: bullmqBroadcastRetention.removeOnFail,
 };
 
 function sleep(ms: number): Promise<void> {
@@ -127,22 +137,55 @@ export async function enqueueBroadcastChunks(
   return chunks.length;
 }
 
+function jobDataToPayload(data: EmailJobData): EmailPayload {
+  return {
+    to: data.to,
+    subject: data.subject,
+    html: data.html,
+    text: data.text,
+    attachments: data.attachments?.map((a) => ({
+      filename: a.filename,
+      content: a.contentBase64,
+      contentType: a.contentType,
+    })),
+  };
+}
+
+export type EnqueueEmailInput = Omit<EmailJobData, "attachments"> & {
+  attachments?: EmailAttachment[];
+};
+
 export const enqueueEmail = async (
-  data: EmailJobData,
+  data: EnqueueEmailInput,
   opts?: JobsOptions,
 ): Promise<void> => {
+  const jobData: EmailJobData = {
+    to: data.to,
+    subject: data.subject,
+    html: data.html,
+    text: data.text,
+    attachments: data.attachments?.map((a) => ({
+      filename: a.filename,
+      contentBase64:
+        typeof a.content === "string" ?
+          a.content
+        : a.content.toString("base64"),
+      contentType: a.contentType,
+    })),
+  };
+  const payload = jobDataToPayload(jobData);
   try {
     if (!emailQueue) {
-      await sendEmailNow(data);
+      await sendEmailNow(payload);
       return;
     }
-    await emailQueue.add("send-email", data, { ...defaultOpts, ...opts });
+    await emailQueue.add("send-email", jobData, { ...defaultOpts, ...opts });
   } catch (err) {
     logger.warn(
       `Queue unavailable, fallback sending email now: ${(err as Error).message}`,
     );
     try {
-      await sendEmailNow(data);
+      await sendEmailNow(payload);
     } catch (sendErr) {
       logger.error(`Fallback email failed: ${(sendErr as Error).message}`);
     }
@@ -154,7 +197,7 @@ let emailWorker: Worker<EmailJobData> | null = null;
 let broadcastChunkWorker: Worker<BroadcastChunkJobData> | null = null;
 
 export const startEmailWorker = (): void => {
-  if (workerStarted || !redisEnabled) return;
+  if (workerStarted || !isRedisOperational()) return;
   workerStarted = true;
 
   const emailWorkerRedis = getBullMqWorkerConnection();
@@ -163,7 +206,7 @@ export const startEmailWorker = (): void => {
   emailWorker = new Worker<EmailJobData>(
     transactionalQueueName,
     async (job) => {
-      await sendEmailNow(job.data);
+      await sendEmailNow(jobDataToPayload(job.data));
     },
     {
       connection: emailWorkerRedis as unknown as ConnectionOptions,

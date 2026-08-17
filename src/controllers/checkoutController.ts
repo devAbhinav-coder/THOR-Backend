@@ -50,6 +50,7 @@ export const createOrder = catchAsync(
         shippingAddress,
         paymentMethod,
         couponCode,
+        shopSessionKey,
         notes,
         buyNowItem,
         marketingAttribution: rawAttribution,
@@ -63,6 +64,8 @@ export const createOrder = catchAsync(
         cartIdToDelete,
         cartCouponId,
         cartCouponDiscount,
+        cartPromotionDiscount,
+        cartPromotionId,
         productMap;
 
       if (buyNowItem) {
@@ -74,6 +77,8 @@ export const createOrder = catchAsync(
           cartCouponId,
           cartCouponDiscount,
         } = await checkoutService.processBuyNowItem(buyNowItem));
+        cartPromotionDiscount = 0;
+        cartPromotionId = undefined;
       } else {
         ({
           checkoutItems,
@@ -82,6 +87,8 @@ export const createOrder = catchAsync(
           cartIdToDelete,
           cartCouponId,
           cartCouponDiscount,
+          cartPromotionDiscount,
+          cartPromotionId,
         } = await checkoutService.processCartItems(userId));
       }
 
@@ -102,7 +109,7 @@ export const createOrder = catchAsync(
         );
       })();
 
-      const { discount, couponId } = await checkoutService.evaluateCoupon(
+      const { discount: couponDiscount, couponId } = await checkoutService.evaluateCoupon(
         userId,
         checkoutSubtotal,
         couponCode,
@@ -110,6 +117,37 @@ export const createOrder = catchAsync(
         cartCouponDiscount,
         couponLines,
       );
+
+      // Recompute auto-promotion on live checkout lines (prices may differ from cart snapshot)
+      const { resolveCartPromotion } = await import(
+        "../services/promotion/promotionApplyService"
+      );
+      const livePromo = await resolveCartPromotion(couponLines);
+      const promotionDiscount = livePromo.discount;
+      const promotionId = livePromo.promotion?._id ?? cartPromotionId;
+
+      const discount = promotionDiscount + couponDiscount;
+
+      const { computeCatalogSubtotal, buildCheckoutOfferBreakdown } = await import(
+        "../services/checkoutOfferAttribution"
+      );
+      const catalogSubtotal = computeCatalogSubtotal(
+        checkoutItems as Array<{
+          product: unknown;
+          variant: { sku: string };
+          quantity: number;
+          price: number;
+        }>,
+        productMap,
+      );
+      const offerBreakdown = buildCheckoutOfferBreakdown({
+        checkoutSubtotal,
+        catalogSubtotal,
+        promotionDiscount,
+        couponDiscount,
+        promotionId: promotionId ? String(promotionId) : undefined,
+        couponId,
+      });
 
       const { shippingCharge, tax, total, codFee } = computeOrderTotals(
         checkoutSubtotal,
@@ -135,7 +173,12 @@ export const createOrder = catchAsync(
         shippingAddress,
         paymentMethod,
         subtotal: checkoutSubtotal,
-        discount,
+        discount: offerBreakdown.discount,
+        saleDiscount: offerBreakdown.saleDiscount,
+        promotionDiscount: offerBreakdown.promotionDiscount,
+        couponDiscount: offerBreakdown.couponDiscount,
+        ...(offerBreakdown.promotionId ? { promotion: offerBreakdown.promotionId } : {}),
+        ...(shopSessionKey ? { shopSessionKey: String(shopSessionKey).trim() } : {}),
         shippingCharge,
         codFee,
         tax,
@@ -152,7 +195,12 @@ export const createOrder = catchAsync(
           orderItems,
           shippingAddress,
           checkoutSubtotal,
-          discount,
+          discount: offerBreakdown.discount,
+          saleDiscount: offerBreakdown.saleDiscount,
+          promotionDiscount: offerBreakdown.promotionDiscount,
+          couponDiscount: offerBreakdown.couponDiscount,
+          promotionId: offerBreakdown.promotionId,
+          shopSessionKey: shopSessionKey ? String(shopSessionKey).trim() : undefined,
           shippingCharge,
           codFee,
           tax,
@@ -205,7 +253,6 @@ export const createOrder = catchAsync(
         return next(new AppError("Order could not be created.", 500));
       }
 
-      // Push into event queue to offload notifications
       await enqueueOrderEvent({
         eventType: OrderEventType.ORDER_CREATED,
         orderId: String(codOrder._id),

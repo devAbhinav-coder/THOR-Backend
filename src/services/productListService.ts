@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import Product from "../models/Product";
 import APIFeatures from "../types/utils/apiFeatures";
 import { IProduct } from "../types";
-import { OFFLINE_MANUAL_PRODUCT_TAG } from "../constants/offlineOrder";
+import { shopCatalogBaseFilter } from "../constants/offlineOrder";
 import { LISTING_PROJECTION } from "../constants/productListing";
 import { advancedSearchService } from "./advancedSearchService";
 import {
@@ -25,7 +25,7 @@ import { buildShopCollectionFilter } from "./shopCollectionFilterService";
 import { mergeOnSaleFilter, mergeHasOfferFilter } from "../constants/onSaleFilter";
 import { colorFlexibleRegex } from "../utils/catalogAttributes";
 import { getActiveSaleCampaigns } from "./sale/saleCacheService";
-import { enrichProductsWithSalePricing } from "./sale/saleProductEnrichment";
+import { enrichProductsWithSalePricingAsync } from "./sale/saleProductEnrichment";
 import { couponValidationService } from "./coupon/couponValidationService";
 
 const RANDOM_COUNT_TTL = 300;
@@ -55,14 +55,7 @@ function buildFabricMongoFilter(
 export function storefrontBaseFilter(
   adminScope: boolean,
 ): Record<string, unknown> {
-  if (adminScope) {
-    return { category: { $ne: "Gifting" } };
-  }
-  return {
-    isActive: true,
-    category: { $ne: "Gifting" },
-    tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
-  };
+  return shopCatalogBaseFilter(adminScope);
 }
 
 export type ProductListResult = {
@@ -164,7 +157,7 @@ export async function listRandomProducts(
       loaded < poolSize && products.length >= parsed.limit
     : products.length >= parsed.limit);
 
-  const enriched = enrichProductsWithSalePricing(products, campaigns);
+  const enriched = await enrichProductsWithSalePricingAsync(products, campaigns);
 
   return {
     products: enriched,
@@ -272,7 +265,7 @@ export async function listProductsViaApiFeatures(
   const skip = (page - 1) * limit;
   const hasNextPage = products.length > 0 && skip + products.length < total;
 
-  const enriched = enrichProductsWithSalePricing(products, campaigns);
+  const enriched = await enrichProductsWithSalePricingAsync(products, campaigns);
 
   return {
     products: enriched,
@@ -313,7 +306,7 @@ export async function listProductsViaAdvancedSearch(
 
   const campaigns = await getActiveSaleCampaigns();
   return {
-    products: enrichProductsWithSalePricing(
+    products: await enrichProductsWithSalePricingAsync(
       searchResult.products as Record<string, unknown>[],
       campaigns,
     ),

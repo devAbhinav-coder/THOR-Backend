@@ -1,7 +1,7 @@
 import { Schema, model, Document } from 'mongoose';
 import { OrderEventType } from '../events/orderEvents';
 
-export type OutboxStatus = 'pending' | 'processing' | 'completed' | 'failed';
+export type OutboxStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'dead_letter';
 
 export interface IOrderEventOutbox extends Document {
   dedupeKey: string;
@@ -23,7 +23,7 @@ const orderEventOutboxSchema = new Schema<IOrderEventOutbox>(
     payload: { type: Schema.Types.Mixed, required: true },
     status: {
       type: String,
-      enum: ['pending', 'processing', 'completed', 'failed'],
+      enum: ['pending', 'processing', 'completed', 'failed', 'dead_letter'],
       default: 'pending',
     },
     attempts: { type: Number, default: 0 },

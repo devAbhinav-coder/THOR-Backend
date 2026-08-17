@@ -16,6 +16,7 @@ import {
 } from "../services/notifications/orderNotificationCopy";
 import { sendPurchaseEvent } from "../services/metaCapiService";
 import Order from "../models/Order";
+import { isCustomerDeliverableEmail } from "../types/utils/customerEmail";
 
 export let orderWorker: Worker<OrderEventPayload> | null = null;
 
@@ -37,7 +38,7 @@ export const startOrderWorker = () => {
             payload.orderNumber,
             payload.total,
           );
-          if (payload.userEmail) {
+          if (isCustomerDeliverableEmail(payload.userEmail)) {
             await enqueueEmail({
               to: payload.userEmail,
               subject: userTemplate.subject,
@@ -92,7 +93,7 @@ export const startOrderWorker = () => {
             payload.orderNumber,
             payload.total,
           );
-          if (payload.userEmail) {
+          if (isCustomerDeliverableEmail(payload.userEmail)) {
             await enqueueEmail({
               to: payload.userEmail,
               subject: userTemplate.subject,
@@ -136,7 +137,7 @@ export const startOrderWorker = () => {
         }
 
         case OrderEventType.ORDER_CANCELLED: {
-          if (payload.userEmail) {
+          if (isCustomerDeliverableEmail(payload.userEmail)) {
             const tpl = emailTemplates.userOrderCancelled(
               payload.userName || "Customer",
               payload.orderNumber,
@@ -162,7 +163,7 @@ export const startOrderWorker = () => {
             cancelled.type,
           );
 
-          if (payload.userEmail) {
+          if (isCustomerDeliverableEmail(payload.userEmail)) {
             const adminTpl = emailTemplates.adminOrderCancelled(
               payload.userName || "Customer",
               payload.userEmail,
@@ -183,7 +184,7 @@ export const startOrderWorker = () => {
         }
 
         case OrderEventType.RETURN_REQUESTED: {
-          if (payload.userEmail) {
+          if (isCustomerDeliverableEmail(payload.userEmail)) {
             const tpl = emailTemplates.userReturnRequested(
               payload.userName || "Customer",
               payload.orderNumber,
