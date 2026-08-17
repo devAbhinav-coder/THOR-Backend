@@ -22,6 +22,7 @@ import { LOW_STOCK_ALERT_EXCLUSIVE_MAX } from "../../constants/inventory";
 import { shouldSendJobAlert } from "../../jobs/jobAlertDedupe";
 import {
   advanceJobBatchCursor,
+  clearJobBatchCursor,
   getJobBatchCursor,
 } from "../../jobs/jobBatchCursor";
 import { cloudinaryInstance } from "../cloudinary";
@@ -46,6 +47,23 @@ type WishlistAlertSnapshot = {
   lastNotifiedAt?: Date;
 };
 
+function isObjectIdString(value: string): boolean {
+  return Types.ObjectId.isValid(value) && String(new Types.ObjectId(value)) === value;
+}
+
+function resolveRefId(ref: unknown): string | null {
+  if (ref == null) return null;
+  if (typeof ref === "string") {
+    return isObjectIdString(ref) ? ref : null;
+  }
+  if (typeof ref === "object" && "_id" in ref) {
+    const id = String((ref as { _id: unknown })._id);
+    return isObjectIdString(id) ? id : null;
+  }
+  const id = String(ref);
+  return isObjectIdString(id) ? id : null;
+}
+
 /** Wishlist items with 10%+ price drop → email/push (batch-optimized, cursor pagination). */
 export async function runWishlistPriceDropJob(): Promise<number> {
   const minDropPct = Number(process.env.WISHLIST_PRICE_DROP_MIN_PCT || 10);
@@ -55,10 +73,21 @@ export async function runWishlistPriceDropJob(): Promise<number> {
   );
   const cooldownSince = new Date(Date.now() - cooldownMs);
 
-  const cursor = await getJobBatchCursor("wishlist-price-drop");
+  const cursorRaw = await getJobBatchCursor("wishlist-price-drop");
+  const cursor =
+    cursorRaw && isObjectIdString(cursorRaw) ? cursorRaw : null;
+  if (cursorRaw && !cursor) {
+    logger.warn({
+      msg: "job_cursor_invalid",
+      job: "wishlist-price-drop",
+      cursor: cursorRaw,
+    });
+    await clearJobBatchCursor("wishlist-price-drop");
+  }
+
   const wishlists = await Wishlist.find({
     "products.0": { $exists: true },
-    ...(cursor ? { _id: { $gt: cursor } } : {}),
+    ...(cursor ? { _id: { $gt: new Types.ObjectId(cursor) } } : {}),
   })
     .populate("user", "name email isActive")
     .sort({ _id: 1 })
@@ -77,7 +106,20 @@ export async function runWishlistPriceDropJob(): Promise<number> {
 
   const allProductIds = [
     ...new Set(
-      wishlists.flatMap((wl) => (wl.products ?? []).map((id) => String(id))),
+      wishlists.flatMap((wl) =>
+        (wl.products ?? [])
+          .map((id) => resolveRefId(id))
+          .filter((id): id is string => id != null),
+      ),
+    ),
+  ];
+  if (!allProductIds.length) return 0;
+
+  const wishlistUserIds = [
+    ...new Set(
+      wishlists
+        .map((wl) => resolveRefId(wl.user))
+        .filter((id): id is string => id != null),
     ),
   ];
 
@@ -86,10 +128,12 @@ export async function runWishlistPriceDropJob(): Promise<number> {
     Product.find({ _id: { $in: allProductIds }, isActive: true })
       .select("name slug price")
       .lean(),
-    WishlistPriceAlert.find({
-      user: { $in: wishlists.map((w) => w.user) },
-      product: { $in: allProductIds },
-    }).lean(),
+    wishlistUserIds.length
+      ? WishlistPriceAlert.find({
+          user: { $in: wishlistUserIds },
+          product: { $in: allProductIds },
+        }).lean()
+      : Promise.resolve([]),
   ]);
 
   const productMap = new Map(products.map((p) => [String(p._id), p]));
@@ -122,11 +166,12 @@ export async function runWishlistPriceDropJob(): Promise<number> {
       email?: string;
       isActive?: boolean;
     };
-    const userId = String(user?._id ?? wl.user);
+    const userId = resolveRefId(user) ?? resolveRefId(wl.user);
     if (!userId || user?.isActive === false) continue;
 
     for (const productId of wl.products ?? []) {
-      const pid = String(productId);
+      const pid = resolveRefId(productId);
+      if (!pid) continue;
       const product = productMap.get(pid);
       if (!product) continue;
 
