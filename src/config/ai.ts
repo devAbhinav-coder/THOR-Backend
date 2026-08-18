@@ -2,7 +2,7 @@
 export const aiConfig = {
   enabled: Boolean(process.env.GROQ_API_KEY?.trim()),
   apiKey: process.env.GROQ_API_KEY?.trim() || '',
-  model: process.env.AI_MODEL?.trim() || 'llama-3.1-8b-instant',
+  model: process.env.AI_MODEL?.trim() || 'openai/gpt-oss-20b',
   baseUrl: 'https://api.groq.com/openai/v1',
   dailyBriefTtlSec: Math.max(3600, parseInt(process.env.AI_DAILY_BRIEF_TTL_SEC || '86400', 10)),
   explainCacheTtlSec: Math.max(300, parseInt(process.env.AI_EXPLAIN_CACHE_TTL_SEC || '3600', 10)),
