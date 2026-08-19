@@ -37,15 +37,16 @@ function clientWantsBearerTokens(req?: Request): boolean {
   return client === "mobile" || client === "app" || client === "expo";
 }
 
-export const signAccessToken = (userId: string): string => {
-  return jwt.sign(
-    { id: userId },
-    process.env.JWT_SECRET as string,
-    {
-      expiresIn: ACCESS_EXPIRES,
-      algorithm: "HS256",
-    } as jwt.SignOptions,
-  );
+export const signAccessToken = (
+  userId: string,
+  opts?: { admin2faVerified?: boolean },
+): string => {
+  const payload: Record<string, unknown> = { id: userId };
+  if (opts?.admin2faVerified) payload.a2f = true;
+  return jwt.sign(payload, process.env.JWT_SECRET as string, {
+    expiresIn: ACCESS_EXPIRES,
+    algorithm: "HS256",
+  } as jwt.SignOptions);
 };
 
 export const hashToken = (raw: string): string => {
@@ -57,6 +58,7 @@ export type RefreshSessionMeta = {
   userAgent?: string;
   deviceLabel?: string;
   familyId?: string;
+  admin2faVerified?: boolean;
 };
 
 export const createRefreshTokenForUser = async (
@@ -76,6 +78,7 @@ export const createRefreshTokenForUser = async (
     userAgent: meta.userAgent,
     deviceLabel: meta.deviceLabel,
     lastUsedAt: new Date(),
+    admin2faVerified: Boolean(meta.admin2faVerified),
   });
 
   return { raw, expiresAt, familyId };
@@ -120,17 +123,33 @@ export const clearTokenCookies = (res: Response): void => {
   });
 };
 
+export type AuthResponseOptions = {
+  admin2faVerified?: boolean;
+};
+
 export const sendAuthResponse = async (
   res: Response,
   user: InstanceType<typeof User>,
   statusCode: number,
   req?: Request,
+  opts?: AuthResponseOptions,
 ): Promise<void> => {
-  const accessToken = signAccessToken(String(user._id));
+  const admin2faVerified = Boolean(opts?.admin2faVerified);
+  if (
+    user.role === "admin" &&
+    user.adminTwoFactorEnabled &&
+    !admin2faVerified
+  ) {
+    throw new AppError("Two-factor authentication required.", 403);
+  }
+
+  const accessToken = signAccessToken(String(user._id), {
+    admin2faVerified,
+  });
   const meta = req ? sessionMetaFromRequest(req) : {};
   const { raw, expiresAt } = await createRefreshTokenForUser(
     String(user._id),
-    meta,
+    { ...meta, admin2faVerified },
   );
   setTokenCookies(res, accessToken, raw, expiresAt);
 
@@ -209,11 +228,16 @@ export async function rotateRefreshToken(
     throw new AppError(SESSION_EXPIRED, 401);
   }
 
+  if (user.role === "admin" && user.adminTwoFactorEnabled && !doc.admin2faVerified) {
+    throw new AppError("Admin two-factor verification required.", 401);
+  }
+
   const meta = sessionMetaFromRequest(req);
   const familyId = doc.familyId || crypto.randomUUID();
+  const admin2faVerified = Boolean(doc.admin2faVerified);
   const { raw: newRaw, expiresAt } = await createRefreshTokenForUser(
     String(user._id),
-    { ...meta, familyId },
+    { ...meta, familyId, admin2faVerified },
   );
 
   await RefreshToken.updateOne(
@@ -227,7 +251,11 @@ export async function rotateRefreshToken(
     },
   );
 
-  const accessToken = signAccessToken(String(user._id));
+  const accessToken = signAccessToken(String(user._id), {
+    admin2faVerified: user.role === "admin" && user.adminTwoFactorEnabled
+      ? admin2faVerified
+      : undefined,
+  });
   setTokenCookies(res, accessToken, newRaw, expiresAt);
 
   const userObj = user.toObject() as unknown as Record<string, unknown>;

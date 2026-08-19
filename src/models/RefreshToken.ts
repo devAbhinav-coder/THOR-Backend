@@ -13,6 +13,8 @@ const refreshTokenSchema = new Schema(
     userAgent: { type: String, maxlength: 512 },
     ip: { type: String, maxlength: 64 },
     lastUsedAt: { type: Date },
+    /** True when admin completed TOTP at login — required for admin API when 2FA enabled. */
+    admin2faVerified: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

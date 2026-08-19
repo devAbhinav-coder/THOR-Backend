@@ -32,6 +32,7 @@ import {
   signupStartSchema,
   signupVerifySchema,
   loginSchema,
+  adminTwoFactorVerifyLoginSchema,
   updateProfileSchema,
   addAddressSchema,
   forgotPasswordSchema,
@@ -45,6 +46,7 @@ import {
 import { sessionIdParamSchema } from '../validation/sessionSchemas';
 import { postSendOtp, postVerifyOtp, postResendOtp } from '../controllers/otpController';
 import { createAdaptiveLimiter } from '../middleware/adaptiveRateLimit';
+import { verifyAdminTwoFactorLogin } from '../controllers/adminTwoFactorAuthController';
 
 const router = Router();
 const sensitiveAuthLimiter = createAdaptiveLimiter({
@@ -93,6 +95,12 @@ router.post('/send-otp', otpLimiter, turnstileGuard, validate(sendOtpSchema), po
 router.post('/resend-otp', otpLimiter, turnstileGuard, validate(resendOtpSchema), postResendOtp);
 router.post('/verify-otp', otpLimiter, turnstileGuard, validate(verifyOtpSchema), postVerifyOtp);
 router.post('/login', loginLimiter, sensitiveAuthLimiter, turnstileGuard, validate(loginSchema), login);
+router.post(
+  '/admin-2fa/verify',
+  loginLimiter,
+  validate(adminTwoFactorVerifyLoginSchema),
+  verifyAdminTwoFactorLogin,
+);
 router.post('/refresh', sensitiveAuthLimiter, refresh);
 router.post('/forgot-password', otpLimiter, turnstileGuard, validate(forgotPasswordSchema), forgotPassword);
 router.post('/reset-password', otpLimiter, turnstileGuard, validate(resetPasswordSchema), resetPassword);

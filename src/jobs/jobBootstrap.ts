@@ -2,12 +2,14 @@ import connectDB from "../config/db";
 import logger from "../types/utils/logger";
 import {
   closeAllRedisConnections,
-  redisConnection,
   isRedisOperational,
-  bootstrapRedis,
 } from "../config/redis";
 import mongoose from "mongoose";
 import { shouldRunBackgroundJobs, shouldRunQueueWorkers } from "../config/runMode";
+import {
+  ensureRedisReady,
+  assertWorkerInfrastructure,
+} from "../config/infrastructureReadiness";
 import { broadcastNewBlog } from "../controllers/blogController";
 import {
   startOrderOutboxPoller,
@@ -196,17 +198,28 @@ export async function stopAllBackgroundWork(): Promise<void> {
 
 /** Standalone worker entry — DB + jobs only, no HTTP. */
 export async function bootstrapWorkerProcess(): Promise<void> {
-  await bootstrapRedis();
+  await ensureRedisReady();
   await connectDB();
+  await assertWorkerInfrastructure();
 
-  if (process.env.NODE_ENV === "production" && isRedisOperational()) {
-    const pong = await redisConnection.ping();
-    if (pong !== "PONG") {
-      throw new Error("Redis ping failed — worker cannot start without Redis");
-    }
+  if (process.env.NODE_ENV === "production" && !isRedisOperational()) {
+    throw new Error("Redis ping failed — worker cannot start without Redis");
   }
 
   startAllBackgroundWork();
+
+  // Periodic Redis heartbeat — reconnect after transient outages.
+  const heartbeatMs = Number(process.env.REDIS_HEARTBEAT_MS || 60_000);
+  if (heartbeatMs > 0 && isRedisOperational()) {
+    setInterval(() => {
+      void ensureRedisReady().then((ok) => {
+        if (!ok && process.env.NODE_ENV === "production") {
+          logger.error("Redis heartbeat failed in production worker");
+        }
+      });
+    }, heartbeatMs).unref();
+  }
+
   logger.info("Worker process ready");
 }
 

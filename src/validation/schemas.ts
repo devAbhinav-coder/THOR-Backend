@@ -99,6 +99,27 @@ export const loginSchema = z.object({
   }),
 });
 
+export const adminTwoFactorVerifyLoginSchema = z.object({
+  body: z.object({
+    pendingToken: z.string().min(10),
+    code: z.string().min(6).max(16),
+  }),
+});
+
+export const adminTwoFactorEnableSchema = z.object({
+  body: z.object({
+    secret: z.string().min(16).max(128),
+    code: z.string().regex(/^\d{6}$/, "Enter the 6-digit code from your app"),
+  }),
+});
+
+export const adminTwoFactorDisableSchema = z.object({
+  body: z.object({
+    password: passwordWire,
+    code: z.string().min(6).max(16),
+  }),
+});
+
 export const updatePasswordSchema = z.object({
   body: z
     .object({

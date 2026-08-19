@@ -15,9 +15,11 @@ const MIN_AGE_MS = 15 * 60 * 1000;
 
 /**
  * Finds Razorpay checkouts that may be paid at the gateway but still pending locally.
+ * Returns count of orders/intents reconciled.
  */
-export async function runPaymentRecoveryJob(): Promise<void> {
+export async function runPaymentRecoveryJob(): Promise<number> {
   const cutoff = new Date(Date.now() - MIN_AGE_MS);
+  let recovered = 0;
 
   const pendingOrders = await Order.find({
     paymentMethod: "razorpay",
@@ -48,6 +50,7 @@ export async function runPaymentRecoveryJob(): Promise<void> {
         captured.id,
         "recovery",
       );
+      recovered += 1;
     } catch (e) {
       logger.warn(
         `Payment recovery order=${String(row._id)}: ${(e as Error).message}`,
@@ -82,10 +85,16 @@ export async function runPaymentRecoveryJob(): Promise<void> {
         captured.id,
         "recovery",
       );
+      recovered += 1;
     } catch (e) {
       logger.warn(
         `Payment recovery intent=${String(intent._id)}: ${(e as Error).message}`,
       );
     }
   }
+
+  if (recovered > 0) {
+    logger.info({ msg: "payment_recovery_reconciled", count: recovered });
+  }
+  return recovered;
 }

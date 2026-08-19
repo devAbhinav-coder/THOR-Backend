@@ -1,0 +1,33 @@
+# Local Redis for auth refresh limits, cart sync, BullMQ jobs, and rate limiting.
+#
+# Usage (from backend/):
+#   docker compose -f docs/docker/docker-compose.redis.yml up -d
+#
+# Then in .env:
+#   REDIS_URL=redis://127.0.0.1:6379
+#
+# Stop:
+#   docker compose -f docs/docker/docker-compose.redis.yml down
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: house-of-rani-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --maxmemory 256mb
+      --maxmemory-policy noeviction
+      --save 60 1000
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  redis-data:

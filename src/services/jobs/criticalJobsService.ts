@@ -14,6 +14,7 @@ import PushNotificationOutbox from "../../models/PushNotificationOutbox";
 import BlogPublishOutbox from "../../models/BlogPublishOutbox";
 import logger from "../../types/utils/logger";
 import { emailTemplates } from "../emailService";
+import { emailConfigured } from "../../config/infrastructureReadiness";
 import { enqueueEmail } from "../../queues/emailQueue";
 import { queuePushForUser } from "../notifications/notificationDeliveryService";
 import { notifyAdmins, notifyAdminsEmail } from "../notificationService";
@@ -117,6 +118,7 @@ export async function runAbandonedCartRecoveryJob(): Promise<number> {
   );
 
   let sent = 0;
+  let emailSkipped = false;
   for (const cart of staleCarts) {
     const user = cart.user as unknown as {
       _id?: unknown;
@@ -130,12 +132,22 @@ export async function runAbandonedCartRecoveryJob(): Promise<number> {
 
     const itemCount = cart.items?.length ?? 0;
     const cartTotal = cart.total ?? 0;
-    const tpl = emailTemplates.abandonedCart(
-      user.name || "there",
-      cartTotal,
-      itemCount,
-    );
-    await enqueueEmail({ to: user.email!, subject: tpl.subject, html: tpl.html });
+
+    if (emailConfigured()) {
+      const tpl = emailTemplates.abandonedCart(
+        user.name || "there",
+        cartTotal,
+        itemCount,
+      );
+      await enqueueEmail({ to: user.email!, subject: tpl.subject, html: tpl.html });
+    } else if (!emailSkipped) {
+      emailSkipped = true;
+      logger.warn({
+        msg: "abandoned_cart_email_skipped",
+        reason: "No SMTP_HOST or RESEND_API_KEY — configure email for recovery emails",
+      });
+    }
+
     const pushBody = `You left ${itemCount} item${itemCount !== 1 ? "s" : ""} in your cart. Complete checkout before they sell out.`;
     await queuePushForUser(
       {

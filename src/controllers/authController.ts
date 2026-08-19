@@ -23,6 +23,7 @@ import {
   rotateRefreshToken,
   hashToken,
 } from "../services/authTokenService";
+import { respondAdminLoginOrTwoFactor } from "./adminTwoFactorAuthController";
 import { assertRefreshAllowed } from "../services/refreshRateLimiter";
 import { sendSuccess } from "../types/utils/response";
 import { writeAdminAudit } from "../services/adminAuditService";
@@ -167,7 +168,12 @@ export const login = catchAsync(
         String(user._id),
         String(user._id),
       );
-      return next(new AppError(LOGIN_FAILED_GENERIC, 401));
+      return next(
+        new AppError(
+          "This account uses Google sign-in. Click Continue with Google on the login page (not Sign up).",
+          401,
+        ),
+      );
     }
 
     if (!(await user.comparePassword(password))) {
@@ -197,6 +203,11 @@ export const login = catchAsync(
         String(user._id),
       );
       return next(new AppError(LOGIN_FAILED_GENERIC, 401));
+    }
+
+    if (user.role === "admin" && user.adminTwoFactorEnabled) {
+      await respondAdminLoginOrTwoFactor(req, res, user);
+      return;
     }
 
     emitAuthEvent({
@@ -312,7 +323,7 @@ export const googleAuth = catchAsync(
       : undefined;
 
     const session = await mongoose.startSession();
-    let resolvedUser: InstanceType<typeof User> | null = null;
+    let resolvedUserId: string | null = null;
     let isNewGoogleSignup = false;
 
     try {
@@ -380,16 +391,22 @@ export const googleAuth = catchAsync(
           await found.save({ session });
         }
 
-        resolvedUser = found;
+        resolvedUserId = String(found._id);
       });
     } finally {
       await session.endSession();
     }
 
-    if (!resolvedUser) {
+    if (!resolvedUserId) {
       return next(new AppError("Google sign-in failed.", 500));
     }
-    const user: InstanceType<typeof User> = resolvedUser;
+
+    const user = await User.findById(resolvedUserId).select(
+      "+googleId +password +welcomeEmailAt",
+    );
+    if (!user) {
+      return next(new AppError("Google sign-in failed.", 500));
+    }
 
     if (user.isActive === false) {
       return next(
@@ -401,6 +418,11 @@ export const googleAuth = catchAsync(
     }
 
     await removeOfflineCustomerByEmail(email);
+
+    if (user.role === "admin" && user.adminTwoFactorEnabled) {
+      await respondAdminLoginOrTwoFactor(req, res, user);
+      return;
+    }
 
     if (isNewGoogleSignup) {
       sendWelcomeEmailInBackground(user.name, user.email);

@@ -190,14 +190,15 @@ if (realRedisClient) {
   );
 }
 
-/** Connect + ping at startup; memory fallback only if Redis is down. */
+/** Connect + ping at startup; memory fallback only if Redis is down. Safe to call again after outage. */
 export async function bootstrapRedis(): Promise<void> {
   if (!realRedisClient) return;
 
   try {
-    if (realRedisClient.status === "wait") {
+    const status = realRedisClient.status;
+    if (status === "wait" || status === "end" || status === "close") {
       await realRedisClient.connect();
-    } else if (realRedisClient.status === "connecting") {
+    } else if (status === "connecting") {
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(
           () => reject(new Error("Redis connect timeout")),
@@ -221,15 +222,34 @@ export async function bootstrapRedis(): Promise<void> {
       ),
     ]);
     if (pong !== "PONG") throw new Error("Redis ping failed");
+    if (!redisOperational) {
+      logger.info("Redis reconnected");
+    } else {
+      logger.info("Redis ready");
+    }
     redisOperational = true;
-    logger.info("Redis ready");
   } catch (err: unknown) {
     redisOperational = false;
     logger.warn(
       `Redis unavailable (${(err as Error).message}). Using in-memory fallbacks — ` +
-        "start Redis (redis://localhost:6379) for auth sessions, cart sync, and rate limits.",
+        "start Redis: npm run redis:up (or REDIS_URL=redis://127.0.0.1:6379).",
     );
   }
+}
+
+/** Lightweight reconnect probe for health checks and worker heartbeats. */
+export async function reconnectRedisIfNeeded(): Promise<boolean> {
+  if (!realRedisClient) return false;
+  if (isRedisOperational()) {
+    try {
+      const pong = await redisConnection.ping();
+      return pong === "PONG";
+    } catch {
+      redisOperational = false;
+    }
+  }
+  await bootstrapRedis();
+  return isRedisOperational();
 }
 
 export function getRedisClient(): IORedis | null {

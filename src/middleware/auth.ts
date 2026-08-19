@@ -5,6 +5,19 @@ import AppError from "../types/utils/AppError";
 import catchAsync from "../types/utils/catchAsync";
 import { AuthRequest, JwtPayload } from "../types";
 
+function readAccessToken(req: AuthRequest): string | undefined {
+  if (
+    req.headers.authorization &&
+    req.headers.authorization.startsWith("Bearer")
+  ) {
+    return req.headers.authorization.split(" ")[1];
+  }
+  if (req.cookies?.accessToken) {
+    return req.cookies.accessToken as string;
+  }
+  return undefined;
+}
+
 export const protect = catchAsync(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     let token: string | undefined;
@@ -98,3 +111,35 @@ export const restrictTo = (...roles: string[]) => {
     next();
   };
 };
+
+/** Admin with 2FA enabled must have `a2f` claim on the access token. */
+export const requireAdminTwoFactor = catchAsync(
+  async (req: AuthRequest, _res: Response, next: NextFunction) => {
+    if (!req.user || req.user.role !== "admin") return next();
+    if (!req.user.adminTwoFactorEnabled) return next();
+
+    const token = readAccessToken(req);
+    if (!token || token === "loggedout") {
+      return next(
+        new AppError("Admin two-factor verification required.", 403),
+      );
+    }
+
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET as string, {
+        algorithms: ["HS256"],
+      }) as JwtPayload;
+      if (!decoded.a2f) {
+        return next(
+          new AppError("Admin two-factor verification required.", 403),
+        );
+      }
+    } catch {
+      return next(
+        new AppError("Admin two-factor verification required.", 403),
+      );
+    }
+
+    next();
+  },
+);

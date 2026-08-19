@@ -23,6 +23,10 @@ export interface IUser extends Document {
   passwordChangedAt?: Date;
   passwordResetToken?: string;
   passwordResetExpires?: Date;
+  /** Admin TOTP 2FA — enabled after setup verify. */
+  adminTwoFactorEnabled?: boolean;
+  adminTwoFactorSecret?: string;
+  adminTwoFactorBackupCodes?: string[];
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -493,6 +497,9 @@ export interface JwtPayload {
   id: string;
   iat: number;
   exp: number;
+  /** Set when admin completes TOTP verification. */
+  a2f?: boolean;
+  purpose?: string;
 }
 
 export type UserRole = 'user' | 'admin';

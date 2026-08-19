@@ -145,6 +145,9 @@ const userSchema = new Schema<IUser>(
     passwordChangedAt: Date,
     passwordResetToken: String,
     passwordResetExpires: Date,
+    adminTwoFactorEnabled: { type: Boolean, default: false },
+    adminTwoFactorSecret: { type: String, select: false },
+    adminTwoFactorBackupCodes: { type: [String], select: false, default: [] },
   },
   {
     timestamps: true,
@@ -155,6 +158,8 @@ const userSchema = new Schema<IUser>(
         delete ret['welcomeEmailAt'];
         delete ret['passwordResetToken'];
         delete ret['passwordResetExpires'];
+        delete ret['adminTwoFactorSecret'];
+        delete ret['adminTwoFactorBackupCodes'];
         delete ret['__v'];
         return ret;
       },

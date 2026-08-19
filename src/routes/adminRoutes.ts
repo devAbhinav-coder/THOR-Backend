@@ -48,6 +48,12 @@ import {
 } from '../controllers/admin/adminOutboxController';
 import { getAdminJobHealth } from '../controllers/admin/adminJobsController';
 import {
+  getAdminTwoFactorStatus,
+  setupAdminTwoFactor,
+  enableAdminTwoFactorHandler,
+  disableAdminTwoFactorHandler,
+} from '../controllers/admin/adminTwoFactorController';
+import {
   adminCreateReviewInvite,
   adminEmailReviewInvite,
 } from '../controllers/reviewInviteController';
@@ -117,7 +123,7 @@ import {
 } from '../controllers/admin/adminSubcategoryController';
 import { getMegaMenu } from '../controllers/navigationController';
 
-import { protect, restrictTo } from '../middleware/auth';
+import { protect, restrictTo, requireAdminTwoFactor } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import {
   updateOrderStatusSchema,
@@ -147,6 +153,8 @@ import {
   adminProductSearchQuerySchema,
   adminProductIdParamSchema,
   marketingAudiencePreviewQuerySchema,
+  adminTwoFactorEnableSchema,
+  adminTwoFactorDisableSchema,
 } from '../validation/schemas';
 import {
   uploadCategoryImages,
@@ -210,6 +218,21 @@ const adminAiLimiter = createAdaptiveLimiter({
 });
 
 router.use(protect, restrictTo('admin'));
+
+router.get('/security/2fa/status', getAdminTwoFactorStatus);
+router.post('/security/2fa/setup', setupAdminTwoFactor);
+router.post(
+  '/security/2fa/enable',
+  validate(adminTwoFactorEnableSchema),
+  enableAdminTwoFactorHandler,
+);
+router.post(
+  '/security/2fa/disable',
+  validate(adminTwoFactorDisableSchema),
+  disableAdminTwoFactorHandler,
+);
+
+router.use(requireAdminTwoFactor);
 
 router.get('/analytics', getDashboardAnalytics);
 router.get('/revenue/summary', getRevenuePeriodSummaryHandler);

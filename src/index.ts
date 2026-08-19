@@ -27,6 +27,7 @@ import {
   bootstrapRedis,
   isRedisOperational,
   shouldUseRedisRateLimit,
+  redisEnabled,
 } from "./config/redis";
 
 import authRoutes from "./routes/authRoutes";
@@ -70,6 +71,11 @@ import {
   normalizeOriginUrl,
 } from "./config/allowedOrigins";
 import { csrfOriginGuard } from "./middleware/csrfOriginGuard";
+import {
+  buildInfrastructureReport,
+  ensureRedisReady,
+  logInfrastructureReport,
+} from "./config/infrastructureReadiness";
 const app = express();
 
 if (process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true") {
@@ -295,24 +301,12 @@ app.use(
 );
 
 app.get("/api/health", async (_req: Request, res: Response) => {
-  const mongoOk = mongoose.connection.readyState === 1;
-  let redisOk = false;
-  if (isRedisOperational()) {
-    try {
-      const pong = await Promise.race([
-        redisConnection.ping(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Redis ping timeout")), 2000),
-        ),
-      ]);
-      redisOk = pong === "PONG";
-    } catch {
-      redisOk = false;
-    }
-  }
-
+  await ensureRedisReady();
+  const report = await buildInfrastructureReport();
+  const mongoOk = report.checks.mongodb.status === "ok";
+  const redisOk = report.checks.redis.status === "ok";
   const isProd = process.env.NODE_ENV === "production";
-  const redisRequired = isProd && isRedisOperational();
+  const redisRequired = isProd && redisEnabled;
   const ok = mongoOk && (!redisRequired || redisOk);
 
   res.status(ok ? 200 : 503).json({
@@ -321,11 +315,20 @@ app.get("/api/health", async (_req: Request, res: Response) => {
       !mongoOk ? "Database connection failed"
       : redisRequired && !redisOk ? "Redis connection failed"
       : "API is running",
-    timestamp: new Date().toISOString(),
+    timestamp: report.timestamp,
+    runMode: report.runMode,
     checks: {
       mongodb: mongoOk,
-      redis: isRedisOperational() ? redisOk : "disabled",
+      redis:
+        report.checks.redis.status === "disabled"
+          ? "disabled"
+          : redisOk,
+      email: report.checks.email.status,
+      worker: report.checks.workerProcess.status,
+      abandonedCartRecovery: report.checks.abandonedCartRecovery.status,
+      paymentRecovery: report.checks.paymentRecovery.status,
     },
+    infrastructure: report.checks,
   });
 });
 app.use(
@@ -385,6 +388,17 @@ async function bootstrap(): Promise<void> {
   await connectDB();
   startAllBackgroundWork();
   await setupBullBoard(app);
+
+  const infraReport = await buildInfrastructureReport();
+  logInfrastructureReport(infraReport);
+  if (
+    infraReport.checks.workerProcess.status === "degraded" &&
+    process.env.NODE_ENV !== "production"
+  ) {
+    logger.warn(
+      "Background jobs need a worker: run `npm run worker:dev` or `npm run dev:stack` in another terminal.",
+    );
+  }
 
   if (process.env.NODE_ENV === "production") {
     const mode = getRunMode();
