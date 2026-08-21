@@ -72,11 +72,15 @@ export const startOrderWorker = () => {
 
           // Meta CAPI
           if (payload.paymentMethod === "cod") {
-            // For cod, the order document is needed for meta capi formatting
-            const order = await Order.findById(payload.orderId).lean();
+            const order = await Order.findById(payload.orderId)
+              .populate("user", "email")
+              .lean();
             if (order) {
               await sendPurchaseEvent(
-                order as any,
+                {
+                  ...order,
+                  email: payload.userEmail || (order as { user?: { email?: string } }).user?.email,
+                } as any,
                 payload.ip,
                 payload.userAgent,
                 payload.fbpCookie,
@@ -123,10 +127,15 @@ export const startOrderWorker = () => {
             "order",
           );
 
-          const order = await Order.findById(payload.orderId).lean();
+          const order = await Order.findById(payload.orderId)
+            .populate("user", "email")
+            .lean();
           if (order) {
             await sendPurchaseEvent(
-              order as any,
+              {
+                ...order,
+                email: payload.userEmail || (order as { user?: { email?: string } }).user?.email,
+              } as any,
               payload.ip,
               payload.userAgent,
               payload.fbpCookie,

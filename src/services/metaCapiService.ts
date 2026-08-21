@@ -1,14 +1,15 @@
 import axios from "axios";
-import crypto from "crypto";
 import { IOrder } from "../types";
 import { getMetaCatalogItemId } from "../utils/metaCatalogId";
+import {
+  buildMetaCapiUserData,
+  buildMetaCapiUserDataFromOrder,
+  type MetaUserDataInput,
+} from "../utils/metaUserData";
 
 const PIXEL_ID = process.env.META_PIXEL_ID;
 const ACCESS_TOKEN = process.env.META_CAPI_TOKEN;
 const API_VERSION = process.env.META_GRAPH_API_VERSION || "v25.0";
-
-const hash = (value: string) =>
-  crypto.createHash("sha256").update(value.trim().toLowerCase()).digest("hex");
 
 export type MetaEventName =
   | "PageView"
@@ -16,7 +17,10 @@ export type MetaEventName =
   | "Search"
   | "AddToCart"
   | "InitiateCheckout"
-  | "AddToWishlist";
+  | "AddToWishlist"
+  | "AddPaymentInfo"
+  | "CompleteRegistration"
+  | "Contact";
 
 export type MetaCustomData = {
   currency?: string;
@@ -26,6 +30,7 @@ export type MetaCustomData = {
   content_type?: "product" | "product_group";
   search_string?: string;
   num_items?: number;
+  status?: string;
   contents?: Array<{
     id: string;
     quantity: number;
@@ -38,6 +43,7 @@ type MetaRequestContext = {
   userAgent?: string;
   fbp?: string;
   fbc?: string;
+  user?: MetaUserDataInput;
 };
 
 function configured(): boolean {
@@ -88,19 +94,18 @@ export async function sendBrowserMetaEvent(
   context: MetaRequestContext,
 ): Promise<void> {
   try {
+    const user_data = buildMetaCapiUserData(context, context.user);
+
     await postMetaEvent({
       event_name: eventName,
       event_time: Math.floor(Date.now() / 1000),
       action_source: "website",
       event_id: eventId,
       event_source_url: eventSourceUrl,
-      user_data: {
-        client_ip_address: context.ip,
-        client_user_agent: context.userAgent,
-        fbp: context.fbp,
-        fbc: context.fbc,
-      },
-      custom_data: customData,
+      user_data,
+      ...(customData && Object.keys(customData).length > 0 ?
+        { custom_data: customData }
+      : {}),
     });
   } catch (error: any) {
     if (process.env.NODE_ENV !== "production") {
@@ -120,10 +125,9 @@ export const sendPurchaseEvent = async (
   reqIp?: string,
   reqUserAgent?: string,
   fbp?: string,
-  fbc?: string
+  fbc?: string,
 ) => {
   try {
-    // Map order items to Meta CAPI contents schema
     const contents = order.items.map((item) => {
       const productId =
         typeof item.product === "object" &&
@@ -139,14 +143,23 @@ export const sendPurchaseEvent = async (
       };
     });
 
-    // We generate an event_id using order ID for deduplication 
-    // This MUST match the client-side event_id if we want true deduplication!
-    // But since Next.js frontend sends standard fbq, CAPI deduplication relies on matching IDs.
     const eventId = `order_${order._id}`;
+    const userId =
+      typeof order.user === "object" && order.user?._id ?
+        order.user._id.toString()
+      : typeof order.user === "string" ? order.user
+      : undefined;
 
-    // Try to safely extract email and phone
-    const email = ((order as any).email || order.user?.email || "").toString().trim();
-    const phone = (order.shippingAddress?.phone || "").toString().trim();
+    const user_data = buildMetaCapiUserDataFromOrder(
+      {
+        ip: reqIp,
+        userAgent: reqUserAgent,
+        fbp,
+        fbc,
+      },
+      order,
+      userId,
+    );
 
     await postMetaEvent({
       event_name: "Purchase",
@@ -154,14 +167,7 @@ export const sendPurchaseEvent = async (
       action_source: "website",
       event_id: eventId,
       event_source_url: `${process.env.FRONTEND_URL || "https://thehouseofrani.com"}/checkout?order=${order._id}`,
-      user_data: {
-        client_ip_address: reqIp,
-        client_user_agent: reqUserAgent,
-        em: email ? hash(email) : undefined,
-        ph: phone ? hash(phone) : undefined,
-        fbp,
-        fbc,
-      },
+      user_data,
       custom_data: {
         currency: "INR",
         value: order.total,
@@ -177,7 +183,10 @@ export const sendPurchaseEvent = async (
     }
   } catch (error: any) {
     if (process.env.NODE_ENV !== "production") {
-      console.error("[Meta CAPI Error] Failed to send event:", error?.response?.data || error.message);
+      console.error(
+        "[Meta CAPI Error] Failed to send event:",
+        error?.response?.data || error.message,
+      );
     }
   }
 };

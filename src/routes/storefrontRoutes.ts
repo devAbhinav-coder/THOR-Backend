@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { createAdaptiveLimiter } from '../middleware/adaptiveRateLimit';
 import { validate } from '../middleware/validate';
+import { optionalProtect } from '../middleware/auth';
 import { getStorefrontSettings } from '../controllers/storefrontController';
 import { recordVisit } from '../controllers/storeVisitController';
 import { recordStoreVisitSchema } from '../validation/storeVisitSchemas';
@@ -43,6 +44,7 @@ router.post(
 router.post(
   '/meta-event',
   metaEventLimiter,
+  optionalProtect,
   validate(browserMetaEventSchema),
   recordBrowserMetaEvent,
 );

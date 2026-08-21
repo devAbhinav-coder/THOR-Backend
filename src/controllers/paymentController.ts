@@ -13,6 +13,7 @@ import {
 } from "../services/paymentVerificationService";
 import { enqueueOrderEvent } from "../queues/orderQueue";
 import { OrderEventType } from "../events/orderEvents";
+import { resolveClientIp } from "../utils/metaUserData";
 import {
   acquirePaymentVerifyLock,
   releasePaymentVerifyLock,
@@ -58,7 +59,7 @@ async function sendVerifiedOrderSideEffects(
       total: Number(order.total ?? 0),
       paymentMethod: "razorpay",
       razorpayPaymentId,
-      ip: req.ip,
+      ip: resolveClientIp(req),
       userAgent: req.headers["user-agent"],
       fbpCookie: metaBrowser?.fbp || req.cookies?._fbp,
       fbcCookie: metaBrowser?.fbc || req.cookies?._fbc,

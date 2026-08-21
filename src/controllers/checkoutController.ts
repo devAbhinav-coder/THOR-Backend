@@ -16,6 +16,7 @@ import { checkoutService } from "../services/checkoutService";
 import { enqueueOrderEvent } from "../queues/orderQueue";
 import { OrderEventType } from "../events/orderEvents";
 import { sanitizeMarketingAttribution } from "../utils/marketingAttribution";
+import { resolveClientIp } from "../utils/metaUserData";
 
 export const createOrder = catchAsync(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -262,7 +263,7 @@ export const createOrder = catchAsync(
         userEmail: req.user?.email,
         total: codOrder.total,
         paymentMethod: codOrder.paymentMethod,
-        ip: req.ip,
+        ip: resolveClientIp(req),
         userAgent: req.headers["user-agent"],
         fbpCookie: metaBrowser?.fbp || req.cookies?._fbp,
         fbcCookie: metaBrowser?.fbc || req.cookies?._fbc,
