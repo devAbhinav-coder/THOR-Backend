@@ -335,6 +335,17 @@ const productDetailSchema = z.object({
   value: z.string().min(1).max(500),
 });
 
+const premiumEditorialFieldSchema = z.object({
+  label: z.string().min(1).max(80),
+  value: z.string().min(1).max(300),
+});
+
+const premiumEditorialPanelSchema = z.object({
+  title: z.string().max(120).optional(),
+  fields: z.array(premiumEditorialFieldSchema).max(6),
+  note: z.string().max(1200),
+});
+
 const productCustomFieldSchema = z.object({
   label: z.string().min(1).max(120),
   placeholder: z.string().max(200).optional(),
@@ -385,6 +396,20 @@ export const createProductSchema = z.object({
     seoDescription: z.string().optional(),
     customFields: jsonStringToArray(productCustomFieldSchema).optional(),
     productDetails: jsonStringToArray(productDetailSchema).optional(),
+    isPremium: optionalBooleanFromString,
+    premiumSlug: z.string().max(120).optional(),
+    premiumSubtitle: z.string().max(200).optional(),
+    craftNote: z.string().max(2000).optional(),
+    weaveHours: z.coerce.number().int().min(0).optional(),
+    sortOrderPremium: z.coerce.number().int().min(0).optional(),
+    premiumEditorialOpen: z.preprocess(
+      (val) => (typeof val === "string" && val ? JSON.parse(val) : val),
+      premiumEditorialPanelSchema.optional(),
+    ),
+    premiumEditorialClose: z.preprocess(
+      (val) => (typeof val === "string" && val ? JSON.parse(val) : val),
+      premiumEditorialPanelSchema.optional(),
+    ),
   }),
 });
 
@@ -423,6 +448,20 @@ export const updateProductSchema = z.object({
     seoDescription: z.string().optional(),
     customFields: jsonStringToArray(productCustomFieldSchema).optional(),
     productDetails: jsonStringToArray(productDetailSchema).optional(),
+    isPremium: optionalBooleanFromString,
+    premiumSlug: z.string().max(120).optional(),
+    premiumSubtitle: z.string().max(200).optional(),
+    craftNote: z.string().max(2000).optional(),
+    weaveHours: z.coerce.number().int().min(0).optional(),
+    sortOrderPremium: z.coerce.number().int().min(0).optional(),
+    premiumEditorialOpen: z.preprocess(
+      (val) => (typeof val === "string" && val ? JSON.parse(val) : val),
+      premiumEditorialPanelSchema.optional(),
+    ),
+    premiumEditorialClose: z.preprocess(
+      (val) => (typeof val === "string" && val ? JSON.parse(val) : val),
+      premiumEditorialPanelSchema.optional(),
+    ),
   }),
 });
 

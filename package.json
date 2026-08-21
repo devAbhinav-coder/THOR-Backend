@@ -28,6 +28,7 @@
     "sync:embeddings": "ts-node --transpile-only scripts/sync-content-embeddings.ts",
     "indexes:orders": "ts-node --transpile-only scripts/ensure-order-indexes.ts",
     "seed:shop-catalog": "ts-node --transpile-only scripts/seed-shop-catalog.ts",
+    "seed:premium-catalog": "ts-node --transpile-only scripts/seed-premium-catalog.ts",
     "backfill:variant-sold-count": "ts-node --transpile-only scripts/backfill-variant-sold-count.ts",
     "backfill:order-cost-at-sale": "ts-node --transpile-only scripts/backfill-order-cost-at-sale.ts"
   },

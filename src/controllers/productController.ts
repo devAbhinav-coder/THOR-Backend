@@ -56,6 +56,7 @@ import {
   canonicalizeVariantColors,
 } from "../utils/catalogAttributes";
 import { invalidateGiftingProductCache } from "../services/gifting/giftingProductDiscoveryService";
+import { invalidatePremiumProductCache } from "../services/premium/premiumProductDiscoveryService";
 const PDP_CACHE_TTL = 600;
 const FILTERS_CACHE_TTL = 300;
 
@@ -591,6 +592,11 @@ export const createProduct = catchAsync(
     const uploadedImages = (
       req as Request & { uploadedImages?: { url: string; publicId: string }[] }
     ).uploadedImages;
+    const uploadedPremiumHero = (
+      req as Request & {
+        uploadedPremiumHero?: { url: string; publicId: string };
+      }
+    ).uploadedPremiumHero;
 
     const imagesMeta = parseImagesMeta(req.body.imagesMeta);
     const hasMeta = imagesMeta.length > 0;
@@ -717,7 +723,46 @@ export const createProduct = catchAsync(
         req.body.productDetails || [],
         "productDetails",
       ),
+      isPremium:
+        req.body.isPremium === "true" || req.body.isPremium === true,
+      premiumSlug:
+        typeof req.body.premiumSlug === "string" ?
+          req.body.premiumSlug.trim().toLowerCase() || undefined
+        : undefined,
+      premiumSubtitle:
+        typeof req.body.premiumSubtitle === "string" ?
+          req.body.premiumSubtitle.trim() || undefined
+        : undefined,
+      craftNote:
+        typeof req.body.craftNote === "string" ?
+          req.body.craftNote.trim() || undefined
+        : undefined,
+      weaveHours:
+        req.body.weaveHours !== undefined && req.body.weaveHours !== "" ?
+          Number(req.body.weaveHours)
+        : undefined,
+      sortOrderPremium:
+        req.body.sortOrderPremium !== undefined && req.body.sortOrderPremium !== "" ?
+          Number(req.body.sortOrderPremium)
+        : 0,
+      premiumEditorialOpen: safeJsonParse(
+        req.body.premiumEditorialOpen,
+        req.body.premiumEditorialOpen,
+        "premiumEditorialOpen",
+      ),
+      premiumEditorialClose: safeJsonParse(
+        req.body.premiumEditorialClose,
+        req.body.premiumEditorialClose,
+        "premiumEditorialClose",
+      ),
     };
+    if (uploadedPremiumHero) {
+      (productData as Record<string, unknown>).premiumHeroImage = {
+        url: uploadedPremiumHero.url,
+        publicId: uploadedPremiumHero.publicId,
+        alt: `${req.body.name} - Premium hero`,
+      };
+    }
     delete (productData as Record<string, unknown>).totalStock;
     (productData as Record<string, unknown>).totalStock =
       sumVariantStocks(variantsParsed);
@@ -730,6 +775,9 @@ export const createProduct = catchAsync(
     await invalidateProductCaches();
     if (productData.isGiftable || productData.category === "Gifting") {
       invalidateGiftingProductCache();
+    }
+    if (productData.isPremium) {
+      invalidatePremiumProductCache();
     }
 
     const lean = await Product.findById(product._id).lean<
@@ -761,6 +809,11 @@ export const updateProduct = catchAsync(
     const uploadedImages = (
       req as Request & { uploadedImages?: { url: string; publicId: string }[] }
     ).uploadedImages;
+    const uploadedPremiumHero = (
+      req as Request & {
+        uploadedPremiumHero?: { url: string; publicId: string };
+      }
+    ).uploadedPremiumHero;
     const imagesMeta = parseImagesMeta(req.body.imagesMeta);
     const hasMeta = imagesMeta.length > 0;
 
@@ -918,6 +971,48 @@ export const updateProduct = catchAsync(
       updateData.comparePrice = cp ? Number(cp) : undefined;
     }
 
+    if (req.body.isPremium !== undefined) {
+      updateData.isPremium =
+        req.body.isPremium === "true" || req.body.isPremium === true;
+    }
+    for (const key of [
+      "premiumSlug",
+      "premiumSubtitle",
+      "craftNote",
+    ] as const) {
+      if (req.body[key] !== undefined) {
+        const val = String(req.body[key] ?? "").trim();
+        updateData[key] = key === "premiumSlug" ? val.toLowerCase() || undefined : val || undefined;
+      }
+    }
+    if (req.body.weaveHours !== undefined && req.body.weaveHours !== "") {
+      updateData.weaveHours = Number(req.body.weaveHours);
+    }
+    if (req.body.sortOrderPremium !== undefined && req.body.sortOrderPremium !== "") {
+      updateData.sortOrderPremium = Number(req.body.sortOrderPremium);
+    }
+    if (req.body.premiumEditorialOpen !== undefined) {
+      updateData.premiumEditorialOpen = safeJsonParse(
+        req.body.premiumEditorialOpen,
+        req.body.premiumEditorialOpen,
+        "premiumEditorialOpen",
+      );
+    }
+    if (req.body.premiumEditorialClose !== undefined) {
+      updateData.premiumEditorialClose = safeJsonParse(
+        req.body.premiumEditorialClose,
+        req.body.premiumEditorialClose,
+        "premiumEditorialClose",
+      );
+    }
+    if (uploadedPremiumHero) {
+      updateData.premiumHeroImage = {
+        url: uploadedPremiumHero.url,
+        publicId: uploadedPremiumHero.publicId,
+        alt: `${req.body.name || currentProduct.name} - Premium hero`,
+      };
+    }
+
     for (const key of [
       "shortDescription",
       "subcategory",
@@ -991,6 +1086,10 @@ export const updateProduct = catchAsync(
       currentProduct.isGiftable ||
       currentProduct.category === "Gifting";
     if (giftable) invalidateGiftingProductCache();
+    const premium =
+      updateData.isPremium === true ||
+      currentProduct.isPremium;
+    if (premium) invalidatePremiumProductCache();
 
     if (updatedProduct.isActive !== false) {
       notifyIndexNowStorefront(`/shop/${encodeURIComponent(slug)}`);
