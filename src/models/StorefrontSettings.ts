@@ -183,7 +183,7 @@ const homeGiftShowcaseSchema = new Schema(
     headlineLine1: { type: String, trim: true, maxlength: 80 },
     headlineLine2: { type: String, trim: true, maxlength: 80 },
     description: { type: String, trim: true, maxlength: 520 },
-    /** Shown next to social icons, e.g. @thehouseofrani_ */
+    /** Shown next to social icons, e.g. @thehouseofraniofficial */
     socialHandle: { type: String, trim: true, maxlength: 80 },
     cards: {
       type: [homeGiftShowcaseCardSchema],
