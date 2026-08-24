@@ -9,6 +9,8 @@ import { recordBrowserMetaEvent } from '../controllers/metaEventController';
 import { browserMetaEventSchema } from '../validation/metaEventSchemas';
 import { recordOfferEvent } from '../controllers/offerEventController';
 import { recordOfferEventSchema } from '../validation/offerEventSchemas';
+import { getDeliveryEstimate } from '../controllers/storefrontShippingController';
+import { storefrontShippingEstimateQuerySchema } from '../validation/schemas';
 
 const router = Router();
 
@@ -33,7 +35,20 @@ const offerEventLimiter = createAdaptiveLimiter({
   message: 'Too many offer events. Please slow down.',
 });
 
+const shippingEstimateLimiter = createAdaptiveLimiter({
+  windowMs: 60 * 1000,
+  max: 30,
+  prefix: 'rl:storefront:shipping-estimate:',
+  message: 'Too many delivery checks. Please wait a moment.',
+});
+
 router.get('/settings', getStorefrontSettings);
+router.get(
+  '/shipping/estimate',
+  shippingEstimateLimiter,
+  validate(storefrontShippingEstimateQuerySchema),
+  getDeliveryEstimate,
+);
 router.post('/visit', visitLimiter, validate(recordStoreVisitSchema), recordVisit);
 router.post(
   '/offer-event',

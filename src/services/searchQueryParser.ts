@@ -628,13 +628,8 @@ export function parseSearchQueryIntent(raw: unknown): ParsedSearchIntent {
 
   const displayLabel = displayParts.join(" · ") || rawQuery;
   const normalizedRaw = rawQuery.trim().toLowerCase();
-  const normalizedText = textQuery.trim().toLowerCase();
-  const didYouMean =
-    corrections.length > 0 ? textQuery || displayLabel
-    : normalizedText && normalizedText !== normalizedRaw ? textQuery
-    : undefined;
 
-  return {
+  const intent: ParsedSearchIntent = {
     rawQuery,
     textQuery,
     fabrics,
@@ -645,9 +640,17 @@ export function parseSearchQueryIntent(raw: unknown): ParsedSearchIntent {
     minPrice,
     maxPrice,
     displayLabel,
-    didYouMean,
     corrections,
   };
+
+  if (corrections.length > 0) {
+    const suggested = formatIntentAsQuery(intent);
+    if (suggested && suggested.trim().toLowerCase() !== normalizedRaw) {
+      intent.didYouMean = suggested;
+    }
+  }
+
+  return intent;
 }
 
 /** Rebuild a navigable search string from parsed intent (keeps price + color). */

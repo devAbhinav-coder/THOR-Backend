@@ -844,6 +844,19 @@ export const delhiveryServiceabilityQuerySchema = z.object({
   }),
 });
 
+/** GET /storefront/shipping/estimate?pin= */
+export const storefrontShippingEstimateQuerySchema = z.object({
+  query: z.object({
+    pin: z.preprocess(
+      (v) => (Array.isArray(v) ? v[0] : v),
+      z
+        .string()
+        .trim()
+        .regex(/^\d{6}$/, 'Enter a valid 6-digit pincode'),
+    ),
+  }),
+});
+
 const offlineShippingAddressSchema = z.object({
   name: z.string().min(1).max(80).optional(),
   phone: z.string().min(8).max(20).optional(),

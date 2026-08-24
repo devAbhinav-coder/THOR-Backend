@@ -572,13 +572,25 @@ export async function fetchTatHint(params: {
   if (!delhiveryIsConfigured()) {
     throw new DelhiveryApiError("Delhivery is not configured", 503);
   }
+  const o = encodeURIComponent(params.origin_pin);
+  const d = encodeURIComponent(params.destination_pin);
   const customPath = process.env.DELHIVERY_TAT_PATH?.trim();
+  const chargeQ = new URLSearchParams({
+    md: params.mot === "E" ? "E" : "S",
+    cgm: "500",
+    o_pin: params.origin_pin,
+    d_pin: params.destination_pin,
+    ss: "Delivered",
+    pt: "Pre-paid",
+  });
   const paths =
     customPath ?
       [customPath]
     : [
-        `/api/dc/fetch/tat?origin_pin=${encodeURIComponent(params.origin_pin)}&destination_pin=${encodeURIComponent(params.destination_pin)}&mot=${params.mot}`,
-        `/api/dc/fetch/tat/json/?origin_pin=${encodeURIComponent(params.origin_pin)}&destination_pin=${encodeURIComponent(params.destination_pin)}&mot=${params.mot}`,
+        `/api/dc/fetch/tat?origin_pin=${o}&destination_pin=${d}&mot=${params.mot}`,
+        `/api/dc/fetch/tat/json/?origin_pin=${o}&destination_pin=${d}&mot=${params.mot}`,
+        `/api/dc/expected_tat?origin_pin=${o}&destination_pin=${d}&mot=${params.mot}`,
+        `/api/kinko/v1/invoice/charges/.json?${chargeQ}`,
       ];
 
   for (const path of paths) {
@@ -593,7 +605,7 @@ export async function fetchTatHint(params: {
       }
       if (!res.ok) continue;
       const days = extractTatDays(json);
-      return { tatDays: days, raw: json, ok: true };
+      if (days && days > 0) return { tatDays: days, raw: json, ok: true };
     } catch (e) {
       logger.debug(`Delhivery TAT try failed: ${(e as Error).message}`);
     }
@@ -601,23 +613,38 @@ export async function fetchTatHint(params: {
   return { raw: null, ok: false };
 }
 
-function extractTatDays(json: unknown): number | undefined {
-  if (json == null || typeof json !== "object") return undefined;
+function extractTatDays(json: unknown, depth = 0): number | undefined {
+  if (json == null || depth > 6) return undefined;
+  if (Array.isArray(json)) {
+    for (const item of json) {
+      const days = extractTatDays(item, depth + 1);
+      if (days) return days;
+    }
+    return undefined;
+  }
+  if (typeof json !== "object") return undefined;
   const o = json as Record<string, unknown>;
   const candidates = [
     o.tat,
     o.TAT,
+    o.expected_tat,
+    o.expected_tat_days,
     o.expected_delivery_days,
+    o.expected_edd,
+    o.tat_days,
     o.days,
     o.time_in_transit,
+    o.transit_days,
   ];
   for (const c of candidates) {
-    if (typeof c === "number" && Number.isFinite(c)) return Math.round(c);
-    if (typeof c === "string" && /^\d+$/.test(c.trim()))
-      return parseInt(c.trim(), 10);
+    if (typeof c === "number" && Number.isFinite(c) && c > 0) return Math.round(c);
+    if (typeof c === "string" && /^\d+(\.\d+)?$/.test(c.trim())) {
+      const n = Number(c.trim());
+      if (n > 0) return Math.round(n);
+    }
   }
   if (typeof o.data === "object" && o.data) {
-    return extractTatDays(o.data);
+    return extractTatDays(o.data, depth + 1);
   }
   return undefined;
 }

@@ -34,6 +34,12 @@ test("parses 3k shorthand", () => {
   assert.equal(intent.maxPrice, 3000);
 });
 
+test("clean price query is not a did-you-mean", () => {
+  const intent = parseSearchQueryIntent("saree under 1500");
+  assert.equal(intent.maxPrice, 1500);
+  assert.equal(intent.didYouMean, undefined);
+});
+
 test("maps sarah typo to saree search text", () => {
   const intent = parseSearchQueryIntent("sarah");
   assert.equal(intent.textQuery, "saree");
