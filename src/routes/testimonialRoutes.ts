@@ -13,6 +13,13 @@ import { protect, restrictTo } from '../middleware/auth';
 import { uploadReviewImages, processReviewImages } from '../middleware/upload';
 import { assertReviewUploadSecurity } from '../middleware/reviewUploadSecurity';
 import { createAdaptiveLimiter } from '../middleware/adaptiveRateLimit';
+import { validate } from '../middleware/validate';
+import {
+  submitPublicTestimonialSchema,
+  createTestimonialSchema,
+  updateTestimonialSchema,
+  testimonialIdParamSchema,
+} from '../validation/testimonialSchemas';
 
 const router = Router();
 
@@ -33,6 +40,7 @@ router.post(
   uploadReviewImages,
   assertReviewUploadSecurity,
   processReviewImages,
+  validate(submitPublicTestimonialSchema),
   submitPublicTestimonial
 );
 
@@ -44,17 +52,19 @@ router.post(
   uploadReviewImages,
   assertReviewUploadSecurity,
   processReviewImages,
+  validate(createTestimonialSchema),
   createTestimonial
 );
-router.patch('/:id/approve', approveTestimonial);
-router.patch('/:id/reject', rejectTestimonial);
+router.patch('/:id/approve', validate(testimonialIdParamSchema), approveTestimonial);
+router.patch('/:id/reject', validate(testimonialIdParamSchema), rejectTestimonial);
 router.patch(
   '/:id',
   uploadReviewImages,
   assertReviewUploadSecurity,
   processReviewImages,
+  validate(updateTestimonialSchema),
   updateTestimonial
 );
-router.delete('/:id', deleteTestimonial);
+router.delete('/:id', validate(testimonialIdParamSchema), deleteTestimonial);
 
 export default router;

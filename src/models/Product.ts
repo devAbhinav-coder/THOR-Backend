@@ -15,6 +15,11 @@ const productDetailSchema = new Schema({
   value: { type: String, required: true, trim: true, maxlength: 500 },
 }, { _id: false });
 
+const sizeGuideRowSchema = new Schema({
+  size: { type: String, required: true, trim: true, maxlength: 80 },
+  detail: { type: String, trim: true, maxlength: 500 },
+}, { _id: false });
+
 const productImageSchema = new Schema({
   url: { type: String, required: true },
   publicId: { type: String, required: true },
@@ -85,6 +90,10 @@ const productSchema = new Schema<IProduct>(
       index: true,
     },
     fabric: { type: String, trim: true },
+    careInstructions: { type: String, trim: true, maxlength: 1000 },
+    motionVideoUrl: { type: String, trim: true },
+    motionVideoPublicId: { type: String, trim: true },
+    motionReelUrl: { type: String, trim: true, maxlength: 500 },
     images: {
       type: [productImageSchema],
       validate: {
@@ -107,6 +116,14 @@ const productSchema = new Schema<IProduct>(
     occasions: [{ type: String, trim: true }], // e.g. ["Corporate", "Wedding", "Festive", "Casual"]
     customFields: [customFieldSchema],              // admin-defined user inputs
     productDetails: [productDetailSchema],
+    highlights: [{ type: String, trim: true, maxlength: 220 }],
+    sizeGuide: {
+      enabled: { type: Boolean, default: false },
+      title: { type: String, trim: true, maxlength: 120 },
+      intro: { type: String, trim: true, maxlength: 500 },
+      rows: [sizeGuideRowSchema],
+      tips: [{ type: String, trim: true, maxlength: 220 }],
+    },
     ratings: {
       average: { type: Number, default: 0, min: 0, max: 5 },
       count: { type: Number, default: 0 },

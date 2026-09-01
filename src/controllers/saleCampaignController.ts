@@ -23,6 +23,14 @@ export const createSaleCampaign = catchAsync(async (_req: Request, res: Response
     saleId: String(campaign._id),
     name: campaign.name,
   });
+  const { notifyWhatsAppCatalogAlert } = await import(
+    '../services/whatsappNotifyService'
+  );
+  notifyWhatsAppCatalogAlert({
+    kind: 'sale',
+    title: String(campaign.name || 'Sale is live'),
+    path: '/shop',
+  });
   sendSuccess(res, { campaign }, 'Sale campaign created', 201);
 });
 

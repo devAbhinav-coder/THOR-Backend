@@ -38,6 +38,11 @@ import {
   adminReviewIdParamSchema,
 } from '../validation/reviewSchemas';
 import {
+  getWhatsAppAdminStatus,
+  getWhatsAppAdminLogs,
+  sendWhatsAppTest,
+} from '../controllers/admin/adminWhatsAppController';
+import {
   getMarketingAudiencePreview,
   sendCustomMarketingEmail,
 } from '../controllers/admin/adminMarketingController';
@@ -56,6 +61,7 @@ import {
 import {
   adminCreateReviewInvite,
   adminEmailReviewInvite,
+  adminWhatsAppReviewInvite,
 } from '../controllers/reviewInviteController';
 import {
   listSalesInvoices,
@@ -201,6 +207,7 @@ import {
   adminAiBlogCalendarSchema,
   adminAiBriefQuerySchema,
 } from '../validation/adminAiSchemas';
+import adminWriteRoutes from './adminWriteRoutes';
 
 const router = Router();
 const adminSensitiveLimiter = createAdaptiveLimiter({
@@ -258,6 +265,7 @@ router.get('/security/audit', getAdminAuditLogs);
 router.get('/outbox/:type/dead-letter', listDeadLetterOutboxHandler);
 router.post('/outbox/:type/:id/replay', replayDeadLetterOutboxHandler);
 router.get('/jobs/health', getAdminJobHealth);
+router.use('/writes', adminWriteRoutes);
 
 router.get('/products', validate(adminProductListQuerySchema), getAdminProducts);
 router.get('/products/search', validate(adminProductSearchQuerySchema), searchAdminProducts);
@@ -280,6 +288,7 @@ router.get('/orders/b2b/pending-tax-invoice', listB2bOrdersPendingTaxInvoice);
 router.get('/orders/:id', getOrderDetails);
 router.post('/orders/:id/review-invite', adminCreateReviewInvite);
 router.post('/orders/:id/review-invite/email', adminEmailReviewInvite);
+router.post('/orders/:id/review-invite/whatsapp', adminWhatsAppReviewInvite);
 router.delete('/orders/:id', adminSensitiveLimiter, deleteOrder);
 router.get('/delhivery/status', getDelhiveryIntegrationStatus);
 router.get(
@@ -358,6 +367,10 @@ router.get(
   getMarketingAudiencePreview,
 );
 router.post('/emails/send', adminSensitiveLimiter, validate(sendMarketingEmailSchema), sendCustomMarketingEmail);
+
+router.get('/whatsapp/status', getWhatsAppAdminStatus);
+router.get('/whatsapp/logs', getWhatsAppAdminLogs);
+router.post('/whatsapp/test', adminSensitiveLimiter, sendWhatsAppTest);
 
 router.get('/storefront/settings', getAdminStorefrontSettings);
 router.patch('/storefront/settings', uploadStorefrontAssets, processStorefrontAssets, updateStorefrontSettings);

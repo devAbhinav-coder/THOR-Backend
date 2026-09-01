@@ -32,6 +32,7 @@ export async function setupBullBoard(app: Express): Promise<void> {
     queues.imageQueue,
     queues.orderQueue,
     queues.maintenanceQueue,
+    queues.whatsappQueue,
   ].filter((q): q is NonNullable<typeof q> => q !== null);
 
   if (list.length === 0) {

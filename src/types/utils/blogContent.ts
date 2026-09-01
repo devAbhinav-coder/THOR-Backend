@@ -3,6 +3,7 @@ import sanitizeHtml from 'sanitize-html';
 const BLOG_HTML_OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: [
     'p',
+    'h1',
     'h2',
     'h3',
     'ul',
@@ -10,18 +11,33 @@ const BLOG_HTML_OPTIONS: sanitizeHtml.IOptions = {
     'li',
     'strong',
     'em',
+    'u',
     'a',
     'br',
+    'hr',
     'blockquote',
     'figure',
     'figcaption',
+    'span',
   ],
   allowedAttributes: {
     a: ['href', 'title', 'target', 'rel'],
     blockquote: ['class'],
     figure: ['class'],
     figcaption: ['class'],
-    p: ['class'],
+    p: ['class', 'style'],
+    h1: ['style'],
+    h2: ['style'],
+    h3: ['style'],
+    span: ['style'],
+  },
+  allowedStyles: {
+    '*': {
+      'font-family': [/^[\w\s,"'-]+$/],
+      'text-align': [/^(left|center|right|justify)$/],
+      'font-size': [/^\d+(\.\d+)?(px|em|rem|%)$/],
+      color: [/^#[0-9a-f]{3,8}$/i, /^rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)$/i, /^rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*[\d.]+\s*\)$/i],
+    },
   },
   allowedSchemes: ['http', 'https', 'mailto'],
   transformTags: {

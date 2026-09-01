@@ -90,7 +90,7 @@ export function lineMatchesPromotionScope(
   return true;
 }
 
-function eligibleQuantity(promotion: PromotionLike, lines: CouponLineScope[]): number {
+export function eligibleQuantity(promotion: PromotionLike, lines: CouponLineScope[]): number {
   let qty = 0;
   for (const line of lines) {
     if (lineMatchesPromotionScope(promotion, line)) {
@@ -240,7 +240,7 @@ export type PromotionProgressHint = {
   message: string;
 };
 
-function buildProgressHint(
+export function buildProgressHint(
   promotion: PromotionLike,
   lines: CouponLineScope[],
   eligibleQty: number,

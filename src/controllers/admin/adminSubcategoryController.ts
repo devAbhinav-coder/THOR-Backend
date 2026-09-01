@@ -96,6 +96,17 @@ export const createSubcategory = catchAsync(async (req: Request, res: Response, 
     );
   }
 
+  if (subcat.isActive !== false) {
+    const { notifyWhatsAppCatalogAlert } = await import(
+      '../../services/whatsappNotifyService'
+    );
+    notifyWhatsAppCatalogAlert({
+      kind: 'subcategory',
+      title: String(subcat.name || 'New collection'),
+      path: `/shop/collections/${encodeURIComponent(String(subcat.categorySlug || ''))}/${encodeURIComponent(String(subcat.slug || ''))}`,
+    });
+  }
+
   sendSuccess(res, { subcategory: subcat }, 'SubCategory created', 201);
 });
 

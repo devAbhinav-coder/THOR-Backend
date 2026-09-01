@@ -15,11 +15,8 @@ import {
 } from "../services/inventoryService";
 import { sendSuccess } from "../types/utils/response";
 import { writeAdminAudit } from "../services/adminAuditService";
-import { onOrderDelivered } from "../services/orderDeliverySideEffects";
-import { isCustomerDeliverableEmail } from "../types/utils/customerEmail";
+import { sendOfflineOrderCreatedCustomerNotifications } from "../services/orders/offlineOrderNotificationService";
 import { emailTemplates } from "../services/emailService";
-import { enqueueEmail } from "../queues/emailQueue";
-import { reviewInviteService } from "../services/reviewInvite/reviewInviteService";
 import {
   notifyAdmins,
   notifyUser,
@@ -551,12 +548,6 @@ export const createOfflineOrder = catchAsync(
         }).catch((err) => console.error("Stock ledger fail (admin sale):", err));
       }
 
-      if (isHandover) {
-        void onOrderDelivered(String(order._id), String(user._id)).catch(
-          () => {},
-        );
-      }
-
       await writeAdminAudit(
         req,
         "order.offline_created",
@@ -570,38 +561,18 @@ export const createOfflineOrder = catchAsync(
         String(user._id),
       );
 
-      const deliverableEmail = isCustomerDeliverableEmail(user.email);
+      void sendOfflineOrderCreatedCustomerNotifications({
+        orderId: String(order._id),
+        userId: String(user._id),
+        isHandover,
+        fulfillment,
+        paymentLabel,
+        emailLineItems,
+      }).catch((err) => {
+        console.error("Offline order customer notifications failed:", err);
+      });
 
-      if (deliverableEmail && !isHandover) {
-        const userTemplate = emailTemplates.offlineOrderThankYou(
-          user.name,
-          order.orderNumber,
-          order.total,
-          {
-            orderId: String(order._id),
-            fulfillment,
-            paymentLabel,
-            items: emailLineItems,
-          },
-        );
-        await enqueueEmail({
-          to: user.email,
-          subject: userTemplate.subject,
-          html: userTemplate.html,
-        });
-      }
-
-      if (deliverableEmail) {
-        try {
-          await reviewInviteService.sendInviteEmail(
-            String(order._id),
-            req.user?._id ? String(req.user._id) : undefined,
-          );
-        } catch {
-          /* no catalog products / email issues — admin can generate later */
-        }
-      }
-
+      /* Admin alerts below — customer pack above handles PDF, WhatsApp, review */
       const adminTemplate = emailTemplates.adminNewOrder(
         order.orderNumber,
         order.total,

@@ -15,7 +15,7 @@ class APIFeatures<T> {
   private filterExpr: Record<string, unknown> = {};
   private searchExpr: Record<string, unknown> = {};
   private pageValue = 1;
-  private limitValue = 12;
+  private limitValue = 20;
 
   constructor(query: Query<T[], T>, queryString: QueryString) {
     this.query = query;
@@ -111,7 +111,7 @@ class APIFeatures<T> {
   paginate(): this {
     const page = parseInt(this.queryString.page || '1', 10);
     const maxLimit = parseInt(process.env.PAGINATION_MAX_LIMIT || '100', 10);
-    const defaultLimit = parseInt(process.env.PAGINATION_DEFAULT_LIMIT || '12', 10);
+    const defaultLimit = parseInt(process.env.PAGINATION_DEFAULT_LIMIT || '20', 10);
     const requestedLimit = parseInt(this.queryString.limit || String(defaultLimit), 10);
     const limit = Math.min(Math.max(1, requestedLimit), maxLimit);
     const skip = (page - 1) * limit;

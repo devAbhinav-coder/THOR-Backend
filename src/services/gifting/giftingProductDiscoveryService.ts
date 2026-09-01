@@ -151,7 +151,7 @@ export async function discoverGiftableProducts(query: Record<string, string>) {
     isRandom,
     excludeIds: excludeIdsStr,
     page = "1",
-    limit: limitStr = "12",
+    limit: limitStr = "20",
   } = query;
 
   const limit = Math.min(Math.max(1, parseInt(limitStr, 10)), 60);

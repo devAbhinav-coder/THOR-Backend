@@ -17,6 +17,7 @@ import {
 import { sendPurchaseEvent } from "../services/metaCapiService";
 import Order from "../models/Order";
 import { isCustomerDeliverableEmail } from "../types/utils/customerEmail";
+import { notifyWhatsAppOrderConfirmed } from "../services/whatsappNotifyService";
 
 export let orderWorker: Worker<OrderEventPayload> | null = null;
 
@@ -69,6 +70,12 @@ export const startOrderWorker = () => {
             `/dashboard/orders/${payload.orderId}`,
             placed.type,
           );
+          void notifyWhatsAppOrderConfirmed({
+            userId: payload.userId,
+            orderId: payload.orderId,
+            orderNumber: payload.orderNumber,
+            total: payload.total,
+          }).catch(() => {});
 
           // Meta CAPI
           if (payload.paymentMethod === "cod") {
@@ -126,6 +133,12 @@ export const startOrderWorker = () => {
             `/admin/orders/${payload.orderId}`,
             "order",
           );
+          void notifyWhatsAppOrderConfirmed({
+            userId: payload.userId,
+            orderId: payload.orderId,
+            orderNumber: payload.orderNumber,
+            total: payload.total,
+          }).catch(() => {});
 
           const order = await Order.findById(payload.orderId)
             .populate("user", "email")
@@ -189,6 +202,14 @@ export const startOrderWorker = () => {
             `/admin/orders/${payload.orderId}`,
             "alert",
           );
+          const { notifyWhatsAppOrderCancelled } = await import(
+            "../services/whatsappNotifyService"
+          );
+          void notifyWhatsAppOrderCancelled({
+            userId: payload.userId,
+            orderId: payload.orderId,
+            orderNumber: payload.orderNumber,
+          }).catch(() => {});
           break;
         }
 

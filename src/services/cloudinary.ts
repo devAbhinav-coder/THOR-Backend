@@ -17,4 +17,8 @@ export const deleteMultipleImages = async (publicIds: string[]): Promise<void> =
   await Promise.all(publicIds.map((id) => deleteImage(id)));
 };
 
+export const deleteVideo = async (publicId: string): Promise<void> => {
+  await cloudinary.uploader.destroy(publicId, { resource_type: "video" });
+};
+
 export default cloudinary;

@@ -5,6 +5,7 @@ import {
   COUPON_QUERY_MAX_MS,
   CouponLike,
   CouponLineScope,
+  buildCouponProgressHint,
   calculateCouponDiscount,
   evaluateCouponValidity,
   linesScopeFingerprint,
@@ -259,7 +260,7 @@ export const couponValidationService = {
     lines?: CouponLineScope[],
   ): Promise<{
     coupons: CouponLike[];
-    ineligible: Array<{ code: string; reason: string }>;
+    nearEligible: Array<{ coupon: CouponLike; hintMessage: string }>;
     completedOrders: number;
   }> {
     const now = new Date();
@@ -297,7 +298,7 @@ export const couponValidationService = {
 
     const completedOrders = await getUserDeliveredOrderCount(userId);
     const eligible: CouponLike[] = [];
-    const ineligible: Array<{ code: string; reason: string }> = [];
+    const nearEligible: Array<{ coupon: CouponLike; hintMessage: string }> = [];
 
     for (const coupon of coupons) {
       const enriched = await enrichCouponScopeNames(coupon);
@@ -306,15 +307,23 @@ export const couponValidationService = {
         now,
         lines,
       });
-      if (validity.valid) eligible.push(enriched);
-      else
-        ineligible.push({
-          code: coupon.code,
-          reason: validity.message || "Not eligible",
-        });
+      if (validity.valid) {
+        eligible.push(enriched);
+        continue;
+      }
+      const hint = buildCouponProgressHint(enriched, validity);
+      if (hint) {
+        nearEligible.push({ coupon: enriched, hintMessage: hint.message });
+      }
     }
 
-    const payload = { coupons: eligible, ineligible, completedOrders };
+    nearEligible.sort((a, b) => {
+      const gapA = a.coupon.minOrderAmount ?? 0;
+      const gapB = b.coupon.minOrderAmount ?? 0;
+      return gapA - gapB;
+    });
+
+    const payload = { coupons: eligible, nearEligible, completedOrders };
     await setCachedEligibleCoupons(userCacheKey, payload);
     return payload;
   },

@@ -59,3 +59,15 @@ export const adminEmailReviewInvite = catchAsync(async (req: Request, res: Respo
   });
   sendSuccess(res, data, `Invite emailed to ${data.emailedTo}`);
 });
+
+export const adminWhatsAppReviewInvite = catchAsync(async (req: Request, res: Response) => {
+  const auth = req as AuthRequest;
+  const data = await reviewInviteService.sendInviteWhatsApp(
+    req.params.id,
+    auth.user?._id ? String(auth.user._id) : undefined,
+  );
+  await writeAdminAudit(auth, 'review_invite.whatsapp', {
+    orderId: req.params.id,
+  });
+  sendSuccess(res, data, 'Review invite sent on WhatsApp');
+});

@@ -335,6 +335,23 @@ const productDetailSchema = z.object({
   value: z.string().min(1).max(500),
 });
 
+const sizeGuideRowSchema = z.object({
+  size: z.string().min(1).max(80),
+  detail: z.string().max(500).optional(),
+});
+
+const sizeGuideBodySchema = z.object({
+  enabled: optionalBooleanFromString,
+  title: z.string().max(120).optional(),
+  intro: z.string().max(500).optional(),
+  rows: jsonStringToArray(sizeGuideRowSchema)
+    .refine((arr) => arr.length <= 12, 'Maximum 12 size guide rows allowed')
+    .optional(),
+  tips: jsonStringToArray(z.string().max(220))
+    .refine((arr) => arr.length <= 6, 'Maximum 6 size guide tips allowed')
+    .optional(),
+});
+
 const productCustomFieldSchema = z.object({
   label: z.string().min(1).max(120),
   placeholder: z.string().max(200).optional(),
@@ -359,6 +376,11 @@ export const createProductSchema = z.object({
     category: z.string().min(1, 'Category is required'),
     subcategory: z.string().optional(),
     fabric: z.string().optional(),
+    careInstructions: z.string().max(1000).optional(),
+    motionVideoUrl: z.string().max(2000).optional(),
+    motionVideoPublicId: z.string().max(200).optional(),
+    motionReelUrl: z.string().max(500).optional(),
+    clearMotionVideo: optionalBooleanFromString,
     imagesMeta: imagesMetaField,
     // variants arrives as a JSON string from FormData
     variants: jsonStringToArray(variantSchema).refine(
@@ -385,6 +407,17 @@ export const createProductSchema = z.object({
     seoDescription: z.string().optional(),
     customFields: jsonStringToArray(productCustomFieldSchema).optional(),
     productDetails: jsonStringToArray(productDetailSchema).optional(),
+    highlights: jsonStringToArray(z.string().max(220))
+      .refine((arr) => arr.length <= 8, "Maximum 8 highlights allowed")
+      .optional(),
+    sizeGuide: z.preprocess((val) => {
+      if (!val || val === '') return undefined;
+      if (typeof val === 'object' && val !== null) return val;
+      if (typeof val === 'string') {
+        try { return JSON.parse(val); } catch { return undefined; }
+      }
+      return undefined;
+    }, sizeGuideBodySchema.optional()),
   }),
 });
 
@@ -402,6 +435,11 @@ export const updateProductSchema = z.object({
     category: z.string().min(1).optional(),
     subcategory: z.string().optional(),
     fabric: z.string().optional(),
+    careInstructions: z.string().max(1000).optional(),
+    motionVideoUrl: z.string().max(2000).optional(),
+    motionVideoPublicId: z.string().max(200).optional(),
+    motionReelUrl: z.string().max(500).optional(),
+    clearMotionVideo: optionalBooleanFromString,
     imagesMeta: imagesMetaField,
     variants: jsonStringToArray(variantSchema).optional(),
     tags: z.preprocess((val) => {
@@ -423,6 +461,17 @@ export const updateProductSchema = z.object({
     seoDescription: z.string().optional(),
     customFields: jsonStringToArray(productCustomFieldSchema).optional(),
     productDetails: jsonStringToArray(productDetailSchema).optional(),
+    highlights: jsonStringToArray(z.string().max(220))
+      .refine((arr) => arr.length <= 8, "Maximum 8 highlights allowed")
+      .optional(),
+    sizeGuide: z.preprocess((val) => {
+      if (val === undefined || val === null || val === '') return undefined;
+      if (typeof val === 'object') return val;
+      if (typeof val === 'string') {
+        try { return JSON.parse(val); } catch { return undefined; }
+      }
+      return undefined;
+    }, sizeGuideBodySchema.optional()),
   }),
 });
 
@@ -734,9 +783,9 @@ export const sendMarketingEmailSchema = z.object({
     ctaText: z.string().max(120).optional(),
     ctaLink: optionalMarketingCtaLink,
     channels: z
-      .array(z.enum(['email', 'in_app', 'push']))
+      .array(z.enum(['email', 'in_app', 'push', 'whatsapp']))
       .min(1)
-      .max(3)
+      .max(4)
       .optional(),
     includeOfflineLeads: z.coerce.boolean().optional(),
   }),

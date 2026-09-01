@@ -300,6 +300,32 @@ app.use(
   }),
 );
 
+app.get("/api/health/live", (_req: Request, res: Response) => {
+  res.status(200).json({
+    status: "ok",
+    message: "process is up",
+    timestamp: new Date().toISOString(),
+    runMode: getRunMode(),
+  });
+});
+
+app.get("/api/health/worker", async (req: Request, res: Response) => {
+  const expected = process.env.HEALTHCHECK_TOKEN?.trim();
+  const given = String(req.query.token || req.headers["x-healthcheck-token"] || "");
+  if (expected && given !== expected) {
+    res.status(401).json({ status: "fail", message: "Unauthorized" });
+    return;
+  }
+  const { readWorkerHeartbeat } = await import("./services/workerHeartbeat");
+  const beat = await readWorkerHeartbeat();
+  res.status(beat.alive ? 200 : 503).json({
+    status: beat.alive ? "ok" : "down",
+    message: beat.alive ? "Worker heartbeat is fresh" : "Worker heartbeat missing — job process may be down",
+    lastBeatAt: beat.lastBeatAt,
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.get("/api/health", async (_req: Request, res: Response) => {
   await ensureRedisReady();
   const report = await buildInfrastructureReport();
@@ -504,7 +530,9 @@ process.on("unhandledRejection", (err: Error) => {
   }
   const redisNoise =
     process.env.NODE_ENV !== "production" &&
-    /redis|command timed out|connection is closed|econnrefused/i.test(err.message);
+    /redis|max retries per request|command timed out|connection is closed|econnrefused/i.test(
+      err.message,
+    );
   if (redisNoise) {
     logger.warn("Ignoring Redis rejection in development — API continues with fallbacks.");
     return;

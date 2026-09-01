@@ -62,6 +62,16 @@ export const createCoupon = catchAsync(async (_req: Request, res: Response) => {
     code: coupon.code,
     showOnStorefront: isPublicOffer,
   });
+  if (isPublicOffer) {
+    const { notifyWhatsAppCatalogAlert } = await import(
+      "../services/whatsappNotifyService"
+    );
+    notifyWhatsAppCatalogAlert({
+      kind: "coupon",
+      title: coupon.code,
+      path: "/shop",
+    });
+  }
   sendSuccess(res, { coupon }, "Coupon created", 201);
 });
 
@@ -226,13 +236,13 @@ export const getEligibleCoupons = catchAsync(
         lines = undefined;
       }
     }
-    const { coupons, ineligible, completedOrders } =
+    const { coupons, nearEligible, completedOrders } =
       await couponValidationService.getEligibleCoupons(
         String(req.user!._id),
         orderAmount,
         lines,
       );
-    sendSuccess(res, { coupons, ineligible, completedOrders });
+    sendSuccess(res, { coupons, nearEligible, completedOrders });
   },
 );
 

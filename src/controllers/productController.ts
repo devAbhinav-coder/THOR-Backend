@@ -17,6 +17,7 @@ import { productRepository } from "../repositories/productRepository";
 import { sendPaginated, sendSuccess } from "../types/utils/response";
 import { safeJsonParse } from "../types/utils/safeJson";
 import { enqueueImageDelete } from "../queues/imageQueue";
+import { cloudinaryInstance } from "../services/cloudinary";
 import { CacheMutex } from "../types/utils/cacheMutex";
 import { advancedSearchService } from "../services/advancedSearchService";
 import {
@@ -61,6 +62,47 @@ const FILTERS_CACHE_TTL = 300;
 
 function leanProduct(p: Record<string, unknown>) {
   return reconcileProductJson(p as Parameters<typeof reconcileProductJson>[0]);
+}
+
+function parseSizeGuideBody(raw: unknown): {
+  enabled: boolean;
+  title?: string;
+  intro?: string;
+  rows: { size: string; detail: string }[];
+  tips: string[];
+} {
+  const parsed = safeJsonParse(
+    raw,
+    raw && typeof raw === "object" ? raw : {},
+    "sizeGuide",
+  ) as Record<string, unknown>;
+  const rows = safeJsonParse(
+    parsed.rows,
+    Array.isArray(parsed.rows) ? parsed.rows : [],
+    "sizeGuide.rows",
+  ) as Array<{ size?: string; detail?: string }>;
+  const tips = safeJsonParse(
+    parsed.tips,
+    Array.isArray(parsed.tips) ? parsed.tips : [],
+    "sizeGuide.tips",
+  ) as string[];
+
+  return {
+    enabled: parsed.enabled === true || parsed.enabled === "true",
+    title: typeof parsed.title === "string" ? parsed.title.trim() : "",
+    intro: typeof parsed.intro === "string" ? parsed.intro.trim() : "",
+    rows: rows
+      .map((row) => ({
+        size: String(row.size ?? "").trim(),
+        detail: String(row.detail ?? "").trim(),
+      }))
+      .filter((row) => row.size)
+      .slice(0, 12),
+    tips: tips
+      .map((tip) => String(tip ?? "").trim())
+      .filter(Boolean)
+      .slice(0, 6),
+  };
 }
 
 function minRatingMongoFilter(
@@ -193,7 +235,7 @@ export const getSearchSuggestions = catchAsync(
 
 export const getTrendingSearches = catchAsync(
   async (req: Request, res: Response) => {
-    const limit = Math.min(Math.max(1, Number(req.query.limit) || 10), 20);
+    const limit = Math.min(Math.max(1, Number(req.query.limit) || 20), 20);
     const trending = await advancedSearchService.getTrendingSearches(limit);
     sendSuccess(res, { trending });
   },
@@ -717,7 +759,31 @@ export const createProduct = catchAsync(
         req.body.productDetails || [],
         "productDetails",
       ),
+      highlights: safeJsonParse(
+        req.body.highlights,
+        req.body.highlights || [],
+        "highlights",
+      ),
+      sizeGuide: parseSizeGuideBody(req.body.sizeGuide),
+      careInstructions: String(req.body.careInstructions ?? "").trim(),
+      motionReelUrl: String(req.body.motionReelUrl ?? "").trim(),
     };
+    const uploadedMotionVideo = (
+      req as Request & {
+        uploadedMotionVideo?: { url: string; publicId: string };
+      }
+    ).uploadedMotionVideo;
+    if (uploadedMotionVideo) {
+      productData.motionVideoUrl = uploadedMotionVideo.url;
+      productData.motionVideoPublicId = uploadedMotionVideo.publicId;
+    } else if (req.body.motionVideoUrl) {
+      productData.motionVideoUrl = String(req.body.motionVideoUrl).trim();
+      if (req.body.motionVideoPublicId) {
+        productData.motionVideoPublicId = String(
+          req.body.motionVideoPublicId,
+        ).trim();
+      }
+    }
     delete (productData as Record<string, unknown>).totalStock;
     (productData as Record<string, unknown>).totalStock =
       sumVariantStocks(variantsParsed);
@@ -743,6 +809,16 @@ export const createProduct = catchAsync(
     if (lean.isActive !== false) {
       const slug = String(lean.slug || "");
       if (slug) notifyIndexNowStorefront(`/shop/${encodeURIComponent(slug)}`);
+    }
+    if (lean.isActive !== false) {
+      const { notifyWhatsAppCatalogAlert } = await import(
+        "../services/whatsappNotifyService"
+      );
+      notifyWhatsAppCatalogAlert({
+        kind: "product",
+        title: String(lean.name || "New arrival"),
+        path: `/shop/${encodeURIComponent(String(lean.slug || ""))}`,
+      });
     }
     sendSuccess(res, { product: leanProduct(lean) }, "Product created", 201);
   },
@@ -893,6 +969,16 @@ export const updateProduct = catchAsync(
         "productDetails",
       );
     }
+    if (req.body.highlights !== undefined) {
+      updateData.highlights = safeJsonParse(
+        req.body.highlights,
+        req.body.highlights,
+        "highlights",
+      );
+    }
+    if (req.body.sizeGuide !== undefined) {
+      updateData.sizeGuide = parseSizeGuideBody(req.body.sizeGuide);
+    }
     if (req.body.isGiftable !== undefined) {
       updateData.isGiftable =
         req.body.isGiftable === "true" || req.body.isGiftable === true;
@@ -922,6 +1008,8 @@ export const updateProduct = catchAsync(
       "shortDescription",
       "subcategory",
       "fabric",
+      "careInstructions",
+      "motionReelUrl",
       "seoTitle",
       "seoDescription",
     ] as const) {
@@ -929,6 +1017,37 @@ export const updateProduct = catchAsync(
         const val = String(req.body[key] ?? "").trim();
         updateData[key] = val || "";
       }
+    }
+
+    const uploadedMotionVideo = (
+      req as Request & {
+        uploadedMotionVideo?: { url: string; publicId: string };
+      }
+    ).uploadedMotionVideo;
+    if (uploadedMotionVideo) {
+      updateData.motionVideoUrl = uploadedMotionVideo.url;
+      updateData.motionVideoPublicId = uploadedMotionVideo.publicId;
+    } else if (
+      req.body.clearMotionVideo === "true" ||
+      req.body.clearMotionVideo === true
+    ) {
+      const oldVideoId = currentProduct.motionVideoPublicId?.trim();
+      if (oldVideoId) {
+        cloudinaryInstance.uploader
+          .destroy(oldVideoId, { resource_type: "video" })
+          .catch(() => {});
+      }
+      updateData.motionVideoUrl = "";
+      updateData.motionVideoPublicId = "";
+    } else if (req.body.motionVideoUrl !== undefined) {
+      const url = String(req.body.motionVideoUrl ?? "").trim();
+      updateData.motionVideoUrl = url;
+      if (req.body.motionVideoPublicId !== undefined) {
+        updateData.motionVideoPublicId = String(
+          req.body.motionVideoPublicId ?? "",
+        ).trim();
+      }
+      if (!url) updateData.motionVideoPublicId = "";
     }
 
     if (req.body.tags !== undefined) {
@@ -1058,5 +1177,31 @@ export const deleteProductImage = catchAsync(
       );
     }
     sendSuccess(res, { product: leanProduct(lean) });
+  },
+);
+
+const MOTION_VIDEO_FOLDER = "house-of-rani/products/motion";
+
+/** Signed params for direct browser → Cloudinary video upload (progress-friendly). */
+export const getMotionVideoUploadSignature = catchAsync(
+  async (_req: Request, res: Response) => {
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+    const apiKey = process.env.CLOUDINARY_API_KEY;
+    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+    if (!cloudName || !apiKey || !apiSecret) {
+      throw new AppError("Cloudinary is not configured.", 503);
+    }
+    const timestamp = Math.round(Date.now() / 1000);
+    const signature = cloudinaryInstance.utils.api_sign_request(
+      { timestamp, folder: MOTION_VIDEO_FOLDER },
+      apiSecret,
+    );
+    sendSuccess(res, {
+      cloudName,
+      apiKey,
+      timestamp,
+      signature,
+      folder: MOTION_VIDEO_FOLDER,
+    });
   },
 );

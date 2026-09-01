@@ -126,6 +126,16 @@ export const createCategory = catchAsync(
         `/shop/collections/${encodeURIComponent(String(category.slug))}`,
       );
     }
+    if (category.isActive !== false) {
+      const { notifyWhatsAppCatalogAlert } = await import(
+        "../services/whatsappNotifyService"
+      );
+      notifyWhatsAppCatalogAlert({
+        kind: "category",
+        title: String(category.name || "New collection"),
+        path: `/shop/collections/${encodeURIComponent(String(category.slug || ""))}`,
+      });
+    }
     sendSuccess(res, { category }, "Category created", 201);
   },
 );

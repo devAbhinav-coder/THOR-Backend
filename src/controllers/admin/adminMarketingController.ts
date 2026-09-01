@@ -19,7 +19,7 @@ export const getMarketingAudiencePreview = catchAsync(
       .split(",")
       .map((c) => c.trim())
       .filter((c): c is MarketingChannel =>
-        ["email", "in_app", "push"].includes(c),
+        ["email", "in_app", "push", "whatsapp"].includes(c),
       ) as MarketingChannel[];
     const includeOfflineLeads = req.query.includeOfflineLeads === "true";
 
@@ -72,7 +72,19 @@ export const sendCustomMarketingEmail = catchAsync(
     ) {
       return next(
         new AppError(
-          "Email delivery is not configured (RESEND_API_KEY missing). Enable in-app or browser notifications, or configure Resend.",
+          "Email delivery is not configured (RESEND_API_KEY missing). Enable in-app, WhatsApp, or browser notifications, or configure Resend.",
+          503,
+        ),
+      );
+    }
+
+    if (
+      activeChannels.includes("whatsapp") &&
+      !marketingDeliveryConfigured().whatsappMarketingEnabled
+    ) {
+      return next(
+        new AppError(
+          "WhatsApp marketing is not configured. Set WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, and WHATSAPP_MARKETING_ENABLED=true.",
           503,
         ),
       );
@@ -111,6 +123,9 @@ export const sendCustomMarketingEmail = catchAsync(
       parts.push(
         `${result.notificationsQueued} account(s) — ${notifBits.join(" + ")}`,
       );
+    }
+    if (result.whatsAppQueued > 0) {
+      parts.push(`${result.whatsAppQueued} WhatsApp message(s) queued`);
     }
 
     sendSuccess(

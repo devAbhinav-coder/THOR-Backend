@@ -11,6 +11,7 @@ import {
   assertWorkerInfrastructure,
 } from "../config/infrastructureReadiness";
 import { broadcastNewBlog } from "../controllers/blogController";
+import { notifyIndexNowStorefront } from "../services/indexNowService";
 import {
   startOrderOutboxPoller,
   stopOrderOutboxPoller,
@@ -66,6 +67,10 @@ import {
 } from "./embeddingBackfillJob";
 import { startExtendedJobs, stopExtendedJobs } from "./extendedJobsRegistry";
 import { stopAllScheduledJobs } from "./scheduledRunner";
+import {
+  startWorkerHeartbeat,
+  stopWorkerHeartbeat,
+} from "../services/workerHeartbeat";
 
 let started = false;
 
@@ -75,7 +80,9 @@ type QueueWorkerHandles = {
   closeImageWorker: () => Promise<void>;
   closeOrderWorker: () => Promise<void>;
   closeMaintenanceWorker: () => Promise<void>;
+  closeWhatsAppWorker: () => Promise<void>;
   emailQueue: { close: () => Promise<void> } | null;
+  whatsappQueue: { close: () => Promise<void> } | null;
   pushQueue: { close: () => Promise<void> } | null;
   imageQueue: { close: () => Promise<void> } | null;
   orderQueue: { close: () => Promise<void> } | null;
@@ -94,6 +101,7 @@ async function startQueueWorkersIfNeeded(): Promise<void> {
     orderWorkerMod,
     orderQueueMod,
     maintenanceMod,
+    whatsappMod,
   ] = await Promise.all([
     import("../queues/emailQueue"),
     import("../queues/pushQueue"),
@@ -101,6 +109,7 @@ async function startQueueWorkersIfNeeded(): Promise<void> {
     import("../workers/orderWorker"),
     import("../queues/orderQueue"),
     import("../queues/maintenanceQueue"),
+    import("../queues/whatsappQueue"),
   ]);
 
   emailMod.startEmailWorker();
@@ -108,6 +117,7 @@ async function startQueueWorkersIfNeeded(): Promise<void> {
   imageMod.startImageWorker();
   orderWorkerMod.startOrderWorker();
   maintenanceMod.startMaintenanceWorker();
+  whatsappMod.startWhatsAppWorker();
   logger.info("BullMQ workers started");
 
   queueWorkerHandles = {
@@ -116,7 +126,9 @@ async function startQueueWorkersIfNeeded(): Promise<void> {
     closeImageWorker: imageMod.closeImageWorker,
     closeOrderWorker: orderWorkerMod.closeOrderWorker,
     closeMaintenanceWorker: maintenanceMod.closeMaintenanceWorker,
+    closeWhatsAppWorker: whatsappMod.closeWhatsAppWorker,
     emailQueue: emailMod.emailQueue,
+    whatsappQueue: whatsappMod.whatsappQueue,
     pushQueue: pushMod.pushQueue,
     imageQueue: imageMod.imageQueue,
     orderQueue: orderQueueMod.orderQueue,
@@ -148,12 +160,20 @@ export function startAllBackgroundWork(): void {
   startCartOutboxPoller();
   startCartSyncSubscriber();
   startNotificationMaintenanceJob();
-  setBlogPublishHook(broadcastNewBlog);
+  setBlogPublishHook(async (blog) => {
+    await broadcastNewBlog(blog);
+    if (blog.slug) {
+      notifyIndexNowStorefront(
+        `/blog/${encodeURIComponent(String(blog.slug))}`,
+      );
+    }
+  });
   startBlogPublishJob();
   startDelhiveryTrackingSyncJob();
   startPaymentRecoveryJob();
   startEmbeddingBackfillJob();
   startExtendedJobs();
+  startWorkerHeartbeat();
 
   logger.info("All background jobs started");
   started = true;
@@ -177,6 +197,7 @@ export async function stopAllBackgroundWork(): Promise<void> {
   stopEmbeddingBackfillJob();
   stopExtendedJobs();
   stopAllScheduledJobs();
+  stopWorkerHeartbeat();
 
   if (queueWorkerHandles) {
     const h = queueWorkerHandles;
@@ -185,7 +206,9 @@ export async function stopAllBackgroundWork(): Promise<void> {
     await h.closeImageWorker();
     await h.closeOrderWorker();
     await h.closeMaintenanceWorker();
+    await h.closeWhatsAppWorker();
     if (h.emailQueue) await h.emailQueue.close();
+    if (h.whatsappQueue) await h.whatsappQueue.close();
     if (h.pushQueue) await h.pushQueue.close();
     if (h.imageQueue) await h.imageQueue.close();
     if (h.orderQueue) await h.orderQueue.close();

@@ -41,7 +41,7 @@ export const env = {
   // Pagination
   pagination: {
     maxLimit: parseInt(process.env.PAGINATION_MAX_LIMIT || '100', 10),
-    defaultLimit: parseInt(process.env.PAGINATION_DEFAULT_LIMIT || '12', 10),
+    defaultLimit: parseInt(process.env.PAGINATION_DEFAULT_LIMIT || '20', 10),
   },
   
   // Redis
