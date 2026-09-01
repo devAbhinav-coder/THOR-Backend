@@ -192,6 +192,122 @@ export function resolveDiscountBaseAmount(
   return { amount: eligibleSubtotal, matchedLineCount };
 }
 
+export type CouponRejectReason =
+  | 'deleted'
+  | 'inactive'
+  | 'not_started'
+  | 'expired'
+  | 'global_limit'
+  | 'scope_mismatch'
+  | 'min_order'
+  | 'user_limit'
+  | 'first_order_only'
+  | 'returning_only'
+  | 'order_count_min'
+  | 'order_count_max'
+  | 'price_floor'
+  | 'no_savings';
+
+export type CouponValidityResult = {
+  valid: boolean;
+  message?: string;
+  eligibleAmount?: number;
+  reason?: CouponRejectReason;
+};
+
+const PERMANENT_COUPON_REJECT: ReadonlySet<CouponRejectReason> = new Set([
+  'deleted',
+  'inactive',
+  'not_started',
+  'expired',
+  'global_limit',
+  'user_limit',
+  'first_order_only',
+  'returning_only',
+  'order_count_min',
+  'order_count_max',
+]);
+
+export function isPermanentCouponReject(reason?: CouponRejectReason): boolean {
+  return reason != null && PERMANENT_COUPON_REJECT.has(reason);
+}
+
+export function couponDisplayLabel(coupon: CouponLike): string {
+  const title = coupon.displayTitle?.trim();
+  if (title) return title;
+  const desc = coupon.description?.trim();
+  if (desc) return desc;
+  return coupon.code;
+}
+
+function couponScopeShopperLabel(coupon: CouponLike): string {
+  const scope = coupon.scopeType || 'all';
+  if (scope === 'categories') {
+    const names = (coupon.applicableCategories || []).filter(Boolean);
+    if (names.length === 1) return names[0]!;
+    if (names.length === 2) return `${names[0]} or ${names[1]}`;
+    if (names.length > 2) return `${names.slice(0, 2).join(', ')} & more`;
+    return 'selected categories';
+  }
+  if (scope === 'subcategories') {
+    const names = (coupon.applicableSubcategoryNames || []).filter(Boolean);
+    if (names.length === 1) return names[0]!;
+    if (names.length === 2) return `${names[0]} or ${names[1]}`;
+    if (names.length > 2) return `${names.slice(0, 2).join(', ')} & more`;
+    return 'selected collections';
+  }
+  if (scope === 'products') return 'selected products';
+  return 'eligible items';
+}
+
+export type CouponProgressHint = { message: string };
+
+/** Actionable nudge when the shopper can unlock a coupon with cart changes. */
+export function buildCouponProgressHint(
+  coupon: CouponLike,
+  validity: CouponValidityResult,
+): CouponProgressHint | null {
+  if (validity.valid || isPermanentCouponReject(validity.reason)) return null;
+
+  const label = couponDisplayLabel(coupon);
+
+  if (validity.reason === 'min_order' && coupon.minOrderAmount) {
+    const base = validity.eligibleAmount ?? 0;
+    const gap = Math.ceil(Math.max(0, coupon.minOrderAmount - base));
+    if (gap <= 0) return null;
+    return {
+      message: `Add ₹${gap} more on eligible items to use ${label}`,
+    };
+  }
+
+  if (validity.reason === 'scope_mismatch') {
+    const scopeLabel = couponScopeShopperLabel(coupon);
+    return {
+      message: `Add ${scopeLabel} to your bag to unlock ${label}`,
+    };
+  }
+
+  if (validity.reason === 'price_floor') {
+    return {
+      message: `Add eligible items above ₹${coupon.discountValue} to unlock ${label}`,
+    };
+  }
+
+  if (validity.reason === 'no_savings') {
+    const scope = coupon.scopeType || 'all';
+    if (scope !== 'all') {
+      return {
+        message: `Add more ${couponScopeShopperLabel(coupon)} to unlock ${label}`,
+      };
+    }
+    return {
+      message: `Add more to your bag to unlock ${label}`,
+    };
+  }
+
+  return null;
+}
+
 export function evaluateCouponValidity(
   coupon: CouponLike,
   userId: string,
@@ -201,55 +317,85 @@ export function evaluateCouponValidity(
     now?: Date;
     lines?: CouponLineScope[];
   }
-): { valid: boolean; message?: string; eligibleAmount?: number } {
+): CouponValidityResult {
   const now = opts?.now ?? new Date();
   const completedOrders = opts?.completedOrders ?? 0;
 
-  if (coupon.deletedAt) return { valid: false, message: 'This coupon is no longer available' };
-  if (!coupon.isActive) return { valid: false, message: 'This coupon is inactive' };
-  if (now < coupon.startDate) return { valid: false, message: 'This coupon is not yet active' };
+  if (coupon.deletedAt) {
+    return { valid: false, message: 'This coupon is no longer available', reason: 'deleted' };
+  }
+  if (!coupon.isActive) {
+    return { valid: false, message: 'This coupon is inactive', reason: 'inactive' };
+  }
+  if (now < coupon.startDate) {
+    return { valid: false, message: 'This coupon is not yet active', reason: 'not_started' };
+  }
   if (!isWithinValidityWindow(coupon.startDate, coupon.expiryDate, now)) {
-    return { valid: false, message: 'This coupon has expired' };
+    return { valid: false, message: 'This coupon has expired', reason: 'expired' };
   }
   if (coupon.usageLimit != null && coupon.usedCount >= coupon.usageLimit) {
-    return { valid: false, message: 'This coupon has reached its usage limit' };
+    return {
+      valid: false,
+      message: 'This coupon has reached its usage limit',
+      reason: 'global_limit',
+    };
   }
 
   const base = resolveDiscountBaseAmount(coupon, orderAmount, opts?.lines);
-  if (base.message) return { valid: false, message: base.message, eligibleAmount: 0 };
+  if (base.message) {
+    return {
+      valid: false,
+      message: base.message,
+      eligibleAmount: 0,
+      reason: 'scope_mismatch',
+    };
+  }
 
   if (coupon.minOrderAmount && base.amount < coupon.minOrderAmount) {
     return {
       valid: false,
       message: `Minimum order amount of ₹${coupon.minOrderAmount} required`,
       eligibleAmount: base.amount,
+      reason: 'min_order',
     };
   }
 
   const userUsage = countUserCouponUsage(coupon.usedBy, userId);
   if (userUsage >= coupon.userUsageLimit) {
-    return { valid: false, message: 'You have already used this coupon' };
+    return { valid: false, message: 'You have already used this coupon', reason: 'user_limit' };
   }
 
   const eligibility = coupon.eligibilityType ?? 'all';
   if (eligibility === 'first_order' && completedOrders > 0) {
-    return { valid: false, message: 'This coupon is valid for first-time customers only' };
+    return {
+      valid: false,
+      message: 'This coupon is valid for first-time customers only',
+      reason: 'first_order_only',
+    };
   }
   if (eligibility === 'returning' && completedOrders === 0) {
-    return { valid: false, message: 'This coupon is valid for returning customers only' };
+    return {
+      valid: false,
+      message: 'This coupon is valid for returning customers only',
+      reason: 'returning_only',
+    };
   }
   if (coupon.minCompletedOrders && completedOrders < coupon.minCompletedOrders) {
     return {
       valid: false,
       message: `You need at least ${coupon.minCompletedOrders} completed orders for this coupon`,
+      reason: 'order_count_min',
     };
   }
   if (coupon.maxCompletedOrders !== undefined && completedOrders > coupon.maxCompletedOrders) {
-    return { valid: false, message: 'You are not eligible for this coupon' };
+    return {
+      valid: false,
+      message: 'You are not eligible for this coupon',
+      reason: 'order_count_max',
+    };
   }
 
   // Direct price / flat / % must actually save money on the eligible base.
-  // Otherwise carts show "coupon applied · Off ₹0" and Direct Price looks broken.
   const discount = calculateCouponDiscount(coupon, base.amount, opts?.lines);
   if (discount <= 0) {
     if (coupon.discountType === 'fixed') {
@@ -260,12 +406,14 @@ export function evaluateCouponValidity(
           ? `Eligible items must be priced above ₹${coupon.discountValue} for this offer`
           : `Eligible items must total more than ₹${coupon.discountValue} for this offer`,
         eligibleAmount: base.amount,
+        reason: 'price_floor',
       };
     }
     return {
       valid: false,
       message: 'This coupon does not reduce the price of items in your cart',
       eligibleAmount: base.amount,
+      reason: 'no_savings',
     };
   }
 
@@ -313,6 +461,28 @@ export function calculateCouponDiscount(
     discount = coupon.discountValue;
   }
   return Math.min(discount, Math.max(0, orderAmount));
+}
+
+export function couponMatchesProduct(
+  coupon: CouponLike,
+  product: {
+    _id: string;
+    categoryId?: string | null;
+    subcategoryId?: string | null;
+    category?: string | null;
+    subcategory?: string | null;
+  },
+): boolean {
+  if (coupon.showOnStorefront === false) return false;
+  return lineMatchesCouponScope(coupon, {
+    productId: String(product._id),
+    categoryId: product.categoryId ? String(product.categoryId) : null,
+    subcategoryId: product.subcategoryId ? String(product.subcategoryId) : null,
+    categoryName: product.category || null,
+    subcategoryName: product.subcategory || null,
+    lineTotal: 0,
+    quantity: 1,
+  });
 }
 
 export function assertCouponBusinessRules(input: {

@@ -6,11 +6,12 @@ import {
   normalizeExpiryDate,
 } from './promotionBusinessRules';
 import { invalidatePromotionCaches } from './promotionCacheService';
+import { resolvePromotionScopeNames } from './promotionScopeNames';
 
 const QUERY_MAX_MS = Number(process.env.PROMOTION_QUERY_MAX_MS || 5000);
 
 const ADMIN_SELECT =
-  'name description termsAndConditions displayTitle badgeText imageUrl imagePublicId promotionType buyQuantity getQuantity getDiscountPercent discountValue maxDiscountAmount minOrderAmount scopeType categoryIds subcategoryIds productIds startDate endDate isActive showOnStorefront priority archivedAt createdAt updatedAt';
+  'name description termsAndConditions displayTitle badgeText imageUrl imagePublicId promotionType buyQuantity getQuantity getDiscountPercent discountValue maxDiscountAmount minOrderAmount scopeType categoryIds subcategoryIds productIds applicableCategories applicableSubcategoryNames startDate endDate isActive showOnStorefront priority archivedAt createdAt updatedAt';
 
 const ALLOWED_UPDATE = [
   'name',
@@ -65,11 +66,13 @@ export const promotionAdminService = {
     const endDate = normalizeExpiryDate(new Date(data.endDate as string));
     assertScope({ ...data, startDate, endDate });
 
-    const promotion = await Promotion.create({
+    const withNames = await resolvePromotionScopeNames({
       ...data,
       startDate,
       endDate,
     });
+
+    const promotion = await Promotion.create(withNames);
     await invalidatePromotionCaches();
     return promotion;
   },
@@ -172,6 +175,13 @@ export const promotionAdminService = {
       startDate: merged.startDate,
       endDate: merged.endDate,
     });
+
+    const withNames = await resolvePromotionScopeNames(merged as Record<string, unknown>);
+    for (const key of ['applicableCategories', 'applicableSubcategoryNames'] as const) {
+      if (withNames[key] !== undefined) {
+        update[key] = withNames[key];
+      }
+    }
 
     const promotion = await Promotion.findOneAndUpdate(
       { _id: id, deletedAt: null, archivedAt: null },

@@ -43,16 +43,6 @@ MAIL_FROM=The House of Rani <noreply@yourdomain.com>
 MAIL_REPLY_TO=support@yourdomain.com
 ```
 
-## Loyalty
-
-```env
-LOYALTY_POINTS_PER_100_INR=1
-LOYALTY_POINTS_PER_INR_REDEEM=100
-LOYALTY_REDEEM_MIN_POINTS=100
-LOYALTY_REDEEM_MAX_ORDER_PCT=50
-LOYALTY_POINTS_EXPIRY_MS=31536000000
-```
-
 ## Jobs & workers
 
 Full reference: `backend/.env.example` → **Run mode & background jobs**.
@@ -134,22 +124,23 @@ NEXT_PUBLIC_TURNSTILE_SITE_KEY=...
 
 ## WAF / edge rules (admin surface)
 
-Admin mutations are not only under `/api/admin/*`. Also protect:
+Prefer writes at `/api/admin/writes/*` (admin JWT + 2FA). Legacy write paths still work — protect both:
 
+- `POST|PATCH|DELETE /api/admin/writes/*`
 - `POST|PATCH|DELETE /api/products/*`
-- `POST|PATCH|DELETE /api/coupons/*`, `/api/sales/*`
+- `POST|PATCH|DELETE /api/coupons/*`, `/api/sales/*`, `/api/promotions/*`
 - `POST|PATCH|DELETE /api/blogs/*`, `/api/testimonials/*`
 - `PATCH /api/gifting/requests/*`
 
-Rate-limit and geo-block these paths at the edge in production.
+List also: `GET /api/admin/writes/surfaces` (admin auth). Rate-limit and geo-block these at the edge.
 
 ## Post-deploy checklist
 
 1. API + worker both running with shared `MONGODB_URI` and `REDIS_URL`
 2. Redis `maxmemory-policy noeviction` (BullMQ)
 3. Confirm analytics pre-aggregation job runs (`analytics-pre-aggregation` in job health)
-4. Smoke test: signup → cart → checkout → admin order status → delivered (loyalty earn)
-5. Admin: `/admin/system/jobs`, `/admin/system/outbox`, user loyalty adjust
+4. Smoke test: signup → cart → checkout → admin order status → delivered
+5. Admin: `/admin/system/jobs`, `/admin/system/outbox`
 
 ## Scaling notes
 

@@ -16,6 +16,13 @@ const blogSchema = new Schema<IBlog>(
       lowercase: true,
       trim: true,
     },
+    /** Previous slug — used for 301 redirects when slug is edited. */
+    oldSlug: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      sparse: true,
+    },
     content: {
       type: String,
       required: [true, 'Blog content is required'],
@@ -84,6 +91,11 @@ const blogSchema = new Schema<IBlog>(
       trim: true,
       default: 'saree-styling',
     },
+    articleTemplate: {
+      type: String,
+      enum: ['classic', 'magazine', 'minimal', 'lookbook'],
+      default: 'classic',
+    },
     relatedProductIds: [
       {
         type: Schema.Types.ObjectId,
@@ -130,6 +142,7 @@ blogSchema.index({ isPublished: 1, category: 1, createdAt: -1 });
 blogSchema.index({ isPublished: 1, tags: 1 });
 blogSchema.index({ isPublished: 1, scheduledPublishAt: 1 });
 blogSchema.index({ viewCount: -1 });
+blogSchema.index({ oldSlug: 1 }, { sparse: true });
 // Text index for full-text search on title and content (avoids full collection regex scans)
 blogSchema.index({ title: 'text', content: 'text', excerpt: 'text' });
 

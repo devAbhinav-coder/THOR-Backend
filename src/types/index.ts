@@ -12,6 +12,8 @@ export interface IUser extends Document {
   welcomeEmailAt?: Date;
   emailVerified?: boolean;
   phone?: string;
+  /** Marketing WhatsApp — default on; set false to opt out of catalog/offer alerts. */
+  whatsappMarketingOptIn?: boolean;
   avatar?: string;
   adminNote?: string;
   addresses: IAddress[];
@@ -92,6 +94,10 @@ export interface IProduct extends Document {
   /** FK reference to SubCategory — populated during Phase 2 migration */
   subcategoryId?: Types.ObjectId;
   fabric?: string;
+  careInstructions?: string;
+  motionVideoUrl?: string;
+  motionVideoPublicId?: string;
+  motionReelUrl?: string;
   images: IProductImage[];
   variants: IProductVariant[];
   totalStock: number;
@@ -104,8 +110,18 @@ export interface IProduct extends Document {
   minOrderQty: number;
   occasions: string[];
   customFields: IProductCustomField[];
-  productDetails?: IProductDetail[];
-  ratings: {
+    productDetails?: IProductDetail[];
+    /** PDP "Why You'll Love It" bullet points */
+    highlights?: string[];
+    /** Admin-controlled PDP size guide */
+    sizeGuide?: {
+      enabled?: boolean;
+      title?: string;
+      intro?: string;
+      rows?: { size: string; detail: string }[];
+      tips?: string[];
+    };
+    ratings: {
     average: number;
     count: number;
   };
@@ -408,6 +424,8 @@ export interface IPromotion extends Document {
   categoryIds: Types.ObjectId[];
   subcategoryIds: Types.ObjectId[];
   productIds: Types.ObjectId[];
+  applicableCategories?: string[];
+  applicableSubcategoryNames?: string[];
   startDate: Date;
   endDate: Date;
   isActive: boolean;
@@ -441,6 +459,7 @@ export interface IBlog extends Document {
   _id: Types.ObjectId;
   title: string;
   slug: string;
+  oldSlug?: string;
   content: string;
   images: IBlogImage[];
   author: Types.ObjectId;
@@ -453,6 +472,7 @@ export interface IBlog extends Document {
   keywords: string[];
   tags: string[];
   category: string;
+  articleTemplate?: 'classic' | 'magazine' | 'minimal' | 'lookbook';
   relatedProductIds: Types.ObjectId[];
   readingTimeMin: number;
   aiGenerated: boolean;

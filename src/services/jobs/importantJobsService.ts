@@ -33,10 +33,9 @@ const PAYMENT_STATUS_GROSS = {
   paymentStatus: { $in: ["paid", "refunded"] as const },
 };
 
-const frontendUrl = (process.env.FRONTEND_URL || "https://thehouseofrani.com").replace(
-  /\/$/,
-  "",
-);
+const frontendUrl = (
+  process.env.FRONTEND_URL || "https://thehouseofrani.com"
+).replace(/\/$/, "");
 
 type WishlistAlertSnapshot = {
   _id: Types.ObjectId;
@@ -48,7 +47,9 @@ type WishlistAlertSnapshot = {
 };
 
 function isObjectIdString(value: string): boolean {
-  return Types.ObjectId.isValid(value) && String(new Types.ObjectId(value)) === value;
+  return (
+    Types.ObjectId.isValid(value) && String(new Types.ObjectId(value)) === value
+  );
 }
 
 function resolveRefId(ref: unknown): string | null {
@@ -74,8 +75,7 @@ export async function runWishlistPriceDropJob(): Promise<number> {
   const cooldownSince = new Date(Date.now() - cooldownMs);
 
   const cursorRaw = await getJobBatchCursor("wishlist-price-drop");
-  const cursor =
-    cursorRaw && isObjectIdString(cursorRaw) ? cursorRaw : null;
+  const cursor = cursorRaw && isObjectIdString(cursorRaw) ? cursorRaw : null;
   if (cursorRaw && !cursor) {
     logger.warn({
       msg: "job_cursor_invalid",
@@ -95,11 +95,8 @@ export async function runWishlistPriceDropJob(): Promise<number> {
     .lean()
     .maxTimeMS(10000);
 
-  await advanceJobBatchCursor(
-    "wishlist-price-drop",
-    wishlists,
-    batch,
-    (row) => String((row as { _id: unknown })._id),
+  await advanceJobBatchCursor("wishlist-price-drop", wishlists, batch, (row) =>
+    String((row as { _id: unknown })._id),
   );
 
   if (!wishlists.length) return 0;
@@ -128,12 +125,12 @@ export async function runWishlistPriceDropJob(): Promise<number> {
     Product.find({ _id: { $in: allProductIds }, isActive: true })
       .select("name slug price")
       .lean(),
-    wishlistUserIds.length
-      ? WishlistPriceAlert.find({
-          user: { $in: wishlistUserIds },
-          product: { $in: allProductIds },
-        }).lean()
-      : Promise.resolve([]),
+    wishlistUserIds.length ?
+      WishlistPriceAlert.find({
+        user: { $in: wishlistUserIds },
+        product: { $in: allProductIds },
+      }).lean()
+    : Promise.resolve([]),
   ]);
 
   const productMap = new Map(products.map((p) => [String(p._id), p]));
@@ -278,7 +275,9 @@ export async function runLowStockAlertJob(): Promise<number> {
     isActive: true,
     variants: { $elemMatch: { stock: { $lte: threshold, $gte: 0 } } },
   })
-    .select("name slug variants.sku variants.stock variants.size variants.color")
+    .select(
+      "name slug variants.sku variants.stock variants.size variants.color",
+    )
     .limit(batch * 3)
     .lean()
     .maxTimeMS(8000);
@@ -309,10 +308,10 @@ export async function runLowStockAlertJob(): Promise<number> {
     "/admin/products",
     "alert",
   );
-  await notifyAdminsEmail(
-    "Low stock alert — The House of Rani",
-    `<p>The following products need restocking (threshold ≤ ${threshold}):</p><ul>${lines}</ul>`,
-  );
+  // await notifyAdminsEmail(
+  //   "Low stock alert — The House of Rani",
+  //   `<p>The following products need restocking (threshold ≤ ${threshold}):</p><ul>${lines}</ul>`,
+  // );
 
   return alertProducts.length;
 }
@@ -343,7 +342,10 @@ export async function runOrderSlaBreachJob(): Promise<number> {
         ],
       },
       {
-        $or: [{ slaAlertedAt: null }, { slaAlertedAt: { $lt: slaAlertCutoff } }],
+        $or: [
+          { slaAlertedAt: null },
+          { slaAlertedAt: { $lt: slaAlertCutoff } },
+        ],
       },
     ],
   })
@@ -469,7 +471,8 @@ ${urls.map((loc) => `  <url><loc>${loc}</loc><changefreq>weekly</changefreq></ur
     try {
       const uploaded = await cloudinaryInstance.uploader.upload(outputPath, {
         resource_type: "raw",
-        public_id: process.env.SITEMAP_CLOUDINARY_PUBLIC_ID || "sitemap/sitemap",
+        public_id:
+          process.env.SITEMAP_CLOUDINARY_PUBLIC_ID || "sitemap/sitemap",
         overwrite: true,
       });
       logger.info({
@@ -484,7 +487,11 @@ ${urls.map((loc) => `  <url><loc>${loc}</loc><changefreq>weekly</changefreq></ur
     }
   }
 
-  logger.info({ msg: "sitemap_generated", path: outputPath, urlCount: urls.length });
+  logger.info({
+    msg: "sitemap_generated",
+    path: outputPath,
+    urlCount: urls.length,
+  });
   return urls.length;
 }
 
@@ -521,13 +528,18 @@ export async function runAnalyticsPreAggregationJob(): Promise<number> {
       status: "cancelled",
       createdAt: { $gte: start, $lt: end },
     }).maxTimeMS(5000),
-    User.countDocuments({ createdAt: { $gte: start, $lt: end } }).maxTimeMS(5000),
+    User.countDocuments({ createdAt: { $gte: start, $lt: end } }).maxTimeMS(
+      5000,
+    ),
     StoreVisitSession.countDocuments({ visitDate: dateKey }).maxTimeMS(5000),
     Order.aggregate([
       {
         $match: {
           createdAt: { $gte: start, $lt: end },
-          $or: [{ coupon: { $exists: true, $ne: null } }, { discount: { $gt: 0 } }],
+          $or: [
+            { coupon: { $exists: true, $ne: null } },
+            { discount: { $gt: 0 } },
+          ],
         },
       },
       { $group: { _id: null, total: { $sum: "$discount" } } },

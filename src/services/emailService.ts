@@ -5,6 +5,11 @@ import nodemailer from "nodemailer";
 import logger from "../types/utils/logger";
 import { htmlToPlainText } from "../types/utils/emailPlainText";
 import { sendViaResend } from "./emailDeliveryService";
+import {
+  renderAbandonedCartEmail,
+  renderOrderConfirmEmail,
+  renderOtpEmail,
+} from "../emails/renderEmail";
 
 export type EmailPayload = {
   to: string;
@@ -289,12 +294,12 @@ export const emailTemplates = {
   }),
   abandonedCart: (name: string, total: number, itemCount: number) => ({
     subject: "Your cart is waiting — The House of Rani",
-    html: shell(
-      "Complete your order",
-      `Hi ${escEmail(name)},<br/><br/>You left <b>${itemCount}</b> item${itemCount !== 1 ? "s" : ""} in your cart (₹${total.toFixed(2)}).<br/><br/>They may sell out — checkout takes just a minute.`,
-      "Return to cart",
-      `${frontendUrl}/cart`,
-    ),
+    html: renderAbandonedCartEmail({
+      name: escEmail(name),
+      itemCount,
+      total: `₹${total.toFixed(2)}`,
+      cartUrl: `${frontendUrl}/cart`,
+    }),
   }),
   wishlistPriceDrop: (
     name: string,
@@ -323,12 +328,12 @@ export const emailTemplates = {
   }),
   orderPlacedUser: (name: string, orderNumber: string, total: number) => ({
     subject: `Order confirmation ${orderNumber}`,
-    html: shell(
-      "Thank you for your order",
-      `Hi ${name},<br/><br/>We have received order <b>${orderNumber}</b>.<br/>Order total: <b>₹${total.toFixed(2)}</b>.`,
-      "View order",
-      `${frontendUrl}/dashboard/orders`,
-    ),
+    html: renderOrderConfirmEmail({
+      name: escEmail(name),
+      orderNumber: escEmail(orderNumber),
+      total: `₹${total.toFixed(2)}`,
+      orderUrl: `${frontendUrl}/dashboard/orders`,
+    }),
   }),
   /** Richer confirmation for admin-recorded offline / POS orders (email + item table + deep link). */
   offlineOrderThankYou: (
@@ -340,6 +345,7 @@ export const emailTemplates = {
       fulfillment: "delhivery" | "offline_handover";
       paymentLabel: string;
       items: { name: string; qty: number; lineTotal: number }[];
+      pdfAttached?: boolean;
     },
   ) => {
     const rows = opts.items
@@ -354,8 +360,10 @@ export const emailTemplates = {
       .join("");
     const fulfilNote =
       opts.fulfillment === "offline_handover" ?
-        "Your purchase was completed <b>in person</b> at the time of sale — nothing will be shipped to this address for this order."
-      : "We will arrange <b>courier delivery</b> as usual. You will receive updates when your order ships, and your <b>tax invoice by email</b> once the order is delivered.";
+        opts.pdfAttached ?
+          "Your purchase was completed <b>in person</b> at the time of sale. Your <b>tax invoice (PDF)</b> is attached to this email."
+        : "Your purchase was completed <b>in person</b> at the time of sale — nothing will be shipped to this address for this order."
+      : "We will arrange <b>courier delivery</b> as usual. You will receive shipping updates on email and WhatsApp, and your <b>tax invoice (PDF)</b> once the order is delivered.";
 
     const body = `Hi ${escEmail(name)},<br/><br/>
       Thank you for choosing <b>The House of Rani</b>.<br/><br/>
@@ -521,11 +529,17 @@ export const emailTemplates = {
       status === "shipped" ? "📦 Your order is on the way!"
       : status === "delivered" ? "✅ Order Delivered!"
       : status === "cancelled" ? "❌ Order Cancelled"
+      : status === "confirmed" ? "✅ Order confirmed"
+      : status === "processing" ? "✨ We're preparing your order"
+      : status === "refunded" ? "💰 Refund update"
       : "Order update",
       `Hi ${name},<br/><br/>Your order <b>${orderNumber}</b> is now <b>${status}</b>.<br/><br/>
+       ${status === "confirmed" ? "Thank you — your order is confirmed and will move into processing soon.<br/><br/>" : ""}
+       ${status === "processing" ? "Our team is carefully preparing your pieces. You'll receive shipping details when your parcel is dispatched.<br/><br/>" : ""}
        ${status === "shipped" && opts?.carrier ? `<b>Courier:</b> ${opts.carrier}<br/>${opts.awb ? `<b>AWB:</b> ${opts.awb}<br/>` : ""}${opts?.trackingUrl ? `<b><a href="${opts.trackingUrl}" style="color:#b45309;">Track your shipment →</a></b><br/>` : ""}<br/>` : ""}
        ${status === "delivered" ? "We hope you love your purchase!<br/><br/>If you have any issues, please reach out within 5 days." : ""}
-       ${status === "cancelled" ? "If you did not request this, please contact our support team immediately." : ""}`,
+       ${status === "cancelled" ? "If you did not request this, please contact our support team immediately." : ""}
+       ${status === "refunded" ? "Your refund has been recorded. See your order page for amount and timeline." : ""}`,
       "View order",
       `${frontendUrl}/dashboard/orders`,
     ),
@@ -833,25 +847,31 @@ export const emailTemplates = {
 
   otpSignup: (name: string, code: string) => ({
     subject: "Your verification code",
-    html: shell(
-      "Verify your email",
-      `Hi ${name},<br/><br/>Your verification code is:<br/><br/><b style="font-size:22px;letter-spacing:0.18em;color:#0f172a;">${code}</b><br/><br/>It expires in <b>10 minutes</b>. If you did not request this, you can ignore this email.`,
-    ),
+    html: renderOtpEmail({
+      heading: "Verify your email",
+      greetingName: escEmail(name),
+      code,
+      purpose: "Your verification code is:",
+    }),
   }),
   otpPasswordReset: (name: string, code: string) => ({
     subject: "Password reset code",
-    html: shell(
-      "Reset your password",
-      `Hi ${name},<br/><br/>Use this code to reset your password:<br/><br/><b style="font-size:22px;letter-spacing:0.18em;color:#0f172a;">${code}</b><br/><br/>It expires in <b>10 minutes</b>. If you did not request a reset, ignore this email.`,
-    ),
+    html: renderOtpEmail({
+      heading: "Reset your password",
+      greetingName: escEmail(name),
+      code,
+      purpose: "Use this code to reset your password:",
+    }),
   }),
   /** Email OTP sign-in (passwordless) for verified non-Google accounts. */
   otpLogin: (name: string, code: string) => ({
     subject: "Your sign-in code",
-    html: shell(
-      "Sign in to your account",
-      `Hi ${name},<br/><br/>Your one-time sign-in code is:<br/><br/><b style="font-size:22px;letter-spacing:0.18em;color:#0f172a;">${code}</b><br/><br/>It expires in <b>10 minutes</b>. If you did not try to sign in, ignore this email.`,
-    ),
+    html: renderOtpEmail({
+      heading: "Sign in to your account",
+      greetingName: escEmail(name),
+      code,
+      purpose: "Your one-time sign-in code is:",
+    }),
   }),
 };
 

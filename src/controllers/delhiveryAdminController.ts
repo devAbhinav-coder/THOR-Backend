@@ -31,6 +31,7 @@ import { syncDelhiveryOrderById } from "../services/delhiveryTrackingSyncService
 import { writeAdminAudit } from "../services/adminAuditService";
 import { enqueueEmail } from "../queues/emailQueue";
 import { emailTemplates } from "../services/emailService";
+import { isCustomerDeliverableEmail } from "../types/utils/customerEmail";
 import { notifyUser } from "../services/notificationService";
 import { getOrderShippedCopy } from "../services/notifications/orderNotificationCopy";
 import { IAddress } from "../types";
@@ -533,22 +534,37 @@ export const createDelhiveryShipmentForOrder = catchAsync(
     const user = populated?.user as unknown as
       | { name?: string; email?: string; _id?: string }
       | undefined;
-    if (populated && user?.email) {
-      const tpl = emailTemplates.orderStatusUpdate(
-        user.name || "Customer",
-        populated.orderNumber,
-        "shipped",
-        {
-          carrier: "Delhivery",
-          awb: primaryWb,
-          trackingUrl: trackUrl,
-        },
+    if (populated && user?._id) {
+      if (user.email && isCustomerDeliverableEmail(user.email)) {
+        const tpl = emailTemplates.orderStatusUpdate(
+          user.name || "Customer",
+          populated.orderNumber,
+          "shipped",
+          {
+            carrier: "Delhivery",
+            awb: primaryWb,
+            trackingUrl: trackUrl,
+          },
+        );
+        await enqueueEmail({
+          to: user.email,
+          subject: tpl.subject,
+          html: tpl.html,
+        });
+      }
+
+      const { notifyWhatsAppOrderStatusChange } = await import(
+        "../services/whatsappNotifyService"
       );
-      await enqueueEmail({
-        to: user.email,
-        subject: tpl.subject,
-        html: tpl.html,
-      });
+      void notifyWhatsAppOrderStatusChange({
+        userId: String(user._id),
+        orderId: String(populated._id),
+        orderNumber: populated.orderNumber!,
+        status: "shipped",
+        carrier: "Delhivery",
+        awb: primaryWb,
+      }).catch(() => {});
+
       const shippedCopy = getOrderShippedCopy(populated.orderNumber!, {
         carrier: "Delhivery",
         awb: primaryWb,

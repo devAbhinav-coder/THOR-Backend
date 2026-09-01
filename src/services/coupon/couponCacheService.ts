@@ -4,8 +4,8 @@ import { CouponLike } from './couponBusinessRules';
 const ACTIVE_COUPONS_KEY = 'cache:coupons:active';
 const COUPON_BY_CODE_PREFIX = 'cache:coupon:code:';
 const VALIDATION_PREFIX = 'cache:coupon:validate:';
-/** v2: eligible list excludes showOnStorefront:false (code-only) coupons */
-const ELIGIBLE_PREFIX = 'cache:coupon:eligible:v2:';
+/** v3: eligible + nearEligible (actionable hints); hides permanently exhausted coupons */
+const ELIGIBLE_PREFIX = 'cache:coupon:eligible:v3:';
 const ACTIVE_TTL = Number(process.env.COUPON_ACTIVE_CACHE_TTL_SEC || 300);
 const CODE_TTL = Number(process.env.COUPON_CODE_CACHE_TTL_SEC || 600);
 const VALIDATION_TTL = Number(process.env.COUPON_VALIDATION_CACHE_TTL_SEC || 60);
@@ -36,7 +36,7 @@ export function eligibleCouponsCacheKey(
 
 export type EligibleCouponsCachePayload = {
   coupons: CouponLike[];
-  ineligible: Array<{ code: string; reason: string }>;
+  nearEligible: Array<{ coupon: CouponLike; hintMessage: string }>;
   completedOrders: number;
 };
 

@@ -13,6 +13,7 @@ export interface IReviewInvite {
   revokedAt?: Date | null;
   createdByAdmin?: Types.ObjectId | null;
   emailSentAt?: Date | null;
+  whatsappSentAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -37,6 +38,7 @@ const reviewInviteSchema = new Schema<IReviewInvite>(
     revokedAt: { type: Date, default: null },
     createdByAdmin: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     emailSentAt: { type: Date, default: null },
+    whatsappSentAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

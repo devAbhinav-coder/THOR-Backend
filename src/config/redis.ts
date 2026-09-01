@@ -6,8 +6,8 @@ const hasHostConfig = Boolean(process.env.REDIS_HOST || process.env.REDIS_PORT);
 const configuredRedis = Boolean(redisUrl || hasHostConfig);
 const isProd = process.env.NODE_ENV === "production";
 
-/** False only when Redis is configured but startup probe fails — then memory fallbacks apply. */
-let redisOperational = configuredRedis;
+/** False until startup probe succeeds — avoids routing to a dead client before bootstrap. */
+let redisOperational = false;
 
 export function isRedisOperational(): boolean {
   return redisOperational;
@@ -48,6 +48,7 @@ type RedisLike = Pick<
   | "quit"
   | "on"
   | "keys"
+  | "scan"
   | "connect"
   | "disconnect"
   | "status"
@@ -112,6 +113,18 @@ const fallbackRedis: RedisLike = {
       }
     }
     return matched;
+  },
+  scan: async (_cursor: string | number, ...args: Array<string | number>) => {
+    const matchIdx = args.findIndex((a) => String(a).toUpperCase() === "MATCH");
+    const pattern = matchIdx >= 0 ? String(args[matchIdx + 1] ?? "*") : "*";
+    const regex = redisGlobPatternToRegExp(pattern);
+    const matched: string[] = [];
+    for (const key of memoryStore.keys()) {
+      if (!isExpired(key) && regex.test(key)) {
+        matched.push(key);
+      }
+    }
+    return ["0", matched] as [string, string[]];
   },
   incr: async (key: string) => {
     if (isExpired(key)) memoryCounters.delete(key);
@@ -230,6 +243,11 @@ export async function bootstrapRedis(): Promise<void> {
     redisOperational = true;
   } catch (err: unknown) {
     redisOperational = false;
+    try {
+      realRedisClient?.disconnect(false);
+    } catch {
+      /* ignore */
+    }
     logger.warn(
       `Redis unavailable (${(err as Error).message}). Using in-memory fallbacks — ` +
         "start Redis: npm run redis:up (or REDIS_URL=redis://127.0.0.1:6379).",

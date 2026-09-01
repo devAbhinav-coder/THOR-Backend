@@ -159,6 +159,15 @@ export async function runAbandonedCartRecoveryJob(): Promise<number> {
       { category: "promotion", skipPreferenceCheck: false },
     ).catch(() => {});
 
+    const { notifyWhatsAppAbandonedCart } = await import(
+      "../whatsappNotifyService"
+    );
+    void notifyWhatsAppAbandonedCart({
+      userId,
+      itemCount,
+      total: cartTotal,
+    }).catch(() => {});
+
     await CartRecoveryLog.create({
       user: userId,
       sentAt: new Date(),
@@ -258,8 +267,9 @@ export async function runUnpaidOrderAutoCancelJob(): Promise<number> {
   return cancelled;
 }
 
-/** Delivered orders 3+ days old without review invite email → send invite. */
+/** Delivered orders 3+ days old without review invite → send via email or WhatsApp. */
 import { isCustomerDeliverableEmail } from "../../types/utils/customerEmail";
+import { resolveUserWhatsApp } from "../whatsappNotifyService";
 
 export async function runReviewInviteJob(): Promise<number> {
   const delayMs = Number(
@@ -273,10 +283,9 @@ export async function runReviewInviteJob(): Promise<number> {
     status: "delivered",
     deliveredAt: { $lte: deliveredBefore, $ne: null },
     reviewInviteSkippedAt: null,
-    $or: [{ offlineMeta: { $exists: false } }, { offlineMeta: null }],
     ...(cursor ? { _id: { $gt: cursor } } : {}),
   })
-    .populate("user", "email")
+    .populate("user", "email phone addresses.phone")
     .select("_id deliveredAt user offlineMeta")
     .sort({ _id: 1 })
     .limit(batch)
@@ -292,9 +301,15 @@ export async function runReviewInviteJob(): Promise<number> {
 
   const skipIds: string[] = [];
   const eligible = orders.filter((row) => {
-    const user = row.user as unknown as { email?: string } | null;
+    const user = row.user as unknown as {
+      email?: string;
+      phone?: string;
+      addresses?: Array<{ phone?: string }>;
+    } | null;
     const email = user?.email;
-    if (!isCustomerDeliverableEmail(email)) {
+    const hasEmail = isCustomerDeliverableEmail(email);
+    const hasPhone = Boolean(resolveUserWhatsApp(user));
+    if (!hasEmail && !hasPhone) {
       skipIds.push(String(row._id));
       return false;
     }
@@ -313,7 +328,7 @@ export async function runReviewInviteJob(): Promise<number> {
     const orderId = String(row._id);
     const existing = await ReviewInvite.findOne({
       order: orderId,
-      emailSentAt: { $ne: null },
+      $or: [{ emailSentAt: { $ne: null } }, { whatsappSentAt: { $ne: null } }],
       revokedAt: null,
     })
       .select("_id")
@@ -321,11 +336,14 @@ export async function runReviewInviteJob(): Promise<number> {
     if (existing) continue;
 
     try {
-      await reviewInviteService.sendInviteEmail(orderId);
+      await reviewInviteService.sendInviteAuto(orderId);
       sent += 1;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "invite failed";
-      if (message.includes("No customer email")) {
+      if (
+        message.includes("No deliverable email") ||
+        message.includes("No valid customer phone")
+      ) {
         await Order.updateOne(
           { _id: orderId },
           { $set: { reviewInviteSkippedAt: new Date() } },

@@ -22,7 +22,7 @@ const reviewTitle = z
 
 const paginationQuery = z.object({
   page: z.coerce.number().int().min(1).max(500).optional().default(1),
-  limit: z.coerce.number().int().min(1).max(50).optional().default(10),
+  limit: z.coerce.number().int().min(1).max(50).optional().default(20),
   sort: z.enum(['newest', 'highest', 'helpful', 'images']).optional(),
 });
 

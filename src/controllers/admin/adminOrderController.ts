@@ -318,46 +318,56 @@ export const updateOrderStatus = catchAsync(
         | { _id?: unknown; name?: string; email?: string }
         | undefined;
 
-      if (populated && user?.email && isCustomerDeliverableEmail(user.email)) {
-        const tpl = emailTemplates.orderStatusUpdate(
-          user.name || "Customer",
-          populated.orderNumber,
-          "cancelled",
-        );
-        enqueueEmail({
-          to: user.email,
-          subject: tpl.subject,
-          html: tpl.html,
-        }).catch((e: Error) =>
-          logger.warn(`Cancel email enqueue failed: ${e.message}`),
-        );
-
-        if (user._id) {
-          const cancelCopy = getOrderCancelledByAdminCopy(
-            populated.orderNumber!,
+      if (populated && user?._id) {
+        if (user.email && isCustomerDeliverableEmail(user.email)) {
+          const tpl = emailTemplates.orderStatusUpdate(
+            user.name || "Customer",
+            populated.orderNumber,
+            "cancelled",
           );
-          notifyUser(
-            String(user._id),
-            cancelCopy.title,
-            cancelCopy.message,
-            `/dashboard/orders/${populated._id}`,
-            cancelCopy.type,
-          ).catch((e: Error) =>
-            logger.warn(`Cancel notify failed: ${e.message}`),
+          enqueueEmail({
+            to: user.email,
+            subject: tpl.subject,
+            html: tpl.html,
+          }).catch((e: Error) =>
+            logger.warn(`Cancel email enqueue failed: ${e.message}`),
           );
         }
 
-        const adminTpl = emailTemplates.adminOrderCancelled(
-          user.name || "Customer",
-          user.email,
-          populated.orderNumber!,
-          String(cancelledOrder._id),
-          noteTrimmed,
-          "admin",
+        const { notifyWhatsAppOrderStatusChange } = await import(
+          "../../services/whatsappNotifyService"
         );
-        notifyAdminsEmail(adminTpl.subject, adminTpl.html).catch((e: Error) =>
-          logger.warn(`Admin cancel email failed: ${e.message}`),
+        void notifyWhatsAppOrderStatusChange({
+          userId: String(user._id),
+          orderId: String(populated._id),
+          orderNumber: populated.orderNumber!,
+          status: "cancelled",
+        }).catch(() => {});
+
+        const cancelCopy = getOrderCancelledByAdminCopy(populated.orderNumber!);
+        notifyUser(
+          String(user._id),
+          cancelCopy.title,
+          cancelCopy.message,
+          `/dashboard/orders/${populated._id}`,
+          cancelCopy.type,
+        ).catch((e: Error) =>
+          logger.warn(`Cancel notify failed: ${e.message}`),
         );
+
+        if (user.email) {
+          const adminTpl = emailTemplates.adminOrderCancelled(
+            user.name || "Customer",
+            user.email,
+            populated.orderNumber!,
+            String(cancelledOrder._id),
+            noteTrimmed,
+            "admin",
+          );
+          notifyAdminsEmail(adminTpl.subject, adminTpl.html).catch((e: Error) =>
+            logger.warn(`Admin cancel email failed: ${e.message}`),
+          );
+        }
       }
 
       return sendSuccess(res, { order: cancelledOrder });
@@ -411,7 +421,7 @@ export const updateOrderStatus = catchAsync(
       | { _id?: unknown; name?: string; email?: string }
       | undefined;
 
-    if (!sameStatus && populated && user?.email && isCustomerDeliverableEmail(user.email) && status !== "delivered") {
+    if (!sameStatus && populated && user?._id && status !== "delivered") {
       const trackingOpts =
         status === "shipped" ?
           {
@@ -421,32 +431,46 @@ export const updateOrderStatus = catchAsync(
           }
         : undefined;
 
-      const tpl = emailTemplates.orderStatusUpdate(
-        user.name || "Customer",
-        populated.orderNumber,
-        populated.status,
-        trackingOpts,
-      );
-      enqueueEmail({
-        to: user.email,
-        subject: tpl.subject,
-        html: tpl.html,
-      }).catch(() => {});
-
-      if (user._id) {
-        const statusCopy = getOrderStatusUpdateCopy(
-          populated.orderNumber!,
-          status,
+      if (user.email && isCustomerDeliverableEmail(user.email)) {
+        const tpl = emailTemplates.orderStatusUpdate(
+          user.name || "Customer",
+          populated.orderNumber,
+          populated.status,
           trackingOpts,
         );
-        notifyUser(
-          String(user._id),
-          statusCopy.title,
-          statusCopy.message,
-          `/dashboard/orders/${populated._id}`,
-          statusCopy.type,
-        ).catch(() => {});
+        enqueueEmail({
+          to: user.email,
+          subject: tpl.subject,
+          html: tpl.html,
+        }).catch(() => {});
       }
+
+      if (status !== "delivered") {
+        const { notifyWhatsAppOrderStatusChange } = await import(
+          "../../services/whatsappNotifyService"
+        );
+        void notifyWhatsAppOrderStatusChange({
+          userId: String(user._id),
+          orderId: String(populated._id),
+          orderNumber: populated.orderNumber!,
+          status,
+          carrier: order.shippingCarrier,
+          awb: order.trackingNumber,
+        }).catch(() => {});
+      }
+
+      const statusCopy = getOrderStatusUpdateCopy(
+        populated.orderNumber!,
+        status,
+        trackingOpts,
+      );
+      notifyUser(
+        String(user._id),
+        statusCopy.title,
+        statusCopy.message,
+        `/dashboard/orders/${populated._id}`,
+        statusCopy.type,
+      ).catch(() => {});
     }
 
     sendSuccess(res, { order });

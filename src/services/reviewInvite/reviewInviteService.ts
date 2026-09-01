@@ -157,15 +157,20 @@ export const reviewInviteService = {
         qrDataUrl,
         expiresAt: invite.expiresAt,
         emailSentAt: invite.emailSentAt || null,
+        whatsappSentAt: invite.whatsappSentAt || null,
         productCount: invite.productIds.length,
         reviewedCount: invite.reviewedProductIds.length,
       },
       order: {
         _id: String(order._id),
+        userId: resolveId(order.user),
         orderNumber: order.orderNumber,
         customerName: user?.name || 'Customer',
         customerEmail: isCustomerDeliverableEmail(user?.email) ? user.email : null,
         customerPhone: user?.phone || null,
+        hasWhatsAppPhone: Boolean(
+          user?.phone && String(user.phone).replace(/\D/g, "").length >= 10,
+        ),
       },
     };
   },
@@ -390,6 +395,84 @@ export const reviewInviteService = {
       invite: { ...payload.invite, emailSentAt: new Date() },
       emailedTo: email,
     };
+  },
+
+  async sendInviteWhatsApp(orderId: string, adminId?: string) {
+    const payload = await this.createOrGetForOrder(orderId, adminId);
+    const sent = await (
+      await import("../whatsappNotifyService")
+    ).notifyWhatsAppReviewInvite({
+      userId: payload.order.userId || undefined,
+      orderId: payload.order._id,
+      phone: payload.order.customerPhone || undefined,
+      name: payload.order.customerName,
+      orderNumber: payload.order.orderNumber,
+      inviteUrl: payload.invite.url,
+    });
+
+    if (!sent) {
+      throw new AppError(
+        "No valid customer phone on this order. Copy the link or QR instead.",
+        400,
+      );
+    }
+
+    await ReviewInvite.findByIdAndUpdate(payload.invite._id, {
+      whatsappSentAt: new Date(),
+    });
+
+    return {
+      ...payload,
+      invite: { ...payload.invite, whatsappSentAt: new Date() },
+      whatsAppSent: true,
+    };
+  },
+
+  /** Auto job — email if available, otherwise WhatsApp. */
+  async sendInviteAuto(orderId: string) {
+    const payload = await this.createOrGetForOrder(orderId);
+    const email = payload.order.customerEmail;
+    let channel: "email" | "whatsapp" | null = null;
+
+    if (email) {
+      const tpl = emailTemplates.reviewInvite({
+        name: payload.order.customerName,
+        orderNumber: payload.order.orderNumber,
+        inviteUrl: payload.invite.url,
+        expiresAt: payload.invite.expiresAt,
+      });
+      await enqueueEmail({
+        to: email,
+        subject: tpl.subject,
+        html: tpl.html,
+      });
+      await ReviewInvite.findByIdAndUpdate(payload.invite._id, {
+        emailSentAt: new Date(),
+      });
+      channel = "email";
+    }
+
+    const { notifyWhatsAppReviewInvite } = await import("../whatsappNotifyService");
+    const waSent = await notifyWhatsAppReviewInvite({
+      userId: payload.order.userId || undefined,
+      orderId: payload.order._id,
+      phone: payload.order.customerPhone || undefined,
+      name: payload.order.customerName,
+      orderNumber: payload.order.orderNumber,
+      inviteUrl: payload.invite.url,
+    });
+    if (waSent) {
+      await ReviewInvite.findByIdAndUpdate(payload.invite._id, {
+        whatsappSentAt: new Date(),
+      });
+      if (!channel) channel = "whatsapp";
+    }
+
+    if (!channel) {
+      throw new AppError("No deliverable email or phone for review invite.", 400);
+    }
+
+    return { orderId, channel };
   },
 
   async revoke(orderId: string) {

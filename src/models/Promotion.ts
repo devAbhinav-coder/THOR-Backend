@@ -50,6 +50,10 @@ const promotionSchema = new Schema<IPromotion>(
     categoryIds: [{ type: Schema.Types.ObjectId, ref: 'Category' }],
     subcategoryIds: [{ type: Schema.Types.ObjectId, ref: 'SubCategory' }],
     productIds: [{ type: Schema.Types.ObjectId, ref: 'Product' }],
+    /** Denormalized category names for storefront scope matching */
+    applicableCategories: [{ type: String, trim: true }],
+    /** Denormalized subcategory names for storefront scope matching */
+    applicableSubcategoryNames: [{ type: String, trim: true }],
     startDate: { type: Date, required: true },
     endDate: { type: Date, required: true },
     isActive: { type: Boolean, default: true },

@@ -14,9 +14,20 @@ export async function deleteCache(key: string): Promise<void> {
   await redisConnection.del(key);
 }
 
+/** SCAN instead of KEYS — safe on production Redis (no event-loop block). */
 export async function clearCachePattern(pattern: string): Promise<void> {
-  const keys = await redisConnection.keys(pattern);
-  if (keys.length > 0) {
-    await redisConnection.del(...keys);
-  }
+  let cursor = "0";
+  do {
+    const [next, keys] = await redisConnection.scan(
+      cursor,
+      "MATCH",
+      pattern,
+      "COUNT",
+      200,
+    );
+    cursor = next;
+    if (keys.length > 0) {
+      await redisConnection.del(...keys);
+    }
+  } while (cursor !== "0");
 }

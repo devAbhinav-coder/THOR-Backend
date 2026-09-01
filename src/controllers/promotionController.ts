@@ -34,6 +34,14 @@ export const createPromotion = catchAsync(async (req: Request, res: Response) =>
     promotionId: String(promotion._id),
     name: promotion.name,
   });
+  const { notifyWhatsAppCatalogAlert } = await import(
+    '../services/whatsappNotifyService'
+  );
+  notifyWhatsAppCatalogAlert({
+    kind: 'promotion',
+    title: String(promotion.name || 'New offer'),
+    path: '/shop',
+  });
   sendSuccess(res, { promotion }, 'Promotion created', 201);
 });
 

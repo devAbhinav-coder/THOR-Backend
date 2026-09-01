@@ -343,34 +343,6 @@ REDIS_PORT=6379
 
 ---
 
-## Loyalty program (2026)
-
-### Customer APIs
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/api/loyalty/preview?subtotal=&couponDiscount=` | User | Redeem preview (balance, max points, max discount) |
-| GET | `/api/loyalty/history?page=&limit=` | User | Ledger: earn, redeem, restore, clawback, expire, admin_adjust |
-| POST | `/api/cart/apply-loyalty` | User | Body `{ points }` |
-| DELETE | `/api/cart/loyalty` | User | Remove applied points |
-
-Checkout body may include `loyaltyPoints` (optional override). Order fields:
-
-- `loyaltyPointsRedeemed`, `loyaltyDiscount`
-- `loyaltyPointsEarned`, `loyaltyPointsAwarded` (set on delivery)
-- `loyaltyEarnClawedBack`, `loyaltyPointsClawedBack` (on refund)
-
-### Admin loyalty
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/admin/users/:id/loyalty/ledger` | User ledger + balance |
-| POST | `/api/admin/users/:id/loyalty/adjust` | Body `{ delta, reason }` — audit trail |
-
-Refund flow restores redeemed points and claws back earned points (proportional to refund amount).
-
----
-
 ## Background jobs & outbox (2026)
 
 ### Job health
@@ -396,13 +368,11 @@ Admin UI: `/admin/system/jobs`, `/admin/system/outbox`.
 
 `GET /api/admin/analytics` includes:
 
-- `dailyMetrics[]` — per-day revenue, orders, siteVisits, couponDiscount, loyaltyPointsEarned, loyaltyPointsRedeemed, loyaltyDiscountTotal, refundedAmount, `fromSnapshot`
+- `dailyMetrics[]` — per-day revenue, orders, siteVisits, couponDiscount, refundedAmount, `fromSnapshot`
 - `snapshotOverview.totals` — 30-day rollup from `AnalyticsDailySnapshot`
-
-Frontend: `DailyLoyaltyMetricsChart` on admin analytics sales tab.
 
 ---
 
-**Last Updated**: Aug 2026 — loyalty ledger, job health UI, DLQ replay, dailyMetrics chart, deployment guide (`DEPLOYMENT.md`).
+**Last Updated**: Aug 2026 — job health UI, DLQ replay, dailyMetrics chart, WhatsApp Cloud API, `/api/admin/writes/*`.
 
 **Backend Status**: Run `npm run typecheck` (backend) before deploy.

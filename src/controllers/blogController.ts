@@ -59,10 +59,17 @@ function enrichBlogFields(body: Record<string, unknown>, existing?: IBlog) {
   const content = enrichBlogContentHtml(rawContent);
   const excerptRaw = String(body.excerpt ?? existing?.excerpt ?? "").trim();
   const excerpt = excerptRaw || plainBlogExcerpt(content, 180);
+  const newSlug = String(body.slug || existing?.slug || slugFromTitle(title))
+    .trim()
+    .toLowerCase();
+
+  const slugChanged =
+    Boolean(existing && body.slug !== undefined && newSlug !== existing.slug);
 
   return {
     title,
-    slug: String(body.slug || existing?.slug || slugFromTitle(title)).trim(),
+    slug: newSlug,
+    ...(slugChanged && existing ? { oldSlug: existing.slug } : {}),
     content,
     excerpt,
     seoTitle: String(body.seoTitle ?? existing?.seoTitle ?? title)
@@ -84,6 +91,15 @@ function enrichBlogFields(body: Record<string, unknown>, existing?: IBlog) {
     category: String(
       body.category ?? existing?.category ?? "saree-styling",
     ).trim(),
+    articleTemplate: (() => {
+      const allowed = ["classic", "magazine", "minimal", "lookbook"] as const;
+      const raw = String(
+        body.articleTemplate ?? existing?.articleTemplate ?? "classic",
+      ).trim();
+      return allowed.includes(raw as (typeof allowed)[number]) ?
+          raw
+        : "classic";
+    })(),
     relatedProductIds:
       body.relatedProductIds !== undefined ?
         parseObjectIdArray(body.relatedProductIds)
@@ -207,15 +223,32 @@ export const getRelatedBlogs = catchAsync(
 
 export const getBlogBySlug = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
+    const slugParam = String(req.params.slug || "").trim().toLowerCase();
+
     const blog = await Blog.findOneAndUpdate(
-      { slug: req.params.slug, isPublished: true },
+      { slug: slugParam, isPublished: true },
       { $inc: { viewCount: 1 } },
       { new: true },
     )
       .populate("author", "name avatar")
       .populate("relatedProductIds", "name slug images price shortDescription");
 
-    if (!blog) return next(new AppError("No blog found with that slug.", 404));
+    if (!blog) {
+      const byOldSlug = await Blog.findOne({
+        oldSlug: slugParam,
+        isPublished: true,
+      }).select("slug");
+
+      if (byOldSlug?.slug) {
+        return sendSuccess(
+          res,
+          { redirect: { slug: byOldSlug.slug, permanent: true } },
+          "Redirect",
+        );
+      }
+
+      return next(new AppError("No blog found with that slug.", 404));
+    }
 
     const comments = await BlogComment.find({ blog: blog._id })
       .populate("user", "name avatar")

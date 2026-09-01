@@ -128,6 +128,10 @@ const userSchema = new Schema<IUser>(
       type: String,
       match: [/^[6-9]\d{9}$/, 'Please enter a valid Indian phone number'],
     },
+    whatsappMarketingOptIn: {
+      type: Boolean,
+      default: true,
+    },
     avatar: String,
     adminNote: { type: String, maxlength: 1000, default: '' },
     addresses: {

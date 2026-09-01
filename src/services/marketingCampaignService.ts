@@ -10,8 +10,13 @@ import { htmlToPlainText } from "../types/utils/emailPlainText";
 import { normalizeMarketingCtaLink } from "../types/utils/marketingCtaLink";
 import { onNotificationCreated } from "./notifications/notificationReadService";
 import { queuePushForUser } from "./notifications/notificationDeliveryService";
+import {
+  broadcastMarketingWhatsApp,
+  countWhatsAppReach,
+} from "./whatsappNotifyService";
+import { whatsappMarketingEnabled, whatsappConfigured } from "../config/whatsapp";
 
-export type MarketingChannel = "email" | "in_app" | "push";
+export type MarketingChannel = "email" | "in_app" | "push" | "whatsapp";
 export type MarketingAudience = "all" | "users" | "admins" | "selected";
 
 export type MarketingCampaignInput = {
@@ -31,6 +36,7 @@ export type MarketingAudienceStats = {
   offlineLeadEmails: number;
   estimatedEmailRecipients: number;
   estimatedNotificationRecipients: number;
+  estimatedWhatsAppRecipients: number;
   channels: MarketingChannel[];
 };
 
@@ -76,9 +82,15 @@ export async function getMarketingAudienceStats(
   const filter = buildUserFilter(audience, userIds);
   const accountUsers = await User.countDocuments(filter);
   const wantsEmail = channels.includes("email");
+  const wantsWhatsApp = channels.includes("whatsapp");
   const offlineLeadEmails =
     wantsEmail && includeOfflineLeads && audience !== "admins" ?
       await countOfflineOnlyEmails()
+    : 0;
+
+  const estimatedWhatsAppRecipients =
+    wantsWhatsApp && whatsappMarketingEnabled() ?
+      await countWhatsAppReach(filter)
     : 0;
 
   return {
@@ -90,6 +102,7 @@ export async function getMarketingAudienceStats(
       channels.includes("in_app") || channels.includes("push") ?
         accountUsers
       : 0,
+    estimatedWhatsAppRecipients,
     channels,
   };
 }
@@ -203,6 +216,7 @@ export async function sendMarketingCampaign(
   emailChunkJobs: number;
   offlineEmailsQueued: number;
   notificationsQueued: number;
+  whatsAppQueued: number;
   channels: MarketingChannel[];
 }> {
   const channels =
@@ -225,10 +239,12 @@ export async function sendMarketingCampaign(
   let emailChunkJobs = 0;
   let offlineEmailsQueued = 0;
   let notificationsQueued = 0;
+  let whatsAppQueued = 0;
 
   const wantsEmail = channels.includes("email");
   const wantsInApp = channels.includes("in_app");
   const wantsPush = channels.includes("push");
+  const wantsWhatsApp = channels.includes("whatsapp");
 
   if (wantsEmail) {
     if (input.audience === "selected") {
@@ -286,11 +302,22 @@ export async function sendMarketingCampaign(
     }
   }
 
+  if (wantsWhatsApp && whatsappMarketingEnabled()) {
+    const filter = buildUserFilter(input.audience, input.userIds);
+    whatsAppQueued = await broadcastMarketingWhatsApp({
+      subject: input.subject.trim(),
+      messagePlain: htmlToPlainText(tpl.html).slice(0, 300),
+      ctaLink: safeCtaLink || "/shop",
+      audienceFilter: filter,
+    });
+  }
+
   return {
     emailsQueued,
     emailChunkJobs,
     offlineEmailsQueued,
     notificationsQueued,
+    whatsAppQueued,
     channels,
   };
 }
@@ -298,9 +325,13 @@ export async function sendMarketingCampaign(
 export function marketingDeliveryConfigured(): {
   resendConfigured: boolean;
   redisEnabled: boolean;
+  whatsappConfigured: boolean;
+  whatsappMarketingEnabled: boolean;
 } {
   return {
     resendConfigured: Boolean(process.env.RESEND_API_KEY?.trim()),
     redisEnabled: Boolean(process.env.REDIS_URL?.trim()),
+    whatsappConfigured: whatsappConfigured(),
+    whatsappMarketingEnabled: whatsappMarketingEnabled(),
   };
 }

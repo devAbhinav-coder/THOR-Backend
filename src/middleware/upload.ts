@@ -33,11 +33,42 @@ const imageFileFilter = (
   }
 };
 
+const ALLOWED_VIDEO_MIMES = new Set([
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+]);
+
+const productAssetFileFilter = (
+  _req: Request,
+  file: Express.Multer.File,
+  cb: multer.FileFilterCallback,
+) => {
+  if (file.fieldname === "motionVideo") {
+    if (ALLOWED_VIDEO_MIMES.has(file.mimetype)) {
+      cb(null, true);
+      return;
+    }
+    cb(
+      new AppError(
+        "Motion video must be MP4, WebM, or MOV.",
+        400,
+      ) as unknown as null,
+      false,
+    );
+    return;
+  }
+  imageFileFilter(_req, file, cb);
+};
+
 export const uploadProductImages = multer({
   storage: memoryStorage,
-  fileFilter: imageFileFilter,
-  limits: { fileSize: 12 * 1024 * 1024, files: 20 },
-}).array("images", 20);
+  fileFilter: productAssetFileFilter,
+  limits: { fileSize: 40 * 1024 * 1024, files: 21 },
+}).fields([
+  { name: "images", maxCount: 20 },
+  { name: "motionVideo", maxCount: 1 },
+]);
 
 export const uploadAvatar = multer({
   storage: memoryStorage,
@@ -205,34 +236,76 @@ const uploadToCloudinary = (
   });
 };
 
+const uploadVideoToCloudinary = (
+  buffer: Buffer,
+  folder: string,
+): Promise<CloudinaryUploadResult> => {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinaryInstance.uploader.upload_stream(
+      {
+        folder,
+        resource_type: "video",
+      },
+      (error, result) => {
+        if (error || !result) {
+          return reject(error || new Error("Video upload failed"));
+        }
+        resolve({ secure_url: result.secure_url, public_id: result.public_id });
+      },
+    );
+    streamifier.createReadStream(buffer).pipe(uploadStream);
+  });
+};
+
 export const processProductImages = async (
   req: Request,
   _res: Response,
   next: NextFunction,
 ): Promise<void> => {
   try {
-    const files = req.files as Express.Multer.File[] | undefined;
-    if (!files || files.length === 0) return next();
+    const grouped = req.files as
+      | { [fieldname: string]: Express.Multer.File[] }
+      | undefined;
+    const files = grouped?.images ?? [];
+    const motionVideoFile = grouped?.motionVideo?.[0];
+    if ((!files || files.length === 0) && !motionVideoFile) return next();
 
-    const uploadPromises = files.map((file) =>
-      uploadToCloudinary(file.buffer, "house-of-rani/products", [
-        { width: 2048, height: 2730, crop: "limit" },
-        { quality: 92 },
-      ]),
-    );
+    if (files.length > 0) {
+      const uploadPromises = files.map((file) =>
+        uploadToCloudinary(file.buffer, "house-of-rani/products", [
+          { width: 2048, height: 2730, crop: "limit" },
+          { quality: 92 },
+        ]),
+      );
 
-    const results = await Promise.all(uploadPromises);
+      const results = await Promise.all(uploadPromises);
 
-    (
-      req as Request & { uploadedImages: { url: string; publicId: string }[] }
-    ).uploadedImages = results.map((r) => ({
-      url: r.secure_url,
-      publicId: r.public_id,
-    }));
+      (
+        req as Request & { uploadedImages: { url: string; publicId: string }[] }
+      ).uploadedImages = results.map((r) => ({
+        url: r.secure_url,
+        publicId: r.public_id,
+      }));
+    }
+
+    if (motionVideoFile) {
+      const result = await uploadVideoToCloudinary(
+        motionVideoFile.buffer,
+        "house-of-rani/products/motion",
+      );
+      (
+        req as Request & {
+          uploadedMotionVideo?: { url: string; publicId: string };
+        }
+      ).uploadedMotionVideo = {
+        url: result.secure_url,
+        publicId: result.public_id,
+      };
+    }
 
     next();
   } catch (err) {
-    next(new AppError("Image upload failed. Please try again.", 500));
+    next(new AppError("Product media upload failed. Please try again.", 500));
   }
 };
 

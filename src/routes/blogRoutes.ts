@@ -20,6 +20,14 @@ import {
   processBlogImages,
   handleBlogUploadError,
 } from '../middleware/upload';
+import { validate } from '../middleware/validate';
+import {
+  createBlogSchema,
+  updateBlogSchema,
+  blogIdParamSchema,
+  blogCommentSchema,
+  blogCommentDeleteSchema,
+} from '../validation/blogSchemas';
 
 const router = Router();
 
@@ -35,15 +43,15 @@ router.get('/:slug', getBlogBySlug);
 
 // Protected routes (Logged in users)
 router.use(protect);
-router.post('/:id/like', likeBlog);
-router.post('/:id/comments', addComment);
-router.delete('/:id/comments/:commentId', deleteComment);
+router.post('/:id/like', validate(blogIdParamSchema), likeBlog);
+router.post('/:id/comments', validate(blogCommentSchema), addComment);
+router.delete('/:id/comments/:commentId', validate(blogCommentDeleteSchema), deleteComment);
 
 // Admin routes
 router.use(restrictTo('admin'));
-router.post('/', uploadBlogImages, handleBlogUploadError, processBlogImages, createBlog);
-router.patch('/:id', uploadBlogImages, handleBlogUploadError, processBlogImages, updateBlog);
-router.delete('/:id', deleteBlog);
+router.post('/', uploadBlogImages, handleBlogUploadError, processBlogImages, validate(createBlogSchema), createBlog);
+router.patch('/:id', uploadBlogImages, handleBlogUploadError, processBlogImages, validate(updateBlogSchema), updateBlog);
+router.delete('/:id', validate(blogIdParamSchema), deleteBlog);
 router.delete('/:id/images/:publicId', deleteBlogImage);
 
 export default router;
