@@ -48,6 +48,7 @@ import blogRoutes from "./routes/blogRoutes";
 import newsletterRoutes from "./routes/newsletterRoutes";
 import notificationRoutes from "./routes/notificationRoutes";
 import giftingRoutes from "./routes/giftingRoutes";
+import premiumRoutes from "./routes/premiumRoutes";
 import webhookRoutes from "./routes/webhookRoutes";
 import navigationRoutes from "./routes/navigationRoutes";
 import collectionRoutes from "./routes/collectionRoutes";
@@ -394,6 +395,7 @@ app.use("/api/collections", collectionRoutes);
 app.use("/api/newsletter", newsletterRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/gifting", giftingRoutes);
+app.use("/api/premium", premiumRoutes);
 app.use("/api/navigation", navigationRoutes);
 app.use("/api/rani-care", raniCareRoutes);
 

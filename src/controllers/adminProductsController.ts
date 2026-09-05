@@ -110,6 +110,8 @@ export const searchAdminProducts = catchAsync(
       };
       if (req.query.isActive === "true") filter.isActive = true;
       if (req.query.isActive === "false") filter.isActive = false;
+      if (req.query.isPremium === "true") filter.isPremium = true;
+      if (req.query.isPremium === "false") filter.isPremium = false;
       if (escaped) {
         filter.$or = [
           { name: { $regex: escaped, $options: "i" } },

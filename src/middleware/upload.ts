@@ -64,10 +64,11 @@ const productAssetFileFilter = (
 export const uploadProductImages = multer({
   storage: memoryStorage,
   fileFilter: productAssetFileFilter,
-  limits: { fileSize: 40 * 1024 * 1024, files: 21 },
+  limits: { fileSize: 40 * 1024 * 1024, files: 22 },
 }).fields([
   { name: "images", maxCount: 20 },
   { name: "motionVideo", maxCount: 1 },
+  { name: "premiumHeroImage", maxCount: 1 },
 ]);
 
 export const uploadAvatar = multer({
@@ -263,29 +264,59 @@ export const processProductImages = async (
   next: NextFunction,
 ): Promise<void> => {
   try {
-    const grouped = req.files as
-      | { [fieldname: string]: Express.Multer.File[] }
-      | undefined;
-    const files = grouped?.images ?? [];
-    const motionVideoFile = grouped?.motionVideo?.[0];
-    if ((!files || files.length === 0) && !motionVideoFile) return next();
+    const rawFiles = req.files;
+    let galleryFiles: Express.Multer.File[] = [];
+    let heroFiles: Express.Multer.File[] = [];
+    let motionVideoFile: Express.Multer.File | undefined;
 
-    if (files.length > 0) {
-      const uploadPromises = files.map((file) =>
+    if (Array.isArray(rawFiles)) {
+      galleryFiles = rawFiles;
+    } else if (rawFiles && typeof rawFiles === "object") {
+      const map = rawFiles as Record<string, Express.Multer.File[]>;
+      galleryFiles = map.images ?? [];
+      heroFiles = map.premiumHeroImage ?? [];
+      motionVideoFile = map.motionVideo?.[0];
+    }
+
+    if (
+      galleryFiles.length === 0 &&
+      heroFiles.length === 0 &&
+      !motionVideoFile
+    ) {
+      return next();
+    }
+
+    if (galleryFiles.length > 0) {
+      const uploadPromises = galleryFiles.map((file) =>
         uploadToCloudinary(file.buffer, "house-of-rani/products", [
           { width: 2048, height: 2730, crop: "limit" },
           { quality: 92 },
         ]),
       );
-
       const results = await Promise.all(uploadPromises);
-
       (
         req as Request & { uploadedImages: { url: string; publicId: string }[] }
       ).uploadedImages = results.map((r) => ({
         url: r.secure_url,
         publicId: r.public_id,
       }));
+    }
+
+    if (heroFiles.length > 0) {
+      const heroFile = heroFiles[0]!;
+      const result = await uploadToCloudinary(
+        heroFile.buffer,
+        "house-of-rani/products/premium-hero",
+        [{ width: 2400, height: 3200, crop: "limit" }, { quality: 92 }],
+      );
+      (
+        req as Request & {
+          uploadedPremiumHero?: { url: string; publicId: string };
+        }
+      ).uploadedPremiumHero = {
+        url: result.secure_url,
+        publicId: result.public_id,
+      };
     }
 
     if (motionVideoFile) {

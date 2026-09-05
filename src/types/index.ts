@@ -79,6 +79,12 @@ export interface IProductDetail {
   value: string;
 }
 
+export interface IPremiumEditorialPanel {
+  title?: string;
+  fields: Array<{ label: string; value: string }>;
+  note: string;
+}
+
 export interface IProduct extends Document {
   _id: Types.ObjectId;
   name: string;
@@ -110,18 +116,29 @@ export interface IProduct extends Document {
   minOrderQty: number;
   occasions: string[];
   customFields: IProductCustomField[];
-    productDetails?: IProductDetail[];
-    /** PDP "Why You'll Love It" bullet points */
-    highlights?: string[];
-    /** Admin-controlled PDP size guide */
-    sizeGuide?: {
-      enabled?: boolean;
-      title?: string;
-      intro?: string;
-      rows?: { size: string; detail: string }[];
-      tips?: string[];
-    };
-    ratings: {
+  // Premium collection
+  isPremium: boolean;
+  /** Stable URL slug for /premium/[slug] — independent of auto product slug */
+  premiumSlug?: string;
+  premiumSubtitle?: string;
+  craftNote?: string;
+  weaveHours?: number;
+  premiumEditorialOpen?: IPremiumEditorialPanel;
+  premiumEditorialClose?: IPremiumEditorialPanel;
+  premiumHeroImage?: IProductImage;
+  sortOrderPremium?: number;
+  productDetails?: IProductDetail[];
+  /** PDP "Why You'll Love It" bullet points */
+  highlights?: string[];
+  /** Admin-controlled PDP size guide */
+  sizeGuide?: {
+    enabled?: boolean;
+    title?: string;
+    intro?: string;
+    rows?: { size: string; detail: string }[];
+    tips?: string[];
+  };
+  ratings: {
     average: number;
     count: number;
   };

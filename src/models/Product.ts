@@ -10,6 +10,20 @@ const customFieldSchema = new Schema({
   isRequired: { type: Boolean, default: true },
 }, { _id: true });
 
+const premiumEditorialPanelSchema = new Schema(
+  {
+    title: { type: String, trim: true, maxlength: 120 },
+    fields: [
+      {
+        label: { type: String, required: true, trim: true, maxlength: 80 },
+        value: { type: String, required: true, trim: true, maxlength: 300 },
+      },
+    ],
+    note: { type: String, trim: true, maxlength: 1200 },
+  },
+  { _id: false },
+);
+
 const productDetailSchema = new Schema({
   key: { type: String, required: true, trim: true, maxlength: 120 },
   value: { type: String, required: true, trim: true, maxlength: 500 },
@@ -115,6 +129,16 @@ const productSchema = new Schema<IProduct>(
     minOrderQty: { type: Number, default: 1, min: 1 },
     occasions: [{ type: String, trim: true }], // e.g. ["Corporate", "Wedding", "Festive", "Casual"]
     customFields: [customFieldSchema],              // admin-defined user inputs
+    // Premium collection
+    isPremium: { type: Boolean, default: false },
+    premiumSlug: { type: String, trim: true, lowercase: true, sparse: true, unique: true },
+    premiumSubtitle: { type: String, trim: true, maxlength: 200 },
+    craftNote: { type: String, trim: true, maxlength: 2000 },
+    weaveHours: { type: Number, min: 0 },
+    premiumEditorialOpen: premiumEditorialPanelSchema,
+    premiumEditorialClose: premiumEditorialPanelSchema,
+    premiumHeroImage: productImageSchema,
+    sortOrderPremium: { type: Number, default: 0 },
     productDetails: [productDetailSchema],
     highlights: [{ type: String, trim: true, maxlength: 220 }],
     sizeGuide: {
@@ -210,6 +234,8 @@ productSchema.index({ isActive: 1, createdAt: -1 }); // new arrivals
 productSchema.index({ isActive: 1, soldCount: -1 }); // best sellers
 productSchema.index({ isGiftable: 1, isActive: 1, category: 1 });
 productSchema.index({ isGiftable: 1, isActive: 1, occasions: 1 });
+productSchema.index({ isPremium: 1, isActive: 1, sortOrderPremium: 1 });
+productSchema.index({ isPremium: 1, isActive: 1, premiumSlug: 1 });
 // New FK-based indexes (populated after Phase 2 migration)
 productSchema.index({ categoryId: 1, isActive: 1, price: 1 });     // FK category page
 productSchema.index({ subcategoryId: 1, isActive: 1, price: 1 });  // FK subcategory page
