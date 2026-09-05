@@ -7,7 +7,8 @@ export const productRepository = {
     return Product.find({
       isFeatured: true,
       isActive: true,
-      category: { $ne: "Gifting" },
+      isPremium: { $ne: true },
+      category: { $nin: ["Gifting", "Premium"] },
       tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
     })
       .sort("-createdAt")

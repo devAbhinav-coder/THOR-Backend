@@ -3,6 +3,10 @@ import { Request, Response, NextFunction } from "express";
 import streamifier from "streamifier";
 import { cloudinaryInstance } from "../services/cloudinary";
 import AppError from "../types/utils/AppError";
+import {
+  assertImageMagicBytes,
+  assertVideoMagicBytes,
+} from "../types/utils/fileMagic";
 
 const memoryStorage = multer.memoryStorage();
 
@@ -217,11 +221,16 @@ const uploadToCloudinary = (
   folder: string,
   transformation?: object,
 ): Promise<CloudinaryUploadResult> => {
+  // Magic-byte gate + force image pipeline (blocks polyglot / raw upload abuse).
+  assertImageMagicBytes(buffer);
+
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinaryInstance.uploader.upload_stream(
       {
         folder,
         resource_type: "image",
+        type: "upload",
+        allowed_formats: ["jpg", "jpeg", "png", "webp", "gif"],
         transformation,
         quality: "auto",
         fetch_format: "auto",
@@ -241,11 +250,15 @@ const uploadVideoToCloudinary = (
   buffer: Buffer,
   folder: string,
 ): Promise<CloudinaryUploadResult> => {
+  assertVideoMagicBytes(buffer);
+
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinaryInstance.uploader.upload_stream(
       {
         folder,
         resource_type: "video",
+        type: "upload",
+        allowed_formats: ["mp4", "webm", "mov"],
       },
       (error, result) => {
         if (error || !result) {
@@ -284,6 +297,18 @@ export const processProductImages = async (
       !motionVideoFile
     ) {
       return next();
+    }
+
+    // Prefer signed browser→Cloudinary uploads (see /admin/writes/products/*/signature).
+    // Sync uploads on the API process OOM / timeout under concurrent admin saves.
+    const allowSync = process.env.ALLOW_SYNC_PRODUCT_UPLOADS === "true";
+    if (!allowSync && (galleryFiles.length > 0 || heroFiles.length > 0)) {
+      return next(
+        new AppError(
+          "Upload product images via signed Cloudinary upload first, then save. Server-side image upload is disabled.",
+          400,
+        ),
+      );
     }
 
     if (galleryFiles.length > 0) {
@@ -529,14 +554,19 @@ export const processStorefrontAssets = async (
       homeGiftCard: Record<string, { url: string; publicId: string }>;
       homeEditorialTile: Record<string, { url: string; publicId: string }>;
       homeMiddleBanner?: { url: string; publicId: string };
+      homePremiumShowcase?: { url: string; publicId: string };
       homeExploreHouseSale?: { url: string; publicId: string };
       homeExploreHouseGifting?: { url: string; publicId: string };
+      premiumEditorial?: { url: string; publicId: string };
+      premiumStory?: { url: string; publicId: string };
+      premiumAudienceImage: Record<string, { url: string; publicId: string }>;
     } = {
       hero: {},
       giftingHero: {},
       giftingSecondary: {},
       homeGiftCard: {},
       homeEditorialTile: {},
+      premiumAudienceImage: {},
     };
 
     for (const file of files) {
@@ -662,6 +692,16 @@ export const processStorefrontAssets = async (
           url: result.secure_url,
           publicId: result.public_id,
         };
+      } else if (file.fieldname === "homePremiumShowcaseImage") {
+        const result = await uploadToCloudinary(
+          file.buffer,
+          "house-of-rani/storefront/home-premium",
+          [{ width: 1600, height: 2000, crop: "limit" }],
+        );
+        uploaded.homePremiumShowcase = {
+          url: result.secure_url,
+          publicId: result.public_id,
+        };
       } else if (file.fieldname === "homeExploreHouseSaleImage") {
         const result = await uploadToCloudinary(
           file.buffer,
@@ -682,6 +722,31 @@ export const processStorefrontAssets = async (
           url: result.secure_url,
           publicId: result.public_id,
         };
+      } else if (file.fieldname.startsWith("premiumAudienceImage_")) {
+        const index = file.fieldname.replace("premiumAudienceImage_", "");
+        const result = await uploadToCloudinary(
+          file.buffer,
+          "house-of-rani/storefront/premium-audience",
+          [{ width: 1600, height: 900, crop: "limit" }],
+        );
+        uploaded.premiumAudienceImage[index] = {
+          url: result.secure_url,
+          publicId: result.public_id,
+        };
+      } else if (file.fieldname === "premiumEditorialImage") {
+        const result = await uploadToCloudinary(
+          file.buffer,
+          "house-of-rani/storefront/premium",
+          [{ width: 1536, crop: "limit" }],
+        );
+        uploaded.premiumEditorial = { url: result.secure_url, publicId: result.public_id };
+      } else if (file.fieldname === "premiumStoryImage") {
+        const result = await uploadToCloudinary(
+          file.buffer,
+          "house-of-rani/storefront/premium",
+          [{ width: 2560, height: 1080, crop: "limit" }],
+        );
+        uploaded.premiumStory = { url: result.secure_url, publicId: result.public_id };
       }
     }
 

@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import Product from "../models/Product";
-import { excludeOfflineManualProductFilter, shopCatalogBaseFilter } from "../constants/offlineOrder";
+import { excludeOfflineManualProductFilter, resolveProductListBaseFilter } from "../constants/offlineOrder";
 import { LISTING_PROJECTION } from "../constants/productListing";
 import { getCache, setCache } from "./cacheService";
 import { getCachedProductCount } from "./productCountService";
@@ -544,6 +544,7 @@ export class AdvancedSearchService {
     onSale?: boolean;
     hasOffer?: boolean;
     isActive?: boolean;
+    isPremium?: boolean;
     adminScope?: boolean;
     useCache?: boolean;
   }): Promise<{
@@ -575,6 +576,7 @@ export class AdvancedSearchService {
       onSale,
       hasOffer,
       isActive,
+      isPremium,
       adminScope = false,
       useCache = true,
     } = options;
@@ -645,6 +647,7 @@ export class AdvancedSearchService {
       onSale,
       hasOffer,
       isActive,
+      isPremium,
       adminScope,
     });
 
@@ -701,6 +704,7 @@ export class AdvancedSearchService {
         onSale,
         hasOffer,
         isActive,
+        isPremium,
         adminScope,
       });
     } else {
@@ -722,6 +726,7 @@ export class AdvancedSearchService {
         onSale,
         hasOffer,
         isActive,
+        isPremium,
         adminScope,
       });
     }
@@ -800,6 +805,7 @@ export class AdvancedSearchService {
     onSale?: boolean;
     hasOffer?: boolean;
     isActive?: boolean;
+    isPremium?: boolean;
     adminScope?: boolean;
   }): Promise<{
     products: Array<Record<string, unknown>>;
@@ -828,12 +834,16 @@ export class AdvancedSearchService {
       onSale,
       hasOffer,
       isActive,
+      isPremium,
       adminScope = false,
     } = options;
 
     const safeQuery = normalizeSearchQuery(query);
 
-    let baseFilter: Record<string, unknown> = shopCatalogBaseFilter(adminScope);
+    let baseFilter: Record<string, unknown> = resolveProductListBaseFilter({
+      adminScope,
+      isPremium,
+    });
 
     const collectionFilter = await buildShopCollectionFilter(
       categories,
@@ -1049,6 +1059,7 @@ export class AdvancedSearchService {
     onSale?: boolean;
     hasOffer?: boolean;
     isActive?: boolean;
+    isPremium?: boolean;
     adminScope?: boolean;
   }): Promise<{
     products: Array<Record<string, unknown>>;
@@ -1075,10 +1086,14 @@ export class AdvancedSearchService {
       onSale,
       hasOffer,
       isActive,
+      isPremium,
       adminScope = false,
     } = options;
 
-    let baseFilter: Record<string, unknown> = shopCatalogBaseFilter(adminScope);
+    let baseFilter: Record<string, unknown> = resolveProductListBaseFilter({
+      adminScope,
+      isPremium,
+    });
 
     const collectionFilter = await buildShopCollectionFilter(
       categories,
@@ -1260,8 +1275,9 @@ export class AdvancedSearchService {
     const andClauses: Record<string, unknown>[] = [
       {
         isActive: true,
+        isPremium: { $ne: true },
         ...excludeOfflineManualProductFilter(),
-        category: { $ne: "Gifting" },
+        category: { $nin: ["Gifting", "Premium"] },
       },
     ];
 

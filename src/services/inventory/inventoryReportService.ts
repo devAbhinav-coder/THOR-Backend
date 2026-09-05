@@ -52,13 +52,16 @@ export async function getInventoryOverview(params: {
   const useOrderPeriod = period !== "lifetime";
 
   const match: Record<string, unknown> = catalogInventoryProductMatch();
+  const andClauses: Record<string, unknown>[] = [];
   if (search) {
     const escapedSearch = escapeRegex(search);
-    match.$or = [
-      { name: { $regex: escapedSearch, $options: "i" } },
-      { "variants.sku": { $regex: escapedSearch, $options: "i" } },
-      { category: { $regex: escapedSearch, $options: "i" } },
-    ];
+    andClauses.push({
+      $or: [
+        { name: { $regex: escapedSearch, $options: "i" } },
+        { "variants.sku": { $regex: escapedSearch, $options: "i" } },
+        { category: { $regex: escapedSearch, $options: "i" } },
+      ],
+    });
   }
   if (category) match.category = category;
   if (filter === "low") {
@@ -69,6 +72,18 @@ export async function getInventoryOverview(params: {
     match.soldCount = { $gt: 0 };
   } else if (filter === "missing_cost") {
     match["variants.costPrice"] = { $in: [null, 0] };
+  } else if (filter === "premium") {
+    andClauses.push({
+      $or: [
+        { isPremium: true },
+        { category: { $regex: "^premium$", $options: "i" } },
+      ],
+    });
+  }
+  if (andClauses.length === 1) {
+    Object.assign(match, andClauses[0]);
+  } else if (andClauses.length > 1) {
+    match.$and = andClauses;
   }
 
   const sortMap: Record<string, Record<string, 1 | -1>> = {
@@ -91,7 +106,7 @@ export async function getInventoryOverview(params: {
         .skip(skip)
         .limit(params.limit)
         .select(
-          "name category fabric images variants totalStock soldCount price comparePrice updatedAt hsnCode",
+          "name category fabric images variants totalStock soldCount price comparePrice updatedAt hsnCode isPremium",
         )
         .lean()
         .maxTimeMS(INVENTORY_QUERY_MAX_MS),
@@ -456,7 +471,7 @@ export async function getGstPurchaseSummary(params: {
 /** Full catalog export rows for CSV (active products, all variants). */
 export async function getInventoryExportRows(): Promise<Record<string, unknown>[]> {
   const products = await Product.find(catalogInventoryProductMatch())
-    .select("name category price totalStock soldCount variants hsnCode")
+    .select("name category price totalStock soldCount variants hsnCode isPremium")
     .sort({ name: 1 })
     .lean()
     .maxTimeMS(INVENTORY_QUERY_MAX_MS);

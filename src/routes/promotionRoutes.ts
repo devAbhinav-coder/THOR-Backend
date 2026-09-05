@@ -9,7 +9,7 @@ import {
   previewPromotion,
   getPublicPromotionsHandler,
 } from '../controllers/promotionController';
-import { protect, restrictTo } from '../middleware/auth';
+import { protect, restrictTo, requireAdminTwoFactor } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { paginationGuard } from '../middleware/paginationGuard';
 import { createAdaptiveLimiter } from '../middleware/adaptiveRateLimit';
@@ -32,7 +32,7 @@ const promotionPublicLimiter = createAdaptiveLimiter({
 
 router.get('/public', promotionPublicLimiter, getPublicPromotionsHandler);
 
-router.use(protect, restrictTo('admin'));
+router.use(protect, restrictTo('admin'), requireAdminTwoFactor);
 
 router.post('/preview', validate(previewPromotionSchema), previewPromotion);
 router.post(

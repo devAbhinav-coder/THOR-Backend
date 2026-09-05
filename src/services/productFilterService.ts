@@ -24,7 +24,8 @@ export async function getFilterOptionsForCategory(categoryId: string, subcategor
 
   const shopMatch: Record<string, unknown> = {
     isActive: true,
-    category: { $ne: 'Gifting' },
+    isPremium: { $ne: true },
+    category: { $nin: ['Gifting', 'Premium'] },
     tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
   };
 

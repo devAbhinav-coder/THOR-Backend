@@ -1,44 +1,8 @@
-import mongoose, { ClientSession } from "mongoose";
 import { Request } from "express";
 import Order from "../models/Order";
 import AppError from "../types/utils/AppError";
 import { writeAdminAudit } from "./adminAuditService";
-import logger from "../types/utils/logger";
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/**
- * Run `fn` inside a Mongo transaction when a replica set is available.
- * On a standalone mongod (dev), degrades gracefully — runs without a session.
- */
-async function withOptionalTransaction<T>(
-  fn: (session: ClientSession | null) => Promise<T>,
-): Promise<T> {
-  let session: ClientSession | null = null;
-  try {
-    session = await mongoose.startSession();
-    let result!: T;
-    await session.withTransaction(async () => {
-      result = await fn(session);
-    });
-    return result;
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "";
-    if (
-      msg.includes("Transaction numbers are only allowed") ||
-      msg.includes("not a repl set") ||
-      msg.includes("replica set")
-    ) {
-      logger.warn(
-        "[adminReturnService] Mongo transactions unavailable — running without transaction",
-      );
-      return fn(null);
-    }
-    throw err;
-  } finally {
-    if (session) await session.endSession();
-  }
-}
+import { withOptionalTransaction } from "../types/utils/mongoTransaction";
 
 // ─── resolveReturn ────────────────────────────────────────────────────────────
 
@@ -49,7 +13,7 @@ export interface ResolveReturnResult {
 
 /**
  * Approve or reject a return request.
- * Wrapped in a Mongo transaction (graceful degradation on standalone mongod).
+ * Wrapped in a Mongo transaction (required in production).
  */
 export async function resolveReturn(
   req: Request,
@@ -101,5 +65,5 @@ export async function resolveReturn(
     );
 
     return { order, newStatus };
-  });
+  }, "resolveReturn");
 }

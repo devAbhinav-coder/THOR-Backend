@@ -61,8 +61,16 @@ import { invalidatePremiumProductCache } from "../services/premium/premiumProduc
 const PDP_CACHE_TTL = 600;
 const FILTERS_CACHE_TTL = 300;
 
+/** Storefront serialize — never includes wholesale costPrice. */
 function leanProduct(p: Record<string, unknown>) {
   return reconcileProductJson(p as Parameters<typeof reconcileProductJson>[0]);
+}
+
+/** Admin create/update responses — keep costPrice for inventory forms. */
+function leanAdminProduct(p: Record<string, unknown>) {
+  return reconcileProductJson(p as Parameters<typeof reconcileProductJson>[0], {
+    includeCostPrice: true,
+  });
 }
 
 function parseSizeGuideBody(raw: unknown): {
@@ -443,7 +451,8 @@ export const getFilterOptions = catchAsync(
 
     const shopMatch: Record<string, unknown> = {
       isActive: true,
-      category: { $ne: "Gifting" },
+      isPremium: { $ne: true },
+      category: { $nin: ["Gifting", "Premium"] },
       tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
     };
 
@@ -806,6 +815,11 @@ export const createProduct = catchAsync(
         "premiumEditorialClose",
       ),
     };
+    if (productData.isPremium) {
+      productData.category = "Premium";
+      productData.subcategory = "";
+      delete (productData as Record<string, unknown>).subcategoryId;
+    }
     const uploadedMotionVideo = (
       req as Request & {
         uploadedMotionVideo?: { url: string; publicId: string };
@@ -826,6 +840,12 @@ export const createProduct = catchAsync(
       (productData as Record<string, unknown>).premiumHeroImage = {
         url: uploadedPremiumHero.url,
         publicId: uploadedPremiumHero.publicId,
+        alt: `${req.body.name} - Premium hero`,
+      };
+    } else if (req.body.premiumHeroUrl && req.body.premiumHeroPublicId) {
+      (productData as Record<string, unknown>).premiumHeroImage = {
+        url: String(req.body.premiumHeroUrl).trim(),
+        publicId: String(req.body.premiumHeroPublicId).trim(),
         alt: `${req.body.name} - Premium hero`,
       };
     }
@@ -868,7 +888,7 @@ export const createProduct = catchAsync(
         path: `/shop/${encodeURIComponent(String(lean.slug || ""))}`,
       });
     }
-    sendSuccess(res, { product: leanProduct(lean) }, "Product created", 201);
+    sendSuccess(res, { product: leanAdminProduct(lean) }, "Product created", 201);
   },
 );
 
@@ -1061,6 +1081,15 @@ export const updateProduct = catchAsync(
       updateData.isPremium =
         req.body.isPremium === "true" || req.body.isPremium === true;
     }
+    const nextIsPremium =
+      updateData.isPremium !== undefined ?
+        Boolean(updateData.isPremium)
+      : Boolean(currentProduct.isPremium);
+    if (nextIsPremium) {
+      updateData.category = "Premium";
+      updateData.subcategory = "";
+      updateData.subcategoryId = null;
+    }
     for (const key of [
       "premiumSlug",
       "premiumSubtitle",
@@ -1095,6 +1124,12 @@ export const updateProduct = catchAsync(
       updateData.premiumHeroImage = {
         url: uploadedPremiumHero.url,
         publicId: uploadedPremiumHero.publicId,
+        alt: `${req.body.name || currentProduct.name} - Premium hero`,
+      };
+    } else if (req.body.premiumHeroUrl && req.body.premiumHeroPublicId) {
+      updateData.premiumHeroImage = {
+        url: String(req.body.premiumHeroUrl).trim(),
+        publicId: String(req.body.premiumHeroPublicId).trim(),
         alt: `${req.body.name || currentProduct.name} - Premium hero`,
       };
     }
@@ -1165,6 +1200,10 @@ export const updateProduct = catchAsync(
     delete updateData.updatedAt;
     delete updateData.totalStock;
     delete updateData.imagesMeta;
+    delete updateData.premiumHeroUrl;
+    delete updateData.premiumHeroPublicId;
+    delete updateData.premiumHeroImage;
+    delete updateData.clearMotionVideo;
     if (
       updateData.category === "Gifting" ||
       currentProduct.category === "Gifting"
@@ -1216,7 +1255,7 @@ export const updateProduct = catchAsync(
 
     sendSuccess(
       res,
-      { product: leanProduct(updatedProduct) },
+      { product: leanAdminProduct(updatedProduct) },
       "Product updated",
     );
   },
@@ -1275,32 +1314,65 @@ export const deleteProductImage = catchAsync(
         ),
       );
     }
-    sendSuccess(res, { product: leanProduct(lean) });
+    sendSuccess(res, { product: leanAdminProduct(lean) });
   },
 );
 
 const MOTION_VIDEO_FOLDER = "house-of-rani/products/motion";
+const PRODUCT_IMAGE_FOLDER = "house-of-rani/products";
+const PREMIUM_HERO_FOLDER = "house-of-rani/products/premium-hero";
+
+function cloudinarySignPayload(
+  folder: string,
+  extra: Record<string, string | number> = {},
+) {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const apiKey = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+  if (!cloudName || !apiKey || !apiSecret) {
+    throw new AppError("Cloudinary is not configured.", 503);
+  }
+  const timestamp = Math.round(Date.now() / 1000);
+  const toSign = { timestamp, folder, ...extra };
+  const signature = cloudinaryInstance.utils.api_sign_request(
+    toSign,
+    apiSecret,
+  );
+  return { cloudName, apiKey, timestamp, signature, folder, ...extra };
+}
 
 /** Signed params for direct browser → Cloudinary video upload (progress-friendly). */
 export const getMotionVideoUploadSignature = catchAsync(
   async (_req: Request, res: Response) => {
-    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-    const apiKey = process.env.CLOUDINARY_API_KEY;
-    const apiSecret = process.env.CLOUDINARY_API_SECRET;
-    if (!cloudName || !apiKey || !apiSecret) {
-      throw new AppError("Cloudinary is not configured.", 503);
-    }
-    const timestamp = Math.round(Date.now() / 1000);
-    const signature = cloudinaryInstance.utils.api_sign_request(
-      { timestamp, folder: MOTION_VIDEO_FOLDER },
-      apiSecret,
+    sendSuccess(
+      res,
+      cloudinarySignPayload(MOTION_VIDEO_FOLDER, {
+        allowed_formats: "mp4,webm,mov",
+      }),
     );
-    sendSuccess(res, {
-      cloudName,
-      apiKey,
-      timestamp,
-      signature,
-      folder: MOTION_VIDEO_FOLDER,
-    });
+  },
+);
+
+/** Signed params for gallery images (direct-to-Cloudinary; keeps API off the upload hot path). */
+export const getProductImageUploadSignature = catchAsync(
+  async (_req: Request, res: Response) => {
+    sendSuccess(
+      res,
+      cloudinarySignPayload(PRODUCT_IMAGE_FOLDER, {
+        allowed_formats: "jpg,png,webp,gif",
+      }),
+    );
+  },
+);
+
+/** Signed params for premium hero image. */
+export const getPremiumHeroUploadSignature = catchAsync(
+  async (_req: Request, res: Response) => {
+    sendSuccess(
+      res,
+      cloudinarySignPayload(PREMIUM_HERO_FOLDER, {
+        allowed_formats: "jpg,png,webp,gif",
+      }),
+    );
   },
 );

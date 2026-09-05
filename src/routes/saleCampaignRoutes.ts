@@ -9,7 +9,7 @@ import {
   previewSaleCampaign,
   getPublicSaleCampaigns,
 } from '../controllers/saleCampaignController';
-import { protect, restrictTo } from '../middleware/auth';
+import { protect, restrictTo, requireAdminTwoFactor } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { paginationGuard } from '../middleware/paginationGuard';
 import { createAdaptiveLimiter } from '../middleware/adaptiveRateLimit';
@@ -32,7 +32,7 @@ const salePublicLimiter = createAdaptiveLimiter({
 
 router.get('/public', salePublicLimiter, getPublicSaleCampaigns);
 
-router.use(protect, restrictTo('admin'));
+router.use(protect, restrictTo('admin'), requireAdminTwoFactor);
 
 router.post('/preview', validate(previewSaleCampaignSchema), previewSaleCampaign);
 router.post(

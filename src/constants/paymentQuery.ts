@@ -34,6 +34,12 @@ export const CHECKOUT_INTENT_VERIFY_SELECT = [
   'expiresAt',
   'consumedAt',
   'createdOrderId',
+  'inventoryHeld',
   'snapshot',
   'verifyAttempts',
 ].join(' ');
+
+/** Soft-hold window for Razorpay checkout stock (default 35 minutes). */
+export const CHECKOUT_STOCK_HOLD_MS = Number(
+  process.env.CHECKOUT_STOCK_HOLD_MS || 35 * 60 * 1000,
+);

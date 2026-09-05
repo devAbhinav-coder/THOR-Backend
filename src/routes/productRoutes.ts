@@ -16,7 +16,7 @@ import {
   getSearchSuggestions,
   getTrendingSearches,
 } from '../controllers/productController';
-import { protect, restrictTo } from '../middleware/auth';
+import { protect, restrictTo, requireAdminTwoFactor } from '../middleware/auth';
 import { uploadProductImages, processProductImages } from '../middleware/upload';
 import { validate } from '../middleware/validate';
 import {
@@ -51,8 +51,8 @@ router.get('/category/:category', getProductsByCategory);
 router.post('/:slug/view', validate(productSlugParamSchema), recordProductView);
 router.get('/:slug', validate(productSlugParamSchema), getProduct);
 
-// Admin routes (protected)
-router.use(protect, restrictTo('admin'));
+// Admin routes (protected) — 2FA required when enabled (prefer /api/admin/writes)
+router.use(protect, restrictTo('admin'), requireAdminTwoFactor);
 
 router.post('/', uploadProductImages, processProductImages, validate(createProductSchema), createProduct);
 router.patch('/:id', uploadProductImages, processProductImages, validate(updateProductSchema), updateProduct);

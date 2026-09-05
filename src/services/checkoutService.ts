@@ -20,12 +20,13 @@ import { buildSaleScopeContext } from "./sale/saleScopeResolver";
 import { buildCouponLinesFromCartItems } from "./coupon/couponLineScopeService";
 import { resolveCartPromotion } from "./promotion/promotionApplyService";
 import { createRazorpayOrder } from "./razorpay";
-import { decrementVariantStock } from "./inventoryService";
-import type { CheckoutIntentSnapshotItem } from "../models/CheckoutPaymentIntent";
+import { decrementVariantStock, incrementVariantStock, logStockMovement } from "./inventoryService";
+import type { CheckoutIntentSnapshotItem, CheckoutIntentStockLine } from "../models/CheckoutPaymentIntent";
 import {
   sessionOpts,
   withOptionalTransaction,
 } from "../types/utils/mongoTransaction";
+import { CHECKOUT_STOCK_HOLD_MS } from "../constants/paymentQuery";
 
 function findVariantBySku(
   product: InstanceType<typeof Product>,
@@ -309,38 +310,83 @@ export const checkoutService = {
       notes: { checkoutIntentId: String(intentId) },
     });
 
-    const stockLines = checkoutItems.map((item: any) => ({
-      productId: String(item.product),
-      sku: item.variant.sku,
-      quantity: item.quantity,
-    }));
+    const stockLines: CheckoutIntentStockLine[] = checkoutItems.map(
+      (item: { product: unknown; variant: { sku: string }; quantity: number }) => ({
+        productId: String(item.product),
+        sku: item.variant.sku,
+        quantity: item.quantity,
+      }),
+    );
 
-    await CheckoutPaymentIntent.create({
-      _id: intentId,
-      user: userId,
-      razorpayOrderId: razorpayOrder.id,
-      expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
-      snapshot: {
-        shippingAddress,
-        items: orderItems as CheckoutIntentSnapshotItem[],
-        stockLines,
-        subtotal: checkoutSubtotal,
-        discount,
-        saleDiscount: saleDiscount ?? 0,
-        promotionDiscount: promotionDiscount ?? 0,
-        couponDiscount: couponDiscount ?? 0,
-        ...(promotionId ? { promotion: promotionId } : {}),
-        ...(shopSessionKey ? { shopSessionKey } : {}),
-        shippingCharge,
-        codFee,
-        tax,
-        total,
-        coupon: couponId,
-        notes,
-        cartIdToDelete: cartIdToDelete ?? undefined,
-        ...(marketingAttribution ? { marketingAttribution } : {}),
-      },
-    });
+    await withOptionalTransaction(async (session) => {
+      const heldOutsideTx: CheckoutIntentStockLine[] = [];
+      try {
+        for (const line of stockLines) {
+          const ok = await decrementVariantStock(
+            line.productId,
+            line.sku,
+            line.quantity,
+            sessionOpts(session),
+          );
+          if (!ok) {
+            throw new AppError(
+              `Insufficient stock for a cart item. Please refresh and try again.`,
+              409,
+            );
+          }
+          if (!session) heldOutsideTx.push(line);
+        }
+
+        await CheckoutPaymentIntent.create(
+          [
+            {
+              _id: intentId,
+              user: userId,
+              razorpayOrderId: razorpayOrder.id,
+              inventoryHeld: true,
+              expiresAt: new Date(Date.now() + CHECKOUT_STOCK_HOLD_MS),
+              snapshot: {
+                shippingAddress,
+                items: orderItems as CheckoutIntentSnapshotItem[],
+                stockLines,
+                subtotal: checkoutSubtotal,
+                discount,
+                saleDiscount: saleDiscount ?? 0,
+                promotionDiscount: promotionDiscount ?? 0,
+                couponDiscount: couponDiscount ?? 0,
+                ...(promotionId ? { promotion: promotionId } : {}),
+                ...(shopSessionKey ? { shopSessionKey } : {}),
+                shippingCharge,
+                codFee,
+                tax,
+                total,
+                coupon: couponId,
+                notes,
+                cartIdToDelete: cartIdToDelete ?? undefined,
+                ...(marketingAttribution ? { marketingAttribution } : {}),
+              },
+            },
+          ],
+          sessionOpts(session),
+        );
+      } catch (err) {
+        // Standalone Mongo: no txn rollback — manually release any soft holds.
+        if (!session && heldOutsideTx.length) {
+          for (const line of heldOutsideTx) {
+            await incrementVariantStock(line.productId, line.sku, line.quantity, {
+              soldCountDelta: -line.quantity,
+            });
+            await logStockMovement(line.productId, line.sku, line.quantity, {
+              reason: "sale_return",
+              referenceId: String(intentId),
+              referenceType: "order",
+              note: "Rollback soft-hold after failed Razorpay intent create",
+            });
+          }
+        }
+        throw err;
+      }
+    }, "createRazorpayIntent");
 
     return { intentId: String(intentId), razorpayOrder };
   },
@@ -354,7 +400,11 @@ export const checkoutService = {
     let codOrder: InstanceType<typeof Order> | undefined;
 
     await withOptionalTransaction(async (session) => {
-      const created = await Order.create([orderPayload], sessionOpts(session));
+      // COD decrements stock immediately — mark reserved so cancel/auto-cancel restock once.
+      const created = await Order.create(
+        [{ ...orderPayload, inventoryReserved: true }],
+        sessionOpts(session),
+      );
       codOrder = created[0] as InstanceType<typeof Order>;
 
       for (const item of checkoutItems) {

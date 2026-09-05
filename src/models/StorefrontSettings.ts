@@ -227,6 +227,84 @@ const homeExploreHouseSchema = new Schema(
   { _id: false },
 );
 
+const homePremiumShowcaseSchema = new Schema(
+  {
+    image: { type: String, trim: true },
+    imagePublicId: { type: String, trim: true },
+    preHeading: {
+      type: String,
+      trim: true,
+      maxlength: 60,
+      default: 'The Rani Edit',
+    },
+    heading: {
+      type: String,
+      trim: true,
+      maxlength: 120,
+      default: 'The Premium Collection',
+    },
+    text: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default:
+        'Exceptional handwoven sarees — rare silks, masterful zari, and over 200 hours of loom work in every piece. Curated for the discerning few.',
+    },
+    linkText: {
+      type: String,
+      trim: true,
+      maxlength: 60,
+      default: 'Explore Premium',
+    },
+    linkUrl: { type: String, trim: true, default: '/premium' },
+    isActive: { type: Boolean, default: true },
+  },
+  { _id: false },
+);
+
+const premiumAudienceBannerSchema = new Schema(
+  {
+    audience: { type: String, enum: ['all', 'women', 'men', 'kids', 'couple'], required: true },
+    image: { type: String, trim: true },
+    imagePublicId: { type: String, trim: true },
+    title: { type: String, trim: true, maxlength: 120 },
+    subtitle: { type: String, trim: true, maxlength: 260 },
+    isActive: { type: Boolean, default: true },
+  },
+  { _id: false },
+);
+
+const premiumEditorialSchema = new Schema(
+  {
+    image: { type: String, trim: true },
+    imagePublicId: { type: String, trim: true },
+    preHeading: { type: String, trim: true, maxlength: 60, default: 'The Rani Edit' },
+    heading: { type: String, trim: true, maxlength: 120, default: 'CRAFTED FOR THE EXTRAORDINARY' },
+    text: { type: String, trim: true, maxlength: 500, default: 'Every piece in the Premium Edit is a testament to time. It takes our master weavers over 200 hours to bring these designs to life. We embrace the perfect imperfections of handloom, creating garments that are not just worn, but inherited.' },
+    linkText: { type: String, trim: true, maxlength: 60, default: 'View Collection' }
+  },
+  { _id: false }
+);
+
+const premiumStorySchema = new Schema(
+  {
+    image: { type: String, trim: true },
+    imagePublicId: { type: String, trim: true },
+    heading: { type: String, trim: true, maxlength: 120, default: 'MORE THAN A SAREE' },
+    text: { type: String, trim: true, maxlength: 500, default: 'The Premium Collection transcends fashion. It is an archive of technique, an homage to the hands that weave magic into threads. Each drape is a narrative of heritage, reimagined for the modern silhouette.' }
+  },
+  { _id: false }
+);
+
+const premiumFinalCtaSchema = new Schema(
+  {
+    heading: { type: String, trim: true, maxlength: 120, default: 'DISCOVER THE RANI PREMIUM EDIT' },
+    text: { type: String, trim: true, maxlength: 500, default: 'Exceptional pieces, thoughtfully curated for your legacy.' },
+    linkText: { type: String, trim: true, maxlength: 60, default: 'Explore Collection' }
+  },
+  { _id: false }
+);
+
 const storefrontSettingsSchema = new Schema(
   {
     key: { type: String, unique: true, default: 'default' },
@@ -236,12 +314,17 @@ const storefrontSettingsSchema = new Schema(
     promoBanner: promoBannerSchema,
     blogBanner: blogBannerSchema,
     homeMiddleBanner: homeMiddleBannerSchema,
+    homePremiumShowcase: { type: homePremiumShowcaseSchema, default: {} },
     homeExploreHouse: homeExploreHouseSchema,
     giftingHeroBanners: [giftingHeroBannerSchema],
     giftingSecondaryBanners: [giftingSecondaryBannerSchema],
     homeGiftShowcase: homeGiftShowcaseSchema,
     homeEditorialGallery: homeEditorialGallerySchema,
     footer: footerSchema,
+    premiumAudienceBanners: [premiumAudienceBannerSchema],
+    premiumEditorial: { type: premiumEditorialSchema, default: {} },
+    premiumStory: { type: premiumStorySchema, default: {} },
+    premiumFinalCta: { type: premiumFinalCtaSchema, default: {} },
   },
   { timestamps: true }
 );

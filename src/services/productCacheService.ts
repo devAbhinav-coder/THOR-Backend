@@ -7,6 +7,11 @@ import logger from "../types/utils/logger";
 
 const VERSION_KEY = "cache:products:namespace:version";
 const VERSION_TTL_SEC = 7 * 24 * 3600;
+/**
+ * Bump when public product JSON shape changes (e.g. stripping costPrice).
+ * Combined with Redis namespace version so old cached payloads are never served.
+ */
+export const PRODUCT_PUBLIC_SHAPE_VERSION = 2;
 
 /** In-process fallback when Redis is unavailable. */
 let memoryVersion = 1;
@@ -36,7 +41,7 @@ export async function bumpProductCacheVersion(): Promise<number> {
 
 export async function buildVersionedKey(parts: string[]): Promise<string> {
   const v = await getProductCacheVersion();
-  return `cache:v${v}:${parts.join(":")}`;
+  return `cache:v${v}:s${PRODUCT_PUBLIC_SHAPE_VERSION}:${parts.join(":")}`;
 }
 
 export function countCacheKey(
@@ -45,15 +50,15 @@ export function countCacheKey(
 ): string {
   const str = JSON.stringify(filter);
   const hash = crypto.createHash("md5").update(str).digest("hex");
-  return `cache:v${version}:products:count:${hash}`;
+  return `cache:v${version}:s${PRODUCT_PUBLIC_SHAPE_VERSION}:products:count:${hash}`;
 }
 
 export function pdpCacheKey(version: number, slug: string): string {
-  return `cache:v${version}:product:slug:${slug}`;
+  return `cache:v${version}:s${PRODUCT_PUBLIC_SHAPE_VERSION}:product:slug:${slug}`;
 }
 
 export function featuredCacheKey(version: number): string {
-  return `cache:v${version}:products:featured`;
+  return `cache:v${version}:s${PRODUCT_PUBLIC_SHAPE_VERSION}:products:featured`;
 }
 
 export function filtersCacheKey(version: number, category?: string): string {
@@ -63,15 +68,15 @@ export function filtersCacheKey(version: number, category?: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return scoped ?
-      `cache:v${version}:products:filters:cat:${scoped}`
-    : `cache:v${version}:products:filters`;
+      `cache:v${version}:s${PRODUCT_PUBLIC_SHAPE_VERSION}:products:filters:cat:${scoped}`
+    : `cache:v${version}:s${PRODUCT_PUBLIC_SHAPE_VERSION}:products:filters`;
 }
 
 export function randomPoolCountKey(
   version: number,
   excludeHash: string,
 ): string {
-  return `cache:v${version}:products:random:pool:${excludeHash}`;
+  return `cache:v${version}:s${PRODUCT_PUBLIC_SHAPE_VERSION}:products:random:pool:${excludeHash}`;
 }
 
 /** Invalidate a single PDP entry (stock/price change) without bumping the global listing namespace. */

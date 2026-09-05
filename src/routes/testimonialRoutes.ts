@@ -9,7 +9,7 @@ import {
   approveTestimonial,
   rejectTestimonial,
 } from '../controllers/testimonialController';
-import { protect, restrictTo } from '../middleware/auth';
+import { protect, restrictTo, requireAdminTwoFactor } from '../middleware/auth';
 import { uploadReviewImages, processReviewImages } from '../middleware/upload';
 import { assertReviewUploadSecurity } from '../middleware/reviewUploadSecurity';
 import { createAdaptiveLimiter } from '../middleware/adaptiveRateLimit';
@@ -44,7 +44,7 @@ router.post(
   submitPublicTestimonial
 );
 
-router.use(protect, restrictTo('admin'));
+router.use(protect, restrictTo('admin'), requireAdminTwoFactor);
 
 router.get('/admin', getAdminTestimonials);
 router.post(

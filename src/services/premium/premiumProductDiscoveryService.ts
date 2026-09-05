@@ -5,6 +5,7 @@ import {
   PREMIUM_PRODUCT_CACHE_TTL,
   PREMIUM_PRODUCT_SELECT,
   PREMIUM_QUERY_MAX_MS,
+  PREMIUM_CACHE_SHAPE_VERSION,
 } from "../../constants/premiumQuery";
 
 function normalizeProducts(products: Record<string, unknown>[]) {
@@ -13,8 +14,11 @@ function normalizeProducts(products: Record<string, unknown>[]) {
   );
 }
 
-function buildPremiumFilter(search?: string): Record<string, unknown> {
+function buildPremiumFilter(search?: string, audience?: string): Record<string, unknown> {
   const filter: Record<string, unknown> = { isPremium: true, isActive: true };
+  if (audience && audience.toLowerCase() !== "all") {
+    filter.audience = audience.toLowerCase();
+  }
   if (search?.trim()) {
     filter.$text = { $search: search.trim() };
   }
@@ -22,13 +26,13 @@ function buildPremiumFilter(search?: string): Record<string, unknown> {
 }
 
 export async function discoverPremiumProducts(query: Record<string, string>) {
-  const { search, page = "1", limit: limitStr = "24" } = query;
+  const { search, page = "1", limit: limitStr = "24", audience } = query;
   const limit = Math.min(Math.max(1, parseInt(limitStr, 10)), 60);
   const pageNum = Math.max(1, parseInt(page, 10));
   const skip = (pageNum - 1) * limit;
-  const filter = buildPremiumFilter(search);
+  const filter = buildPremiumFilter(search, audience);
 
-  const cacheKey = `cache:premium:products:v1:${JSON.stringify({ search, page: pageNum, limit })}`;
+  const cacheKey = `cache:premium:products:v${PREMIUM_CACHE_SHAPE_VERSION}:${JSON.stringify({ search, page: pageNum, limit, audience })}`;
   const cached = await getCache<{
     products: Record<string, unknown>[];
     total: number;
@@ -75,7 +79,7 @@ export async function getPremiumProductBySlug(slug: string) {
   const safe = String(slug || "").trim().toLowerCase();
   if (!safe) return null;
 
-  const cacheKey = `cache:premium:product:v1:${safe}`;
+  const cacheKey = `cache:premium:product:v${PREMIUM_CACHE_SHAPE_VERSION}:${safe}`;
   const cached = await getCache<Record<string, unknown>>(cacheKey);
   if (cached) {
     return reconcileProductJson(

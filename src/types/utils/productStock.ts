@@ -9,11 +9,30 @@ export function sumVariantStocks(variants: { stock?: number }[] | undefined): nu
 
 type ProductJsonImage = { url?: string; publicId?: string; alt?: string; color?: string };
 
+type VariantLike = Record<string, unknown> & { stock?: number; costPrice?: unknown };
+
+export type ReconcileProductOptions = {
+  /**
+   * When false (default), strip `variants.costPrice` so storefront/PDP APIs
+   * never leak wholesale unit cost. Admin list/detail should pass true.
+   */
+  includeCostPrice?: boolean;
+};
+
+function stripVariantCostPrice<T extends VariantLike>(variant: T): Omit<T, 'costPrice'> {
+  const { costPrice: _cost, ...rest } = variant;
+  return rest;
+}
+
 export function reconcileProductJson<
-  T extends { variants?: { stock?: number }[]; images?: ProductJsonImage[] },
->(json: T): T & { totalStock: number } {
-  const totalStock = sumVariantStocks(json.variants);
-  const out = { ...json, totalStock } as T & { totalStock: number };
+  T extends { variants?: VariantLike[]; images?: ProductJsonImage[] },
+>(json: T, opts?: ReconcileProductOptions): T & { totalStock: number } {
+  const includeCost = opts?.includeCostPrice === true;
+  const variants =
+    json.variants?.map((v) => (includeCost ? v : stripVariantCostPrice(v))) ??
+    json.variants;
+  const totalStock = sumVariantStocks(variants);
+  const out = { ...json, variants, totalStock } as T & { totalStock: number };
   if (json.images?.length) {
     out.images = json.images.map((img) => ({
       ...img,

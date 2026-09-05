@@ -14,7 +14,7 @@ import {
   deleteBlogImage,
   getBlogAnalytics,
 } from '../controllers/blogController';
-import { protect, restrictTo } from '../middleware/auth';
+import { protect, restrictTo, requireAdminTwoFactor } from '../middleware/auth';
 import {
   uploadBlogImages,
   processBlogImages,
@@ -47,8 +47,8 @@ router.post('/:id/like', validate(blogIdParamSchema), likeBlog);
 router.post('/:id/comments', validate(blogCommentSchema), addComment);
 router.delete('/:id/comments/:commentId', validate(blogCommentDeleteSchema), deleteComment);
 
-// Admin routes
-router.use(restrictTo('admin'));
+// Admin routes — 2FA when enabled (prefer /api/admin/writes/blogs)
+router.use(restrictTo('admin'), requireAdminTwoFactor);
 router.post('/', uploadBlogImages, handleBlogUploadError, processBlogImages, validate(createBlogSchema), createBlog);
 router.patch('/:id', uploadBlogImages, handleBlogUploadError, processBlogImages, validate(updateBlogSchema), updateBlog);
 router.delete('/:id', validate(blogIdParamSchema), deleteBlog);

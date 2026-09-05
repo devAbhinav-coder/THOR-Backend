@@ -53,10 +53,49 @@ export function shopCatalogBaseFilter(
   adminScope: boolean,
 ): Record<string, unknown> {
   return {
-    ...(adminScope ? {} : { isActive: true }),
+    ...(adminScope ?
+      {}
+    : {
+        isActive: true,
+        // Premium Edit lives on /premium only — never in shop catalog.
+        isPremium: { $ne: true },
+      }),
     ...excludeOfflineManualProductFilter(),
-    category: { $ne: "Gifting" },
+    // Admin lists include Premium Edit SKUs (badge/filter in UI).
+    // Storefront never lists Gifting or Premium categories.
+    category: {
+      $nin: adminScope ? ["Gifting"] : ["Gifting", "Premium"],
+    },
   };
+}
+
+/**
+ * List base filter with optional Premium Edit scope.
+ * When `isPremium === true`, do not apply shop `category: $nin Premium`
+ * (premium products are stored as category "Premium").
+ */
+export function resolveProductListBaseFilter(opts: {
+  adminScope: boolean;
+  isPremium?: boolean;
+}): Record<string, unknown> {
+  if (opts.isPremium === true) {
+    return {
+      ...excludeOfflineManualProductFilter(),
+      isPremium: true,
+      ...(opts.adminScope ? {} : { isActive: true }),
+    };
+  }
+
+  if (opts.isPremium === false) {
+    return {
+      ...excludeOfflineManualProductFilter(),
+      isPremium: { $ne: true },
+      category: { $nin: ["Gifting", "Premium"] },
+      ...(opts.adminScope ? {} : { isActive: true }),
+    };
+  }
+
+  return shopCatalogBaseFilter(opts.adminScope);
 }
 
 export function isLegacyOfflineManualPlaceholderImage(url: unknown): boolean {

@@ -186,7 +186,7 @@ export async function discoverGiftableProducts(query: Record<string, string>) {
 
   const pageNum = Math.max(1, parseInt(page, 10));
   const skip = (pageNum - 1) * limit;
-  const cacheKey = `cache:gifting:products:v2:${JSON.stringify({ giftOccasion, category, search, page: pageNum, limit })}`;
+  const cacheKey = `cache:gifting:products:v3:${JSON.stringify({ giftOccasion, category, search, page: pageNum, limit })}`;
 
   const cached = await getCache<{
     products: Record<string, unknown>[];

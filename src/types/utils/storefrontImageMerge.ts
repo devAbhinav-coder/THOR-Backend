@@ -138,6 +138,14 @@ export function mergeHomeMiddleBanner(
   return out;
 }
 
+export function mergeHomePremiumShowcase(
+  next: Record<string, unknown>,
+  uploadedImage: { url: string; publicId: string } | undefined,
+  prev: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  return mergeHomeMiddleBanner(next, uploadedImage, prev);
+}
+
 export function mergeBlogBanner(
   next: Record<string, unknown>,
   uploaded:
@@ -338,4 +346,74 @@ export function mergeHomeGiftCards(
     }
     return card;
   });
+}
+
+export function mergePremiumAudienceBanners(
+  payloadBanners: Record<string, unknown>[] | undefined,
+  uploaded:
+    | { premiumAudienceImage: Record<string, { url: string; publicId: string }> }
+    | undefined,
+  previousBanners: Array<{ image?: string; imagePublicId?: string }> | undefined,
+): Record<string, unknown>[] {
+  return (payloadBanners || []).map((banner, index) => {
+    const up = uploaded?.premiumAudienceImage?.[String(index)];
+    if (up) {
+      return { ...banner, image: up.url, imagePublicId: up.publicId };
+    }
+    const img = typeof banner.image === "string" ? (banner.image as string).trim() : "";
+    if (!img) {
+      const { imagePublicId: _removed, ...rest } = banner;
+      return { ...rest, image: "" };
+    }
+    let pid = typeof banner.imagePublicId === "string" ? (banner.imagePublicId as string).trim() : "";
+    const prev = previousBanners?.[index];
+    const prevImg = typeof prev?.image === "string" ? prev.image.trim() : "";
+    const prevPid = typeof prev?.imagePublicId === "string" ? prev.imagePublicId.trim() : "";
+    if (prevPid && prevImg === img && !pid) {
+      return { ...banner, image: img, imagePublicId: prevPid };
+    }
+    return banner;
+  });
+}
+
+export function mergePremiumEditorial(
+  next: Record<string, unknown>,
+  uploaded: { url: string; publicId: string } | undefined,
+  prev: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const out = { ...next };
+  if (uploaded) {
+    out.image = uploaded.url;
+    out.imagePublicId = uploaded.publicId;
+  } else if (prev) {
+    const img = typeof out.image === "string" ? out.image.trim() : "";
+    const pid = typeof out.imagePublicId === "string" ? out.imagePublicId.trim() : "";
+    const prevImg = typeof prev.image === "string" ? prev.image.trim() : "";
+    const prevPid = typeof prev.imagePublicId === "string" ? prev.imagePublicId.trim() : "";
+    if (img && prevImg === img && prevPid && !pid) {
+      out.imagePublicId = prevPid;
+    }
+  }
+  return out;
+}
+
+export function mergePremiumStory(
+  next: Record<string, unknown>,
+  uploaded: { url: string; publicId: string } | undefined,
+  prev: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const out = { ...next };
+  if (uploaded) {
+    out.image = uploaded.url;
+    out.imagePublicId = uploaded.publicId;
+  } else if (prev) {
+    const img = typeof out.image === "string" ? out.image.trim() : "";
+    const pid = typeof out.imagePublicId === "string" ? out.imagePublicId.trim() : "";
+    const prevImg = typeof prev.image === "string" ? prev.image.trim() : "";
+    const prevPid = typeof prev.imagePublicId === "string" ? prev.imagePublicId.trim() : "";
+    if (img && prevImg === img && prevPid && !pid) {
+      out.imagePublicId = prevPid;
+    }
+  }
+  return out;
 }

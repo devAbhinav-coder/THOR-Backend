@@ -14,7 +14,9 @@ import { listProducts } from "../services/productListService";
 import { advancedSearchService } from "../services/advancedSearchService";
 
 function leanProduct(p: Record<string, unknown>) {
-  return reconcileProductJson(p as Parameters<typeof reconcileProductJson>[0]);
+  return reconcileProductJson(p as Parameters<typeof reconcileProductJson>[0], {
+    includeCostPrice: true,
+  });
 }
 
 /**
@@ -127,7 +129,7 @@ export const searchAdminProducts = catchAsync(
           .skip(skip)
           .limit(listParsed.limit)
           .select(
-            "name slug images price category isActive variants.size variants.color variants.colorCode variants.stock variants.sku variants.price variants.costPrice",
+            "name slug premiumSlug isPremium images price category isActive variants.size variants.color variants.colorCode variants.stock variants.sku variants.price variants.costPrice",
           )
           .lean(),
         Product.countDocuments(filter),
@@ -157,6 +159,10 @@ export const searchAdminProducts = catchAsync(
       isActive:
         req.query.isActive === "true" ? true
         : req.query.isActive === "false" ? false
+        : undefined,
+      isPremium:
+        req.query.isPremium === "true" ? true
+        : req.query.isPremium === "false" ? false
         : undefined,
       adminScope: true,
       useCache: false,

@@ -15,7 +15,11 @@ import {
   mergePromoBanner,
   mergeShopBanner,
   mergeHomeMiddleBanner,
+  mergeHomePremiumShowcase,
   mergeHomeExploreHouse,
+  mergePremiumAudienceBanners,
+  mergePremiumEditorial,
+  mergePremiumStory,
 } from "../types/utils/storefrontImageMerge";
 import { sendSuccess } from "../types/utils/response";
 
@@ -76,6 +80,15 @@ const FALLBACK_SETTINGS = {
     subtitle: "A modern homage to our cultural legacy.",
     linkText: "Discover the Story",
     linkUrl: "/about",
+    isActive: true,
+  },
+  homePremiumShowcase: {
+    image: "",
+    preHeading: "The Rani Edit",
+    heading: "The Premium Collection",
+    text: "Exceptional handwoven sarees — rare silks, masterful zari, and over 200 hours of loom work in every piece. Curated for the discerning few.",
+    linkText: "Explore Premium",
+    linkUrl: "/premium",
     isActive: true,
   },
   homeExploreHouse: {
@@ -196,9 +209,14 @@ type StorefrontPayload = {
   homeGiftShowcase?: Record<string, unknown>;
   homeEditorialGallery?: Record<string, unknown>;
   homeMiddleBanner?: Record<string, unknown>;
+  homePremiumShowcase?: Record<string, unknown>;
   homeExploreHouse?: Record<string, unknown>;
   announcementMessages?: string[];
   footer?: Record<string, unknown>;
+  premiumAudienceBanners?: Record<string, unknown>[];
+  premiumEditorial?: Record<string, unknown>;
+  premiumStory?: Record<string, unknown>;
+  premiumFinalCta?: Record<string, unknown>;
 };
 
 const LEGACY_HOME_GIFT_SNIPPET =
@@ -301,9 +319,15 @@ const getSettingsDoc = async () => {
       settings.homeEditorialGallery || FALLBACK_SETTINGS.homeEditorialGallery,
     homeMiddleBanner:
       settings.homeMiddleBanner || FALLBACK_SETTINGS.homeMiddleBanner,
+    homePremiumShowcase:
+      settings.homePremiumShowcase || FALLBACK_SETTINGS.homePremiumShowcase,
     homeExploreHouse:
       settings.homeExploreHouse || FALLBACK_SETTINGS.homeExploreHouse,
     footer: settings.footer || FALLBACK_SETTINGS.footer,
+    premiumAudienceBanners: settings.premiumAudienceBanners || [],
+    premiumEditorial: settings.premiumEditorial || undefined,
+    premiumStory: settings.premiumStory || undefined,
+    premiumFinalCta: settings.premiumFinalCta || undefined,
   };
   const giftShowcase = payload.homeGiftShowcase as {
     description?: string;
@@ -358,8 +382,12 @@ export const updateStorefrontSettings = catchAsync(
           homeGiftCard: Record<string, { url: string; publicId: string }>;
           homeEditorialTile: Record<string, { url: string; publicId: string }>;
           homeMiddleBanner?: { url: string; publicId: string };
+          homePremiumShowcase?: { url: string; publicId: string };
           homeExploreHouseSale?: { url: string; publicId: string };
           homeExploreHouseGifting?: { url: string; publicId: string };
+          premiumAudienceImage: Record<string, { url: string; publicId: string }>;
+          premiumEditorial?: { url: string; publicId: string };
+          premiumStory?: { url: string; publicId: string };
         };
       }
     ).uploadedStorefrontImages;
@@ -417,6 +445,15 @@ export const updateStorefrontSettings = catchAsync(
       prevHomeMiddleBanner
     );
 
+    const prevHomePremiumShowcase = previous?.homePremiumShowcase as
+      | Record<string, unknown>
+      | undefined;
+    const nextHomePremiumShowcase = mergeHomePremiumShowcase(
+      { ...(payload.homePremiumShowcase || {}) },
+      uploaded?.homePremiumShowcase,
+      prevHomePremiumShowcase,
+    );
+
     const prevHomeExploreHouse = previous?.homeExploreHouse as
       | Record<string, unknown>
       | undefined;
@@ -430,6 +467,31 @@ export const updateStorefrontSettings = catchAsync(
       : undefined,
       prevHomeExploreHouse,
     );
+
+    const prevPremiumAudience = previous?.premiumAudienceBanners as
+      | Array<{ image?: string; imagePublicId?: string }>
+      | undefined;
+    const nextPremiumAudience = mergePremiumAudienceBanners(
+      payload.premiumAudienceBanners as Record<string, unknown>[] | undefined,
+      uploaded,
+      prevPremiumAudience,
+    );
+
+    const prevPremiumEditorial = previous?.premiumEditorial as Record<string, unknown> | undefined;
+    const nextPremiumEditorial = mergePremiumEditorial(
+      { ...(payload.premiumEditorial || {}) },
+      uploaded?.premiumEditorial,
+      prevPremiumEditorial,
+    );
+
+    const prevPremiumStory = previous?.premiumStory as Record<string, unknown> | undefined;
+    const nextPremiumStory = mergePremiumStory(
+      { ...(payload.premiumStory || {}) },
+      uploaded?.premiumStory,
+      prevPremiumStory,
+    );
+
+    const nextPremiumFinalCta = payload.premiumFinalCta || previous?.premiumFinalCta || {};
 
     const prevGiftingHero = previous?.giftingHeroBanners as
       | Array<{ backgroundImage?: string; backgroundImagePublicId?: string }>
@@ -547,6 +609,12 @@ export const updateStorefrontSettings = catchAsync(
       usedPublicIds.add(nextHomeMiddleBanner.imagePublicId);
     }
     if (
+      typeof nextHomePremiumShowcase.imagePublicId === "string" &&
+      nextHomePremiumShowcase.imagePublicId.trim()
+    ) {
+      usedPublicIds.add(nextHomePremiumShowcase.imagePublicId);
+    }
+    if (
       typeof nextHomeExploreHouse.saleImagePublicId === "string" &&
       nextHomeExploreHouse.saleImagePublicId.trim()
     ) {
@@ -564,6 +632,11 @@ export const updateStorefrontSettings = catchAsync(
         banner.backgroundImagePublicId.trim()
       ) {
         usedPublicIds.add(banner.backgroundImagePublicId);
+      }
+    }
+    for (const banner of nextPremiumAudience) {
+      if (typeof banner.imagePublicId === "string" && banner.imagePublicId.trim()) {
+        usedPublicIds.add(banner.imagePublicId);
       }
     }
     for (const banner of nextGiftingSecondary) {
@@ -627,6 +700,14 @@ export const updateStorefrontSettings = catchAsync(
       const maybeHomeMiddle = previous.homeMiddleBanner as { imagePublicId?: string };
       if (maybeHomeMiddle.imagePublicId) oldPublicIds.push(maybeHomeMiddle.imagePublicId);
     }
+    if (previous?.homePremiumShowcase && typeof previous.homePremiumShowcase === "object") {
+      const maybePremiumHome = previous.homePremiumShowcase as {
+        imagePublicId?: string;
+      };
+      if (maybePremiumHome.imagePublicId) {
+        oldPublicIds.push(maybePremiumHome.imagePublicId);
+      }
+    }
     if (previous?.homeExploreHouse && typeof previous.homeExploreHouse === "object") {
       const maybeExplore = previous.homeExploreHouse as {
         saleImagePublicId?: string;
@@ -654,6 +735,11 @@ export const updateStorefrontSettings = catchAsync(
         if (banner.imagePublicId) oldPublicIds.push(banner.imagePublicId);
       }
     }
+    if (previous?.premiumAudienceBanners?.length) {
+      for (const banner of previous.premiumAudienceBanners as Array<{ imagePublicId?: string }>) {
+        if (banner.imagePublicId) oldPublicIds.push(banner.imagePublicId);
+      }
+    }
     const prevGift = previous?.homeGiftShowcase as
       | { cards?: Array<{ imagePublicId?: string }> }
       | undefined;
@@ -669,6 +755,15 @@ export const updateStorefrontSettings = catchAsync(
       for (const tile of prevEditorial.tiles) {
         if (tile.imagePublicId) oldPublicIds.push(tile.imagePublicId);
       }
+    }
+
+    if (previous?.premiumEditorial && typeof previous.premiumEditorial === "object") {
+      const p = previous.premiumEditorial as { imagePublicId?: string };
+      if (p.imagePublicId) oldPublicIds.push(p.imagePublicId);
+    }
+    if (previous?.premiumStory && typeof previous.premiumStory === "object") {
+      const p = previous.premiumStory as { imagePublicId?: string };
+      if (p.imagePublicId) oldPublicIds.push(p.imagePublicId);
     }
 
     const stalePublicIds = oldPublicIds.filter((id) => !usedPublicIds.has(id));
@@ -690,8 +785,13 @@ export const updateStorefrontSettings = catchAsync(
         homeGiftShowcase: nextHomeGiftShowcase,
         homeEditorialGallery: nextHomeEditorialGallery,
         homeMiddleBanner: nextHomeMiddleBanner,
+        homePremiumShowcase: nextHomePremiumShowcase,
         homeExploreHouse: nextHomeExploreHouse,
         footer: payload.footer || {},
+        premiumAudienceBanners: nextPremiumAudience,
+        premiumEditorial: nextPremiumEditorial,
+        premiumStory: nextPremiumStory,
+        premiumFinalCta: nextPremiumFinalCta,
       },
       {
         new: true,

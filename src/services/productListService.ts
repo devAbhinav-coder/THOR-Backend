@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import Product from "../models/Product";
 import APIFeatures from "../types/utils/apiFeatures";
 import { IProduct } from "../types";
-import { shopCatalogBaseFilter } from "../constants/offlineOrder";
+import { resolveProductListBaseFilter } from "../constants/offlineOrder";
 import { LISTING_PROJECTION } from "../constants/productListing";
 import { advancedSearchService } from "./advancedSearchService";
 import {
@@ -51,11 +51,12 @@ function buildFabricMongoFilter(
   };
 }
 
-/** Shop catalog excludes gifting; admin shop catalog does too unless `category` overrides below. */
+/** Shop catalog excludes gifting/premium; admin premium lists use isPremium override. */
 export function storefrontBaseFilter(
   adminScope: boolean,
+  isPremium?: boolean,
 ): Record<string, unknown> {
-  return shopCatalogBaseFilter(adminScope);
+  return resolveProductListBaseFilter({ adminScope, isPremium });
 }
 
 export type ProductListResult = {
@@ -90,7 +91,7 @@ export async function listRandomProducts(
 
   let baseFilter: Record<string, unknown> = mergeOnSaleFilter(
     {
-      ...storefrontBaseFilter(parsed.adminScope),
+      ...storefrontBaseFilter(parsed.adminScope, parsed.isPremium),
       ...(collectionFilter ?? {}),
       ...(parsed.occasions.length > 0 ?
         { occasions: { $in: parsed.occasions } }
@@ -141,7 +142,12 @@ export async function listRandomProducts(
         isFeatured: 1,
         isActive: 1,
         totalStock: 1,
-        variants: 1,
+        "variants.size": 1,
+        "variants.color": 1,
+        "variants.colorCode": 1,
+        "variants.stock": 1,
+        "variants.sku": 1,
+        "variants.price": 1,
         tags: 1,
         isGiftable: 1,
         isCustomizable: 1,
@@ -194,7 +200,7 @@ export async function listProductsViaApiFeatures(
 
   let categoryBase: Record<string, unknown> = mergeOnSaleFilter(
     {
-      ...storefrontBaseFilter(parsed.adminScope),
+      ...storefrontBaseFilter(parsed.adminScope, parsed.isPremium),
       ...(collectionFilter ?? {}),
       ...(parsed.occasions.length > 0 ?
         { occasions: { $in: parsed.occasions } }
@@ -300,6 +306,7 @@ export async function listProductsViaAdvancedSearch(
     onSale: parsed.onSale,
     hasOffer: parsed.hasOffer,
     isActive: parsed.isActive,
+    isPremium: parsed.isPremium,
     adminScope: parsed.adminScope,
     useCache: true,
   });

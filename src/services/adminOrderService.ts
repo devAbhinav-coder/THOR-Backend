@@ -1,4 +1,4 @@
-import mongoose, { ClientSession } from "mongoose";
+import { ClientSession } from "mongoose";
 import { Request } from "express";
 import Order from "../models/Order";
 import AppError from "../types/utils/AppError";
@@ -10,7 +10,7 @@ import {
 } from "../types/utils/orderRefundPolicy";
 import { writeAdminAudit } from "./adminAuditService";
 import { AuthRequest } from "../types";
-import logger from "../types/utils/logger";
+import { withOptionalTransaction } from "../types/utils/mongoTransaction";
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type ManagedOrderStatus =
@@ -38,51 +38,37 @@ export const ALLOWED_STATUS_TRANSITIONS: Record<
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * Run `fn` inside a Mongo transaction when a replica set is available.
- * On a standalone mongod (dev), degrades gracefully — runs without a session.
+ * Restock only when inventory was actually held (`inventoryReserved === true`).
+ * Never use payment-method heuristics — unpaid / non-reserved cancels must not inflate stock.
  */
-async function withOptionalTransaction<T>(
-  fn: (session: ClientSession | null) => Promise<T>,
-): Promise<T> {
-  let session: ClientSession | null = null;
-  try {
-    session = await mongoose.startSession();
-    let result!: T;
-    await session.withTransaction(async () => {
-      result = await fn(session);
-    });
-    return result;
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "";
-    // Standalone mongod doesn't support transactions — degrade gracefully
-    if (
-      msg.includes("Transaction numbers are only allowed") ||
-      msg.includes("not a repl set") ||
-      msg.includes("replica set")
-    ) {
-      logger.warn(
-        "[adminOrderService] Mongo transactions unavailable — running without transaction",
-      );
-      return fn(null);
-    }
-    throw err;
-  } finally {
-    if (session) await session.endSession();
-  }
+function shouldRestockOnCancel(order: {
+  inventoryReserved?: boolean;
+}): boolean {
+  return order.inventoryReserved === true;
 }
 
 /**
- * Restore stock for all order items in parallel.
- * Each item's increment + ledger log runs concurrently.
+ * Atomically claim the reserved flag, then restore stock once.
+ * Returns false if stock was already released (or never held).
  */
-async function restoreOrderStock(
+async function claimAndRestoreOrderStock(
   order: InstanceType<typeof Order>,
   actorId: unknown,
   note: string,
   session: ClientSession | null,
-): Promise<void> {
+): Promise<boolean> {
+  const claimed = await Order.findOneAndUpdate(
+    { _id: order._id, inventoryReserved: true },
+    { $set: { inventoryReserved: false } },
+    {
+      new: true,
+      ...(session ? { session } : {}),
+    },
+  );
+  if (!claimed) return false;
+
   await Promise.all(
-    order.items.map(async (item) => {
+    claimed.items.map(async (item) => {
       const pid = refProductId(item.product);
       await incrementVariantStock(
         pid,
@@ -94,13 +80,15 @@ async function restoreOrderStock(
       );
       await logStockMovement(pid, item.variant.sku, item.quantity, {
         reason: "sale_return",
-        referenceId: String(order._id),
+        referenceId: String(claimed._id),
         referenceType: "order",
         actor: actorId as string,
         note,
       });
     }),
   );
+  order.inventoryReserved = false;
+  return true;
 }
 
 // ─── cancelOrder ─────────────────────────────────────────────────────────────
@@ -112,7 +100,7 @@ export interface CancelOrderResult {
 
 /**
  * Cancel an order, optionally restoring stock.
- * Wrapped in a Mongo transaction (graceful degradation on standalone mongod).
+ * Wrapped in a Mongo transaction (required in production).
  */
 export async function cancelOrder(
   orderId: string,
@@ -125,13 +113,8 @@ export async function cancelOrder(
     if (order.status === "cancelled")
       throw new AppError("Order is already cancelled.", 400);
 
-    const shouldRestock =
-      order.paymentMethod === "cod" ||
-      (order.paymentMethod === "razorpay" && order.paymentStatus === "paid") ||
-      order.paymentMethod === "offline_upi" ||
-      order.paymentMethod === "offline_cash";
-
-    const previousStatus = order.status;
+    const shouldRestock = shouldRestockOnCancel(order);
+    let stockRestored = false;
 
     order.status = "cancelled";
     order.statusHistory.push({
@@ -141,7 +124,7 @@ export async function cancelOrder(
     });
 
     if (shouldRestock) {
-      await restoreOrderStock(
+      stockRestored = await claimAndRestoreOrderStock(
         order,
         actorId,
         `Order ${order.orderNumber} cancelled`,
@@ -155,8 +138,8 @@ export async function cancelOrder(
       await order.save();
     }
 
-    return { order, stockRestored: shouldRestock };
-  });
+    return { order, stockRestored };
+  }, "adminCancelOrder");
 }
 
 // ─── customerCancelOrder ──────────────────────────────────────────────────────
@@ -238,28 +221,27 @@ export async function customerCancelOrder(
   }
 
   // ── Step 3: Stock restore inside transaction ──────────────────────────────
-  // inventoryReserved flag is the source of truth.
-  // Fallback to payment-method heuristic for legacy orders that predate the flag.
-  const shouldRestock =
-    (claimed as unknown as { inventoryReserved?: boolean })
-      .inventoryReserved === true ||
-    claimed.paymentMethod === "cod" ||
-    claimed.paymentMethod === "razorpay" ||
-    claimed.paymentMethod === "offline_upi" ||
-    claimed.paymentMethod === "offline_cash";
+  // Restock iff inventoryReserved === true (atomic claim prevents double restore).
+  const shouldRestock = shouldRestockOnCancel(
+    claimed as unknown as { inventoryReserved?: boolean },
+  );
 
   if (shouldRestock) {
     await withOptionalTransaction(async (session) => {
-      // Re-fetch inside transaction for session binding
       const orderInTx = await Order.findById(orderId).session(session);
-      if (!orderInTx) return; // already handled above
-      await restoreOrderStock(
+      if (!orderInTx) return;
+      await claimAndRestoreOrderStock(
         orderInTx,
         userId,
         `Order ${orderInTx.orderNumber} cancelled by customer`,
         session,
       );
-    });
+      if (session) {
+        await orderInTx.save({ session });
+      } else {
+        await orderInTx.save();
+      }
+    }, "customerCancelOrder");
   }
 
   // Re-fetch the final state with full document for response
@@ -388,8 +370,12 @@ export async function processRefund(
     });
 
     // Restore stock only if order wasn't already cancelled (cancel already restocked)
-    if (previousStatus !== "cancelled") {
-      await restoreOrderStock(
+    // and inventory was actually held for this order.
+    if (
+      previousStatus !== "cancelled" &&
+      shouldRestockOnCancel(order)
+    ) {
+      await claimAndRestoreOrderStock(
         order,
         actorId,
         `Order ${order.orderNumber} refunded`,

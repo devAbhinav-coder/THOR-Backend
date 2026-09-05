@@ -123,13 +123,14 @@ const productSchema = new Schema<IProduct>(
     tags: [{ type: String, lowercase: true, trim: true }],
     isFeatured: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
+    // Demographic/Audience mapping
+    audience: {
+      type: String,
+      enum: ['women', 'men', 'kids', 'couple'],
+      default: 'women',
+      index: true,
+    },
     // Gifting
-    isGiftable: { type: Boolean, default: false },
-    isCustomizable: { type: Boolean, default: false },
-    minOrderQty: { type: Number, default: 1, min: 1 },
-    occasions: [{ type: String, trim: true }], // e.g. ["Corporate", "Wedding", "Festive", "Casual"]
-    customFields: [customFieldSchema],              // admin-defined user inputs
-    // Premium collection
     isPremium: { type: Boolean, default: false },
     premiumSlug: { type: String, trim: true, lowercase: true, sparse: true, unique: true },
     premiumSubtitle: { type: String, trim: true, maxlength: 200 },
@@ -236,6 +237,7 @@ productSchema.index({ isGiftable: 1, isActive: 1, category: 1 });
 productSchema.index({ isGiftable: 1, isActive: 1, occasions: 1 });
 productSchema.index({ isPremium: 1, isActive: 1, sortOrderPremium: 1 });
 productSchema.index({ isPremium: 1, isActive: 1, premiumSlug: 1 });
+productSchema.index({ isPremium: 1, isActive: 1, audience: 1 });
 // New FK-based indexes (populated after Phase 2 migration)
 productSchema.index({ categoryId: 1, isActive: 1, price: 1 });     // FK category page
 productSchema.index({ subcategoryId: 1, isActive: 1, price: 1 });  // FK subcategory page

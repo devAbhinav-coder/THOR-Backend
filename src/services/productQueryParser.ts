@@ -36,6 +36,8 @@ export type ParsedProductListQuery = {
   hasOffer?: boolean;
   /** Admin catalog only — filter by active/inactive when set. */
   isActive?: boolean;
+  /** Admin/storefront — Premium Edit only when true; exclude premium when false. */
+  isPremium?: boolean;
   isRandom: boolean;
   excludeIds: string[];
   /** Admin catalog — includes inactive / gifting / offline-tagged when true. */
@@ -164,6 +166,12 @@ export function parseProductListQuery(req: Request): ParsedProductListQuery {
     : isActiveRaw === "false" || isActiveRaw === false ? false
     : undefined;
 
+  const isPremiumRaw = q.isPremium;
+  const isPremium =
+    isPremiumRaw === "true" || isPremiumRaw === true ? true
+    : isPremiumRaw === "false" || isPremiumRaw === false ? false
+    : undefined;
+
   const isRandom = q.isRandom === "true" || q.isRandom === true;
 
   const excludeIds =
@@ -190,6 +198,7 @@ export function parseProductListQuery(req: Request): ParsedProductListQuery {
     onSale,
     hasOffer,
     isActive,
+    isPremium,
     isRandom,
     excludeIds,
     adminScope: false,

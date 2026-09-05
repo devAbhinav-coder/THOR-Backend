@@ -4,6 +4,8 @@ export const MAX_PRODUCT_IMAGES = 20;
 
 export type ImageMetaEntry = {
   publicId?: string;
+  /** Required for newly signed Cloudinary uploads (not yet on the product doc). */
+  url?: string;
   color?: string;
   alt?: string;
 };
@@ -105,11 +107,12 @@ export function buildImagesFromMeta(
 
     if (entry.publicId?.trim()) {
       const prev = findExistingImage(existing, entry.publicId);
-      if (!prev?.url) continue;
+      const url = prev?.url || String(entry.url || "").trim();
+      if (!url) continue;
       built.push({
-        url: prev.url,
-        publicId: prev.publicId,
-        alt: entry.alt || prev.alt || `${productName} - Image ${index + 1}`,
+        url,
+        publicId: prev?.publicId || normPublicId(entry.publicId),
+        alt: entry.alt || prev?.alt || `${productName} - Image ${index + 1}`,
         ...(color ? { color } : {}),
       });
       continue;

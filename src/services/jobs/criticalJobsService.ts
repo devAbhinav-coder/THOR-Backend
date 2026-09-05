@@ -237,28 +237,84 @@ export async function runUnpaidOrderAutoCancelJob(): Promise<number> {
     if (!claimed) continue;
 
     if (claimed.inventoryReserved) {
-      for (const item of claimed.items) {
-        const pid = refProductId(item.product);
-        await incrementVariantStock(pid, item.variant.sku, item.quantity, {
-          soldCountDelta: -item.quantity,
-        });
-        await logStockMovement(pid, item.variant.sku, item.quantity, {
-          reason: "sale_return",
-          referenceId: String(claimed._id),
-          referenceType: "order",
-          note: `Auto-cancel unpaid order ${claimed.orderNumber}`,
-        });
+      const released = await Order.findOneAndUpdate(
+        { _id: claimed._id, inventoryReserved: true },
+        { $set: { inventoryReserved: false } },
+        { new: true },
+      );
+      if (released) {
+        for (const item of released.items) {
+          const pid = refProductId(item.product);
+          await incrementVariantStock(pid, item.variant.sku, item.quantity, {
+            soldCountDelta: -item.quantity,
+          });
+          await logStockMovement(pid, item.variant.sku, item.quantity, {
+            reason: "sale_return",
+            referenceId: String(released._id),
+            referenceType: "order",
+            note: `Auto-cancel unpaid order ${released.orderNumber}`,
+          });
+        }
       }
-      claimed.inventoryReserved = false;
-      await claimed.save();
     }
 
     cancelled += 1;
   }
 
+  // Release soft-held stock on abandoned / expired Razorpay checkout intents.
+  const holdCursor = await getJobBatchCursor("checkout-intent-hold-release");
+  const staleIntents = await CheckoutPaymentIntent.find({
+    inventoryHeld: true,
+    consumedAt: null,
+    $or: [{ expiresAt: { $lt: new Date() } }, { createdAt: { $lt: cutoff } }],
+    ...(holdCursor ? { _id: { $gt: holdCursor } } : {}),
+  })
+    .sort({ _id: 1 })
+    .limit(batch)
+    .maxTimeMS(PAYMENT_QUERY_MAX_MS);
+
+  await advanceJobBatchCursor(
+    "checkout-intent-hold-release",
+    staleIntents,
+    batch,
+    (row) => String((row as { _id: unknown })._id),
+  );
+
+  for (const intent of staleIntents) {
+    const claimedHold = await CheckoutPaymentIntent.findOneAndUpdate(
+      {
+        _id: intent._id,
+        inventoryHeld: true,
+        consumedAt: null,
+      },
+      {
+        $set: {
+          inventoryHeld: false,
+          consumedAt: new Date(),
+        },
+      },
+      { new: true },
+    );
+    if (!claimedHold) continue;
+
+    for (const line of claimedHold.snapshot?.stockLines || []) {
+      await incrementVariantStock(line.productId, line.sku, line.quantity, {
+        soldCountDelta: -line.quantity,
+      });
+      await logStockMovement(line.productId, line.sku, line.quantity, {
+        reason: "sale_return",
+        referenceId: String(claimedHold._id),
+        referenceType: "order",
+        note: `Release soft-hold for expired checkout intent ${String(claimedHold._id)}`,
+      });
+    }
+  }
+
+  // Mark leftover non-held abandoned intents (legacy / already released).
   await CheckoutPaymentIntent.updateMany(
     {
       consumedAt: null,
+      inventoryHeld: { $ne: true },
       createdAt: { $lt: cutoff },
     },
     { $set: { consumedAt: new Date() } },

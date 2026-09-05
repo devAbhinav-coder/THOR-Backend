@@ -1,7 +1,7 @@
 /**
  * Admin mutations that also live outside `/api/admin/*`.
- * WAF / Cloudflare should rate-limit and optionally geo-restrict these
- * methods. Preferred clients use `/api/admin/writes/*` (2FA already applied).
+ * Legacy routes now require `requireAdminTwoFactor` (same as `/api/admin`).
+ * Preferred clients still use `/api/admin/writes/*`.
  */
 export const ADMIN_WRITE_SURFACES: ReadonlyArray<{
   methods: string;

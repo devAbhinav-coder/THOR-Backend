@@ -306,7 +306,6 @@ app.get("/api/health/live", (_req: Request, res: Response) => {
     status: "ok",
     message: "process is up",
     timestamp: new Date().toISOString(),
-    runMode: getRunMode(),
   });
 });
 
@@ -327,12 +326,68 @@ app.get("/api/health/worker", async (req: Request, res: Response) => {
   });
 });
 
+/**
+ * Public readiness — Mongo/Redis booleans only (no infra posture leak).
+ * Full report: GET /api/health/detailed?token=HEALTHCHECK_TOKEN
+ */
 app.get("/api/health", async (_req: Request, res: Response) => {
+  await ensureRedisReady();
+  const mongoOk = mongoose.connection.readyState === 1;
+  const isProd = process.env.NODE_ENV === "production";
+  const redisRequired = isProd && redisEnabled;
+  let redisOk = !redisRequired;
+  if (redisEnabled) {
+    try {
+      const pong = await Promise.race([
+        redisConnection.ping(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("timeout")), 2500),
+        ),
+      ]);
+      redisOk = pong === "PONG";
+    } catch {
+      redisOk = false;
+    }
+  }
+  const ok = mongoOk && (!redisRequired || redisOk);
+
+  res.status(ok ? 200 : 503).json({
+    status: ok ? "ok" : "degraded",
+    message:
+      !mongoOk ? "Database connection failed"
+      : redisRequired && !redisOk ? "Redis connection failed"
+      : "API is running",
+    timestamp: new Date().toISOString(),
+    checks: {
+      mongodb: mongoOk,
+      redis: redisEnabled ? redisOk : "disabled",
+    },
+  });
+});
+
+/** Detailed infra posture — gated (same token as /api/health/worker). */
+app.get("/api/health/detailed", async (req: Request, res: Response) => {
+  const expected = process.env.HEALTHCHECK_TOKEN?.trim();
+  const given = String(
+    req.query.token || req.headers["x-healthcheck-token"] || "",
+  );
+  const isProd = process.env.NODE_ENV === "production";
+  if (isProd && !expected) {
+    res.status(503).json({
+      status: "fail",
+      message: "HEALTHCHECK_TOKEN is not configured",
+    });
+    return;
+  }
+  if (expected && given !== expected) {
+    res.status(401).json({ status: "fail", message: "Unauthorized" });
+    return;
+  }
+
   await ensureRedisReady();
   const report = await buildInfrastructureReport();
   const mongoOk = report.checks.mongodb.status === "ok";
   const redisOk = report.checks.redis.status === "ok";
-  const isProd = process.env.NODE_ENV === "production";
   const redisRequired = isProd && redisEnabled;
   const ok = mongoOk && (!redisRequired || redisOk);
 
@@ -347,9 +402,7 @@ app.get("/api/health", async (_req: Request, res: Response) => {
     checks: {
       mongodb: mongoOk,
       redis:
-        report.checks.redis.status === "disabled"
-          ? "disabled"
-          : redisOk,
+        report.checks.redis.status === "disabled" ? "disabled" : redisOk,
       email: report.checks.email.status,
       worker: report.checks.workerProcess.status,
       abandonedCartRecovery: report.checks.abandonedCartRecovery.status,

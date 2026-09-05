@@ -8,7 +8,7 @@ import {
   verifyPaymentAndThrow,
   assertRazorpayPaymentMatchesOrder,
 } from "./razorpay";
-import { decrementVariantStock } from "./inventoryService";
+import { decrementVariantStock, incrementVariantStock } from "./inventoryService";
 import { orderRepository } from "../repositories/orderRepository";
 import {
   ORDER_PAYMENT_RESPONSE_SELECT,
@@ -160,6 +160,24 @@ export const paymentVerificationService = {
         );
       }
       if (claimedIntent.expiresAt < new Date()) {
+        if (claimedIntent.inventoryHeld) {
+          for (const line of claimedIntent.snapshot.stockLines) {
+            await incrementVariantStock(
+              line.productId,
+              line.sku,
+              line.quantity,
+              {
+                ...sessionOpts(session),
+                soldCountDelta: -line.quantity,
+              },
+            );
+          }
+          await CheckoutPaymentIntent.updateOne(
+            { _id: intent._id },
+            { $set: { inventoryHeld: false } },
+            sessionOpts(session),
+          );
+        }
         throw new AppError(
           "Checkout session expired. Please return to your cart and try again.",
           400,
@@ -204,21 +222,30 @@ export const paymentVerificationService = {
       const newOrder = createdArr[0] as InstanceType<typeof Order>;
       resolvedOrderId = newOrder._id as mongoose.Types.ObjectId;
 
-      for (const line of snap.stockLines) {
-        const ok = await decrementVariantStock(
-          line.productId as string,
-          line.sku,
-          line.quantity,
+      // Soft-hold already decremented at intent create — do not decrement again.
+      if (claimedIntent.inventoryHeld) {
+        await CheckoutPaymentIntent.updateOne(
+          { _id: intent._id },
+          { $set: { inventoryHeld: false } },
           sessionOpts(session),
         );
-        if (!ok) {
-          logger.error(
-            `verifyPayment intent: insufficient stock rz=${razorpayOrderId} sku=${line.sku}`,
+      } else {
+        for (const line of snap.stockLines) {
+          const ok = await decrementVariantStock(
+            line.productId as string,
+            line.sku,
+            line.quantity,
+            sessionOpts(session),
           );
-          throw new AppError(
-            "Inventory changed before we could confirm your payment. Please contact support with your payment ID.",
-            409,
-          );
+          if (!ok) {
+            logger.error(
+              `verifyPayment intent: insufficient stock rz=${razorpayOrderId} sku=${line.sku}`,
+            );
+            throw new AppError(
+              "Inventory changed before we could confirm your payment. Please contact support with your payment ID.",
+              409,
+            );
+          }
         }
       }
 

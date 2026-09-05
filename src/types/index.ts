@@ -110,6 +110,7 @@ export interface IProduct extends Document {
   tags: string[];
   isFeatured: boolean;
   isActive: boolean;
+  audience?: 'women' | 'men' | 'kids' | 'couple' | 'all';
   // Gifting
   isGiftable: boolean;
   isCustomizable: boolean;

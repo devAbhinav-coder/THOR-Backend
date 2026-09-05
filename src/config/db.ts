@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import logger from "../types/utils/logger";
+import { assertMongoTransactionsSupported } from "../types/utils/mongoTransaction";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -32,6 +33,11 @@ const connectDB = async (): Promise<void> => {
       });
 
       logger.info(`MongoDB Connected: ${conn.connection.host}`);
+
+      await assertMongoTransactionsSupported();
+      if (process.env.NODE_ENV === "production") {
+        logger.info("MongoDB transaction support verified (replica set).");
+      }
 
       mongoose.connection.on("error", (err) => {
         logger.error(`MongoDB connection error: ${err}`);

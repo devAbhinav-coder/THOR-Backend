@@ -62,6 +62,11 @@ export interface ICheckoutPaymentIntent {
   expiresAt: Date;
   consumedAt?: Date;
   createdOrderId?: Types.ObjectId;
+  /**
+   * True when variant stock was soft-held at intent create.
+   * Cleared on payment finalize or hold release / expiry.
+   */
+  inventoryHeld?: boolean;
   /** Incremented on each verify attempt (support / abuse signals). */
   verifyAttempts?: number;
   lastVerifyAttemptAt?: Date;
@@ -115,6 +120,7 @@ const checkoutPaymentIntentSchema = new Schema<ICheckoutPaymentIntent>(
     expiresAt: { type: Date, required: true },
     consumedAt: { type: Date },
     createdOrderId: { type: Schema.Types.ObjectId, ref: "Order" },
+    inventoryHeld: { type: Boolean, default: false, index: true },
     verifyAttempts: { type: Number, default: 0 },
     lastVerifyAttemptAt: { type: Date },
     snapshot: {
@@ -156,8 +162,14 @@ const checkoutPaymentIntentSchema = new Schema<ICheckoutPaymentIntent>(
   { timestamps: true },
 );
 
-// TTL index: MongoDB auto-removes expired checkout intents
-checkoutPaymentIntentSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+// TTL: only drop intents that are not holding stock (held rows released by job first).
+checkoutPaymentIntentSchema.index(
+  { expiresAt: 1 },
+  {
+    expireAfterSeconds: 0,
+    partialFilterExpression: { inventoryHeld: { $ne: true } },
+  },
+);
 
 const CheckoutPaymentIntent = model<ICheckoutPaymentIntent>(
   "CheckoutPaymentIntent",

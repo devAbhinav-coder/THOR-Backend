@@ -5,6 +5,8 @@ import {
   deleteProduct,
   deleteProductImage,
   getMotionVideoUploadSignature,
+  getProductImageUploadSignature,
+  getPremiumHeroUploadSignature,
 } from "../controllers/productController";
 import {
   createCoupon,
@@ -94,6 +96,8 @@ router.get("/surfaces", (_req, res) => {
 });
 
 router.get("/products/motion-video/signature", getMotionVideoUploadSignature);
+router.get("/products/images/signature", getProductImageUploadSignature);
+router.get("/products/premium-hero/signature", getPremiumHeroUploadSignature);
 
 router.post(
   "/products",

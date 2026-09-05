@@ -448,8 +448,9 @@ export const openApiSpec = {
     "/health": {
       get: {
         tags: ["System"],
-        summary: "Health check",
-        description: "Returns API + MongoDB + Redis health status. HTTP 200 = healthy, 503 = degraded.",
+        summary: "Public readiness check",
+        description:
+          "MongoDB + Redis booleans only. Full infra posture is at /health/detailed (token-gated).",
         security: [],
         responses: {
           "200": {
@@ -475,6 +476,28 @@ export const openApiSpec = {
             },
           },
           "503": { description: "Database connection failed" },
+        },
+      },
+    },
+    "/health/detailed": {
+      get: {
+        tags: ["System"],
+        summary: "Detailed infrastructure health (token-gated)",
+        description:
+          "Requires HEALTHCHECK_TOKEN via ?token= or x-healthcheck-token header.",
+        security: [],
+        parameters: [
+          {
+            name: "token",
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": { description: "Detailed infra report" },
+          "401": { description: "Unauthorized" },
+          "503": { description: "Degraded or token not configured in production" },
         },
       },
     },

@@ -12,6 +12,10 @@ export function isTransactionUnsupportedError(err: unknown): boolean {
   );
 }
 
+function isProduction(): boolean {
+  return process.env.NODE_ENV === 'production';
+}
+
 /** Apply a Mongo session to a query when present (standalone dev runs without sessions). */
 export function withQuerySession<T extends { session(s: ClientSession): T }>(
   query: T,
@@ -25,8 +29,34 @@ export function sessionOpts(session: ClientSession | null): { session?: ClientSe
 }
 
 /**
+ * Assert replica-set transactions work. Call once after connect in production.
+ * Checkout / cancel / payment paths require multi-document atomicity.
+ */
+export async function assertMongoTransactionsSupported(): Promise<void> {
+  if (!isProduction()) return;
+
+  const session = await mongoose.startSession();
+  try {
+    session.startTransaction();
+    await session.abortTransaction();
+  } catch (err: unknown) {
+    if (isTransactionUnsupportedError(err)) {
+      throw new Error(
+        'MongoDB transactions are required in production (replica set / Atlas). ' +
+          'Standalone mongod cannot safely commit checkout or payment. ' +
+          'Configure a replica set and restart.',
+      );
+    }
+    throw err;
+  } finally {
+    await session.endSession();
+  }
+}
+
+/**
  * Run `fn` inside a Mongo transaction when a replica set is available.
- * On standalone mongod (common in local dev), runs `fn(null)` without a transaction.
+ * Dev: on standalone mongod, runs `fn(null)` without a transaction.
+ * Production: never degrades — throws if transactions are unsupported.
  */
 export async function withOptionalTransaction<T>(
   fn: (session: ClientSession | null) => Promise<T>,
@@ -42,6 +72,17 @@ export async function withOptionalTransaction<T>(
     return result;
   } catch (err: unknown) {
     if (isTransactionUnsupportedError(err)) {
+      if (isProduction()) {
+        logger.error({
+          msg: 'mongo_transaction_unsupported_production',
+          label,
+          requestId: getRequestContext()?.requestId,
+        });
+        throw new AppError(
+          'Checkout temporarily unavailable (database transaction support required).',
+          503,
+        );
+      }
       logger.warn({
         msg: 'mongo_transaction_unsupported',
         label,

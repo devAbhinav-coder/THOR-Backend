@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { protect, restrictTo } from '../middleware/auth';
+import { protect, restrictTo, requireAdminTwoFactor } from '../middleware/auth';
 import { createAdaptiveLimiter } from '../middleware/adaptiveRateLimit';
 import {
   getGiftableProducts,
@@ -62,11 +62,12 @@ router.post(
 );
 
 // Admin
-router.get('/requests', protect, restrictTo('admin'), getGiftingRequests);
+router.get('/requests', protect, restrictTo('admin'), requireAdminTwoFactor, getGiftingRequests);
 router.patch(
   '/requests/:id',
   protect,
   restrictTo('admin'),
+  requireAdminTwoFactor,
   validate(giftingAdminUpdateSchema),
   updateGiftingRequest
 );

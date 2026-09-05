@@ -4,19 +4,13 @@ import {
   REVIEW_MAX_IMAGES,
   REVIEW_MAX_IMAGE_BYTES,
 } from "../services/reviews/reviewConstants";
-
-const ALLOWED_MIME_TYPES = new Set([
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-]);
+import { sniffImageMime } from "../types/utils/fileMagic";
 
 const ALLOWED_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
 
 /**
- * Defense-in-depth after multer — whitelist MIME/extension and cap count.
+ * Defense-in-depth after multer — magic bytes + extension/count caps.
+ * Client Content-Type alone is never trusted.
  */
 export function assertReviewUploadSecurity(
   req: Request,
@@ -36,11 +30,17 @@ export function assertReviewUploadSecurity(
   }
 
   for (const file of files) {
-    if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
+    const sniffed = sniffImageMime(file.buffer);
+    if (!sniffed) {
       return next(
-        new AppError("Only JPEG, PNG, WebP, or GIF images are allowed.", 400),
+        new AppError(
+          "Invalid image file. Only real JPEG, PNG, WebP, or GIF uploads are allowed.",
+          400,
+        ),
       );
     }
+    file.mimetype = sniffed;
+
     const ext = (file.originalname || "").toLowerCase().match(/\.[a-z]+$/)?.[0];
     if (ext && !ALLOWED_EXTENSIONS.has(ext)) {
       return next(new AppError("Invalid image file extension.", 400));
