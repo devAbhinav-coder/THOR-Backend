@@ -211,7 +211,7 @@ export async function getDashboardAnalyticsData() {
     Product.find({ isActive: true, viewCount: { $gt: 0 } })
       .sort({ viewCount: -1 })
       .limit(100)
-      .select("name slug images category viewCount price ratings")
+      .select("name slug premiumSlug isPremium images category viewCount price ratings")
       .lean(),
     Order.aggregate([
       { $match: { paymentStatus: "paid" } },
@@ -600,6 +600,8 @@ export async function getDashboardAnalyticsData() {
     _id: unknown;
     name: string;
     slug: string;
+    premiumSlug?: string;
+    isPremium?: boolean;
     images?: { url: string }[];
     category: string;
     viewCount?: number;
@@ -611,6 +613,8 @@ export async function getDashboardAnalyticsData() {
     _id: unknown;
     name: string;
     slug: string;
+    premiumSlug?: string;
+    isPremium?: boolean;
     image: string;
     category: string;
     views: number;
@@ -638,6 +642,8 @@ export async function getDashboardAnalyticsData() {
         _id: p._id,
         name: p.name,
         slug: p.slug,
+        premiumSlug: p.premiumSlug,
+        isPremium: p.isPremium === true,
         image: p.images?.[0]?.url || "",
         category: p.category,
         views,

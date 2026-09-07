@@ -252,9 +252,17 @@ export const getTrendingSearches = catchAsync(
 
 export const recordProductView = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
+    const param = String(req.params.slug || "")
+      .trim()
+      .toLowerCase();
+    if (!param) {
+      return next(new AppError("No product found with that slug.", 404));
+    }
+
+    // Accept catalog slug or premiumSlug so /premium PDP views count correctly.
     const updated = await Product.findOneAndUpdate(
       {
-        slug: req.params.slug,
+        $or: [{ slug: param }, { premiumSlug: param }],
         isActive: true,
         tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
       },
@@ -875,17 +883,32 @@ export const createProduct = catchAsync(
       );
     }
     if (lean.isActive !== false) {
-      const slug = String(lean.slug || "");
-      if (slug) notifyIndexNowStorefront(`/shop/${encodeURIComponent(slug)}`);
+      const catalogSlug = String(lean.slug || "");
+      const isPremiumProduct = lean.isPremium === true;
+      const premiumRoute = String(lean.premiumSlug || lean.slug || "");
+      const storefrontPath =
+        isPremiumProduct && premiumRoute ?
+          `/premium/${encodeURIComponent(premiumRoute)}`
+        : catalogSlug ?
+          `/shop/${encodeURIComponent(catalogSlug)}`
+        : "";
+      if (storefrontPath) notifyIndexNowStorefront(storefrontPath);
     }
     if (lean.isActive !== false) {
       const { notifyWhatsAppCatalogAlert } = await import(
         "../services/whatsappNotifyService"
       );
+      const catalogSlug = String(lean.slug || "");
+      const isPremiumProduct = lean.isPremium === true;
+      const premiumRoute = String(lean.premiumSlug || lean.slug || "");
+      const storefrontPath =
+        isPremiumProduct && premiumRoute ?
+          `/premium/${encodeURIComponent(premiumRoute)}`
+        : `/shop/${encodeURIComponent(catalogSlug)}`;
       notifyWhatsAppCatalogAlert({
         kind: "product",
         title: String(lean.name || "New arrival"),
-        path: `/shop/${encodeURIComponent(String(lean.slug || ""))}`,
+        path: storefrontPath,
       });
     }
     sendSuccess(res, { product: leanAdminProduct(lean) }, "Product created", 201);
@@ -1250,7 +1273,19 @@ export const updateProduct = catchAsync(
     if (premium) invalidatePremiumProductCache();
 
     if (updatedProduct.isActive !== false) {
-      notifyIndexNowStorefront(`/shop/${encodeURIComponent(slug)}`);
+      const catalogSlug = String(updatedProduct.slug || currentProduct.slug);
+      const isPremiumProduct =
+        updatedProduct.isPremium === true || currentProduct.isPremium === true;
+      const premiumRoute = String(
+        updatedProduct.premiumSlug ||
+          currentProduct.premiumSlug ||
+          catalogSlug,
+      );
+      const storefrontPath =
+        isPremiumProduct && premiumRoute ?
+          `/premium/${encodeURIComponent(premiumRoute)}`
+        : `/shop/${encodeURIComponent(catalogSlug)}`;
+      notifyIndexNowStorefront(storefrontPath);
     }
 
     sendSuccess(
