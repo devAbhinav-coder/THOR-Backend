@@ -5,6 +5,7 @@ import { getRequestContext } from "../types/utils/requestContext";
 export type OrderMetricName =
   | "order.fetch.list"
   | "order.fetch.detail"
+  | "order.fetch.summary"
   | "order.cancel.request"
   | "order.cancel.success"
   | "order.cancel.idempotent"

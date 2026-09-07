@@ -1,4 +1,5 @@
 import Order from "../models/Order";
+import mongoose from "mongoose";
 import { getCache, setCache } from "./cacheService";
 import {
   buildMyOrdersCacheKey,
@@ -78,6 +79,58 @@ export const orderReadService = {
     const result = { orders: serialized, total };
     await setCache(cacheKey, result, CACHE_TTL);
     recordOrderTiming("order.fetch.list", Date.now() - started, {
+      cache: "miss",
+    });
+    return result;
+  },
+
+  async getMyOrdersSummary(userId: string) {
+    const started = Date.now();
+    const version = await getUserOrdersCacheVersion(userId);
+    const cacheKey = `cache:my-orders-summary:v${version}:${userId}`;
+    const cached = await getCache<{
+      total: number;
+      delivered: number;
+      inProgress: number;
+    }>(cacheKey);
+    if (cached) {
+      recordOrderTiming("order.fetch.summary", Date.now() - started, {
+        cache: "hit",
+      });
+      return cached;
+    }
+
+    const ACTIVE = ["pending", "confirmed", "processing", "shipped"];
+    const rows = await Order.aggregate<{
+      total: number;
+      delivered: number;
+      inProgress: number;
+    }>([
+      { $match: { user: new mongoose.Types.ObjectId(userId) } },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: 1 },
+          delivered: {
+            $sum: { $cond: [{ $eq: ["$status", "delivered"] }, 1, 0] },
+          },
+          inProgress: {
+            $sum: {
+              $cond: [{ $in: ["$status", ACTIVE] }, 1, 0],
+            },
+          },
+        },
+      },
+    ]).option({ maxTimeMS: QUERY_TIMEOUT_MS });
+
+    const summary = rows[0] ?? { total: 0, delivered: 0, inProgress: 0 };
+    const result = {
+      total: summary.total || 0,
+      delivered: summary.delivered || 0,
+      inProgress: summary.inProgress || 0,
+    };
+    await setCache(cacheKey, result, CACHE_TTL);
+    recordOrderTiming("order.fetch.summary", Date.now() - started, {
       cache: "miss",
     });
     return result;

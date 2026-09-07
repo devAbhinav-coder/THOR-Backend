@@ -38,6 +38,15 @@ export const getMyOrders = catchAsync(
   },
 );
 
+export const getMyOrdersSummary = catchAsync(
+  async (req: AuthRequest, res: Response) => {
+    const summary = await orderReadService.getMyOrdersSummary(
+      String(req.user!._id),
+    );
+    sendSuccess(res, { summary });
+  },
+);
+
 export const getOrderById = catchAsync(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     const order = await orderReadService.getOrderById(

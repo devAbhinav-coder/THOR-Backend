@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   getMyOrders,
+  getMyOrdersSummary,
   getOrderById,
   cancelOrder,
 } from '../controllers/orderController';
@@ -37,6 +38,7 @@ router.use(protect);
 router.post('/', paymentLimiter, validate(createOrderSchema), createOrder);
 router.post('/verify-payment', paymentLimiter, validate(verifyPaymentSchema), verifyPayment);
 router.get('/my-orders', validate(getMyOrdersSchema), getMyOrders);
+router.get('/my-orders/summary', getMyOrdersSummary);
 router.get('/:id', validate(orderIdParamsSchema), getOrderById);
 router.post('/:id/return', paymentLimiter, requestReturn);
 router.post('/:orderId/prepare-payment', paymentLimiter, prepareOrderPayment);
