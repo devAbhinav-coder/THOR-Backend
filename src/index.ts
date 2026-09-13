@@ -53,6 +53,7 @@ import webhookRoutes from "./routes/webhookRoutes";
 import navigationRoutes from "./routes/navigationRoutes";
 import collectionRoutes from "./routes/collectionRoutes";
 import raniCareRoutes from "./routes/raniCareRoutes";
+import feedRoutes from "./routes/feedRoutes";
 
 import {
   startAllBackgroundWork,
@@ -451,6 +452,7 @@ app.use("/api/gifting", giftingRoutes);
 app.use("/api/premium", premiumRoutes);
 app.use("/api/navigation", navigationRoutes);
 app.use("/api/rani-care", raniCareRoutes);
+app.use("/api/feeds", feedRoutes);
 
 app.all("*", (req, _res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server.`, 404));
