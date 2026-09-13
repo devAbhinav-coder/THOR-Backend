@@ -16,6 +16,7 @@ function escapeXml(unsafe: string): string {
 function stripHtml(html: string): string {
   if (!html) return "";
   return html
+    .replace(/\[\[image:\d+\]\]/gi, "")
     .replace(/<[^>]*>/g, " ")
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
@@ -249,6 +250,24 @@ export const getBlogRssFeed = catchAsync(
         coverImg = `${baseUrl}/images/hero-bg.jpg`;
       }
 
+      // Transform internal [[image:N]] placeholders into real HTML <img> tags or clean them up
+      let formattedContent = (b.content || "").replace(
+        /\[\[image:(\d+)\]\]/gi,
+        (_match, indexStr) => {
+          const idx = parseInt(indexStr, 10);
+          const imgObj = Array.isArray(b.images) && b.images[idx];
+          const imgUrl = resolveImageUrl(imgObj, baseUrl);
+          if (imgUrl) {
+            const captionText =
+              imgObj && typeof imgObj === "object" && (imgObj as any).caption ?
+                escapeXml((imgObj as any).caption)
+              : "";
+            return `<figure><img src="${escapeXml(imgUrl)}" alt="${captionText || title}" />${captionText ? `<figcaption>${captionText}</figcaption>` : ""}</figure>`;
+          }
+          return "";
+        },
+      );
+
       const mediaXml = `
       <media:content url="${escapeXml(coverImg)}" medium="image" />
       <enclosure url="${escapeXml(coverImg)}" type="image/jpeg" length="0" />`;
@@ -261,7 +280,7 @@ export const getBlogRssFeed = catchAsync(
       <guid isPermaLink="true">${escapeXml(blogUrl)}</guid>
       <pubDate>${pubDate}</pubDate>
       <description>${description}</description>
-      <content:encoded><![CDATA[${b.content || ""}]]></content:encoded>${mediaXml}
+      <content:encoded><![CDATA[${formattedContent}]]></content:encoded>${mediaXml}
       <dc:creator>The House of Rani</dc:creator>
       <category>${category}</category>
     </item>`;
