@@ -34,6 +34,21 @@ function getBaseUrl(): string {
   return raw.replace(/\/+$/, "");
 }
 
+function resolveImageUrl(img: unknown, baseUrl: string): string {
+  if (!img) return "";
+  let url = "";
+  if (typeof img === "string") {
+    url = img.trim();
+  } else if (typeof img === "object" && img !== null) {
+    url = String((img as { url?: string }).url || "").trim();
+  }
+  if (!url) return "";
+  if (url.startsWith("/")) {
+    return `${baseUrl}${url}`;
+  }
+  return url;
+}
+
 /**
  * Generates standard Pinterest / Google Merchant Catalog XML feed
  * GET /api/feeds/pinterest-catalog.xml
@@ -41,7 +56,8 @@ function getBaseUrl(): string {
 export const getPinterestCatalogFeed = catchAsync(
   async (_req: Request, res: Response) => {
     const baseUrl = getBaseUrl();
-    const products = await Product.find({ isActive: true })
+    // Query active products safely (including docs where isActive is undefined/true)
+    const products = await Product.find({ isActive: { $ne: false } })
       .sort({ isPremium: -1, createdAt: -1 })
       .lean();
 
@@ -54,23 +70,24 @@ export const getPinterestCatalogFeed = catchAsync(
         linkUrl = `${baseUrl}/premium/${encodeURIComponent(p.premiumSlug)}`;
       } else if (p.slug) {
         linkUrl = `${baseUrl}/shop/${encodeURIComponent(p.slug)}`;
+      } else if (p._id) {
+        linkUrl = `${baseUrl}/shop/${encodeURIComponent(String(p._id))}`;
       } else {
         continue;
       }
 
-      // Determine main image URL
-      const mainImageUrl =
-        p.isPremium && p.premiumHeroImage?.url ?
-          p.premiumHeroImage.url
-        : p.images && p.images[0]?.url ?
-          p.images[0].url
-        : "";
-
-      if (!mainImageUrl) continue; // Image link is required by Pinterest catalog
+      // Determine main image URL safely
+      let mainImageUrl = p.isPremium ? resolveImageUrl(p.premiumHeroImage, baseUrl) : "";
+      if (!mainImageUrl && Array.isArray(p.images) && p.images.length > 0) {
+        mainImageUrl = resolveImageUrl(p.images[0], baseUrl);
+      }
+      if (!mainImageUrl) {
+        mainImageUrl = `${baseUrl}/images/hero-bg.jpg`;
+      }
 
       // Additional images (up to 10)
-      const additionalImages = (p.images || [])
-        .map((img) => img?.url)
+      const additionalImages = (Array.isArray(p.images) ? p.images : [])
+        .map((img) => resolveImageUrl(img, baseUrl))
         .filter((url): url is string => Boolean(url) && url !== mainImageUrl)
         .slice(0, 10);
 
@@ -82,7 +99,7 @@ export const getPinterestCatalogFeed = catchAsync(
       const title = escapeXml(titleText);
 
       let rawDesc =
-        p.shortDescription || p.seoDescription || p.description || p.name;
+        p.shortDescription || p.seoDescription || p.description || p.name || "Handcrafted Luxury Saree";
       if (p.isPremium) {
         const extraBits: string[] = [];
         if (p.craftNote) extraBits.push(`Craft Note: ${p.craftNote}`);
@@ -205,7 +222,7 @@ ${itemsXml.join("\n")}
 export const getBlogRssFeed = catchAsync(
   async (_req: Request, res: Response) => {
     const baseUrl = getBaseUrl();
-    const blogs = await Blog.find({ isPublished: true })
+    const blogs = await Blog.find({ isPublished: { $ne: false } })
       .sort({ createdAt: -1 })
       .limit(100)
       .lean();
@@ -213,29 +230,28 @@ export const getBlogRssFeed = catchAsync(
     const itemsXml: string[] = [];
 
     for (const b of blogs) {
-      if (!b.slug) continue;
-      const blogUrl = `${baseUrl}/blog/${encodeURIComponent(b.slug)}`;
-      const title = escapeXml(b.title || "Story");
+      const blogUrl = b.slug ? `${baseUrl}/blog/${encodeURIComponent(b.slug)}` : `${baseUrl}/blog/${b._id}`;
+      const title = escapeXml(b.title || "Journal Story");
 
       const plainContent = stripHtml(b.content || "");
-      const rawExcerpt = b.excerpt || b.seoDescription || plainContent;
+      const rawExcerpt = b.excerpt || b.seoDescription || plainContent || b.title;
       const description = escapeXml(stripHtml(rawExcerpt).slice(0, 500));
 
       const pubDate = new Date(b.createdAt || Date.now()).toUTCString();
 
-      // Determine main cover image
-      const coverImg =
-        b.images && b.images.length > 0 ?
-          b.images.find((img) => img?.placement === "cover")?.url ||
-          b.images[0]?.url
-        : "";
+      // Determine main cover image safely
+      let coverImg = "";
+      if (Array.isArray(b.images) && b.images.length > 0) {
+        const coverObj = b.images.find((img: any) => img?.placement === "cover") || b.images[0];
+        coverImg = resolveImageUrl(coverObj, baseUrl);
+      }
+      if (!coverImg) {
+        coverImg = `${baseUrl}/images/hero-bg.jpg`;
+      }
 
-      let mediaXml = "";
-      if (coverImg) {
-        mediaXml = `
+      const mediaXml = `
       <media:content url="${escapeXml(coverImg)}" medium="image" />
       <enclosure url="${escapeXml(coverImg)}" type="image/jpeg" length="0" />`;
-      }
 
       const category = escapeXml(b.category || "saree-styling");
 
@@ -281,7 +297,7 @@ ${itemsXml.join("\n")}
 export const getProductsRssFeed = catchAsync(
   async (_req: Request, res: Response) => {
     const baseUrl = getBaseUrl();
-    const products = await Product.find({ isActive: true })
+    const products = await Product.find({ isActive: { $ne: false } })
       .sort({ createdAt: -1 })
       .limit(100)
       .lean();
@@ -294,18 +310,19 @@ export const getProductsRssFeed = catchAsync(
         linkUrl = `${baseUrl}/premium/${encodeURIComponent(p.premiumSlug)}`;
       } else if (p.slug) {
         linkUrl = `${baseUrl}/shop/${encodeURIComponent(p.slug)}`;
+      } else if (p._id) {
+        linkUrl = `${baseUrl}/shop/${encodeURIComponent(String(p._id))}`;
       } else {
         continue;
       }
 
-      const mainImageUrl =
-        p.isPremium && p.premiumHeroImage?.url ?
-          p.premiumHeroImage.url
-        : p.images && p.images[0]?.url ?
-          p.images[0].url
-        : "";
-
-      if (!mainImageUrl) continue;
+      let mainImageUrl = p.isPremium ? resolveImageUrl(p.premiumHeroImage, baseUrl) : "";
+      if (!mainImageUrl && Array.isArray(p.images) && p.images.length > 0) {
+        mainImageUrl = resolveImageUrl(p.images[0], baseUrl);
+      }
+      if (!mainImageUrl) {
+        mainImageUrl = `${baseUrl}/images/hero-bg.jpg`;
+      }
 
       const rawTitle = p.name || "Saree Product";
       const titleText =
@@ -315,7 +332,7 @@ export const getProductsRssFeed = catchAsync(
       const title = escapeXml(titleText);
 
       let rawDesc =
-        p.shortDescription || p.seoDescription || p.description || p.name;
+        p.shortDescription || p.seoDescription || p.description || p.name || "Handcrafted Luxury Saree";
       if (p.isPremium) {
         const extraBits: string[] = [];
         if (p.craftNote) extraBits.push(`Craft Note: ${p.craftNote}`);
