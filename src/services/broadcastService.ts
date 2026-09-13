@@ -21,12 +21,12 @@ export async function enqueueBroadcastByUserFilter(
   let lastId: Types.ObjectId | null = null;
   let subject: string | null = null;
   let html: string | null = null;
-  const pendingEmails: string[] = [];
+  const pendingRecipients: Array<{ email: string; name?: string }> = [];
 
   const flushPending = async () => {
-    if (pendingEmails.length === 0 || !subject || !html) return;
-    await enqueueBroadcastChunks([...pendingEmails], subject, html);
-    pendingEmails.length = 0;
+    if (pendingRecipients.length === 0 || !subject || !html) return;
+    await enqueueBroadcastChunks([...pendingRecipients], subject, html);
+    pendingRecipients.length = 0;
   };
 
   while (true) {
@@ -43,15 +43,19 @@ export async function enqueueBroadcastByUserFilter(
     if (!recipients.length) break;
 
     if (subject === null) {
-      const payload = buildPayload(recipients[0]);
+      // Pass {{name}} placeholder so dynamic replacement per recipient works
+      const payload = buildPayload({
+        ...recipients[0],
+        name: "{{name}}",
+      });
       subject = payload.subject;
       html = payload.html;
     }
 
     for (const u of recipients) {
-      pendingEmails.push(u.email);
+      pendingRecipients.push({ email: u.email, name: u.name });
       total++;
-      if (pendingEmails.length >= 10) {
+      if (pendingRecipients.length >= 10) {
         await flushPending();
       }
     }

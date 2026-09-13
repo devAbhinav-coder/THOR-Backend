@@ -127,10 +127,10 @@ export const broadcastNewBlog = async (blog: BlogBroadcastPayload) => {
     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
     const recipients = await enqueueBroadcastByUserFilter(
       { isActive: true, role: "user" },
-      (user) => {
+      () => {
         const tpl = emailTemplates.custom(
           `New Story: ${blog.title} — The House of Rani`,
-          `<p>Hi ${user.name || "there"},</p><p>We have just published a new story that you might love: <strong>${blog.title}</strong>.</p><p>Dive into our latest journal entry to stay inspired with the latest trends and updates!</p>`,
+          `<p>Hi {{name}},</p><p>We have just published a new story that you might love: <strong>${blog.title}</strong>.</p><p>Dive into our latest journal entry to stay inspired with the latest trends and updates!</p>`,
           "Read Story",
           `${frontendUrl}/blog/${blog.slug}`,
         );

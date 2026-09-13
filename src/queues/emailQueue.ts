@@ -27,9 +27,11 @@ export type EmailJobData = {
   }[];
 };
 
+export type BroadcastRecipient = { email: string; name?: string };
+
 /** One job processes up to 10 addresses sequentially (no Promise.all). */
 export type BroadcastChunkJobData = {
-  recipients: string[];
+  recipients: (string | BroadcastRecipient)[];
   subject: string;
   html: string;
 };
@@ -79,15 +81,23 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * Between each recipient: 1–2s pause. Within a chunk, sends are strictly sequential.
+ * Dynamically replaces {{name}} placeholders with each recipient's name or fallback.
  */
 export async function runBroadcastChunk(
-  recipients: string[],
+  recipients: (string | BroadcastRecipient)[],
   subject: string,
   html: string,
 ): Promise<void> {
-  for (const to of recipients) {
+  for (const item of recipients) {
+    const to = typeof item === "string" ? item.trim() : item.email.trim();
+    const name = typeof item === "string" ? "" : (item.name?.trim() || "");
+    if (!to) continue;
+
+    const personalizedName = name || "there";
+    const personalizedHtml = html.replace(/\{\{name\}\}/g, personalizedName);
+
     try {
-      await deliverBroadcastEmailWithRetries({ to, subject, html });
+      await deliverBroadcastEmailWithRetries({ to, subject, html: personalizedHtml });
     } catch (e) {
       logger.error(
         `Broadcast failed permanently for ${to} after retries: ${(e as Error).message}`,
@@ -103,14 +113,18 @@ export async function runBroadcastChunk(
  * Worker concurrency is 1 so chunks never run in parallel.
  */
 export async function enqueueBroadcastChunks(
-  recipients: string[],
+  recipients: (string | BroadcastRecipient)[],
   subject: string,
   html: string,
 ): Promise<number> {
-  const emails = recipients.map((e) => e.trim()).filter(Boolean);
-  const chunks: string[][] = [];
-  for (let i = 0; i < emails.length; i += BROADCAST_CHUNK_SIZE) {
-    chunks.push(emails.slice(i, i + BROADCAST_CHUNK_SIZE));
+  const normalized = recipients.filter((r) => {
+    if (typeof r === "string") return Boolean(r.trim());
+    return Boolean(r && r.email && r.email.trim());
+  });
+
+  const chunks: (string | BroadcastRecipient)[][] = [];
+  for (let i = 0; i < normalized.length; i += BROADCAST_CHUNK_SIZE) {
+    chunks.push(normalized.slice(i, i + BROADCAST_CHUNK_SIZE));
   }
   if (chunks.length === 0) return 0;
 
