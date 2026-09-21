@@ -3,6 +3,7 @@ import { createAdaptiveLimiter } from '../middleware/adaptiveRateLimit';
 import { validate } from '../middleware/validate';
 import { optionalProtect } from '../middleware/auth';
 import { getStorefrontSettings } from '../controllers/storefrontController';
+import { getStorefrontHomeBundle } from '../controllers/storefrontHomeController';
 import { recordVisit } from '../controllers/storeVisitController';
 import { recordStoreVisitSchema } from '../validation/storeVisitSchemas';
 import { recordBrowserMetaEvent } from '../controllers/metaEventController';
@@ -43,6 +44,7 @@ const shippingEstimateLimiter = createAdaptiveLimiter({
 });
 
 router.get('/settings', getStorefrontSettings);
+router.get('/home', getStorefrontHomeBundle);
 router.get(
   '/shipping/estimate',
   shippingEstimateLimiter,

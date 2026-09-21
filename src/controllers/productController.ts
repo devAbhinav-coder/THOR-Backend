@@ -18,7 +18,9 @@ import { sendPaginated, sendSuccess } from "../types/utils/response";
 import { safeJsonParse } from "../types/utils/safeJson";
 import { enqueueImageDelete } from "../queues/imageQueue";
 import { cloudinaryInstance } from "../services/cloudinary";
-import { CacheMutex } from "../types/utils/cacheMutex";
+import { cachedFetch } from "../services/cache/cachedFetch";
+import { getCacheEnvelope } from "../services/cache/cacheEnvelope";
+import { setPublicCatalogCacheHeaders } from "../constants/publicHttpCache";
 import { advancedSearchService } from "../services/advancedSearchService";
 import {
   normalizeSearchQuery,
@@ -59,14 +61,57 @@ import {
 import { invalidateGiftingProductCache } from "../services/gifting/giftingProductDiscoveryService";
 import { invalidatePremiumProductCache } from "../services/premium/premiumProductDiscoveryService";
 const PDP_CACHE_TTL = 600;
+const PDP_CACHE_HARD_TTL = PDP_CACHE_TTL * 3;
 const FILTERS_CACHE_TTL = 300;
+const FILTERS_CACHE_HARD_TTL = 900;
+const FEATURED_SOFT_TTL_SEC = 120;
+const FEATURED_HARD_TTL_SEC = 360;
 
-/** Storefront serialize — never includes wholesale costPrice. */
+async function loadPdpPayload(
+  slug: string,
+): Promise<Record<string, unknown> | null> {
+  const byId =
+    mongoose.Types.ObjectId.isValid(slug) && String(slug).length === 24;
+  const dbProduct = await Product.findOne(
+    byId ?
+      {
+        _id: slug,
+        isActive: true,
+        tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
+      }
+    : {
+        slug,
+        isActive: true,
+        tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
+      },
+  ).lean<Record<string, unknown>>();
+
+  if (!dbProduct) {
+    return null;
+  }
+
+  return leanProduct(dbProduct);
+}
+
+async function respondWithPdpProduct(
+  res: Response,
+  productBase: Record<string, unknown>,
+): Promise<void> {
+  const campaigns = await getActiveSaleCampaigns();
+  const [enriched] = await enrichProductsWithSalePricingAsync(
+    [leanProduct(productBase) as Record<string, unknown>],
+    campaigns,
+  );
+  const withPromos = await enrichProductWithPromotions(enriched);
+  sendSuccess(res, { product: withPromos });
+}
+
+/** Storefront serialize - never includes wholesale costPrice. */
 function leanProduct(p: Record<string, unknown>) {
   return reconcileProductJson(p as Parameters<typeof reconcileProductJson>[0]);
 }
 
-/** Admin create/update responses — keep costPrice for inventory forms. */
+/** Admin create/update responses - keep costPrice for inventory forms. */
 function leanAdminProduct(p: Record<string, unknown>) {
   return reconcileProductJson(p as Parameters<typeof reconcileProductJson>[0], {
     includeCostPrice: true,
@@ -132,6 +177,10 @@ function minRatingMongoFilter(
 
 export const getAllProducts = catchAsync(
   async (req: Request, res: Response) => {
+    setPublicCatalogCacheHeaders(res, {
+      maxAgeSec: 90,
+      staleWhileRevalidateSec: 270,
+    });
     const parsed = parseProductListQuery(req);
     parsed.adminScope = false;
 
@@ -161,6 +210,10 @@ export const getAllProducts = catchAsync(
 
 export const searchProducts = catchAsync(
   async (req: Request, res: Response) => {
+    setPublicCatalogCacheHeaders(res, {
+      maxAgeSec: 60,
+      staleWhileRevalidateSec: 180,
+    });
     const q = normalizeSearchQuery(req.query.q);
     const parsedSearch = parseProductListQuery(req);
     const categories = parsedSearch.categories;
@@ -213,6 +266,10 @@ export const searchProducts = catchAsync(
 
 export const autocompleteSearch = catchAsync(
   async (req: Request, res: Response) => {
+    setPublicCatalogCacheHeaders(res, {
+      maxAgeSec: 30,
+      staleWhileRevalidateSec: 90,
+    });
     const q = normalizeSearchQuery(req.query.q);
     const limit = Math.min(Math.max(1, Number(req.query.limit) || 5), 10);
 
@@ -282,106 +339,73 @@ export const recordProductView = catchAsync(
 
 export const getProduct = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
+    setPublicCatalogCacheHeaders(res, {
+      maxAgeSec: PDP_CACHE_TTL,
+      staleWhileRevalidateSec: PDP_CACHE_HARD_TTL,
+    });
     const { slug } = req.params;
     const v = await getProductCacheVersion();
     const cacheKey = pdpCacheKey(v, slug);
 
-    const cached = await getCache<Record<string, unknown>>(cacheKey);
-    if (cached) {
-      const campaigns = await getActiveSaleCampaigns();
-      const [enriched] = await enrichProductsWithSalePricingAsync(
-        [leanProduct(cached) as Record<string, unknown>],
-        campaigns,
-      );
-      const withPromos = await enrichProductWithPromotions(enriched);
-      return sendSuccess(res, { product: withPromos });
+    const envelope = await getCacheEnvelope<Record<string, unknown>>(cacheKey);
+    let productBase: Record<string, unknown> | null = envelope?.data ?? null;
+
+    if (!productBase) {
+      const legacy = await getCache<Record<string, unknown>>(cacheKey);
+      if (legacy) {
+        productBase = legacy;
+      }
     }
 
-    const mutex = new CacheMutex(cacheKey, { ttlMs: 5000 });
-    const product = await mutex.withLock(async () => {
-      const recheck = await getCache<Record<string, unknown>>(cacheKey);
-      if (recheck) return recheck;
+    if (productBase) {
+      await respondWithPdpProduct(res, productBase);
+      return;
+    }
 
-      const byId =
-        mongoose.Types.ObjectId.isValid(slug) && String(slug).length === 24;
-      const dbProduct = await Product.findOne(
-        byId
-          ? {
-              _id: slug,
-              isActive: true,
-              tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
-            }
-          : {
-              slug,
-              isActive: true,
-              tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
-            },
-      ).lean<Record<string, unknown>>();
-
-      if (!dbProduct) return null;
-
-      const [enriched] = await enrichProductsWithSalePricingAsync(
-        [leanProduct(dbProduct) as Record<string, unknown>],
-        await getActiveSaleCampaigns(),
-      );
-      const transformed = await enrichProductWithPromotions(enriched);
-      setCache(cacheKey, transformed, PDP_CACHE_TTL).catch(() => {});
-      return transformed;
+    productBase = await cachedFetch({
+      key: cacheKey,
+      softTtlSec: PDP_CACHE_TTL,
+      hardTtlSec: PDP_CACHE_HARD_TTL,
+      fetchFresh: () => loadPdpPayload(slug),
     });
 
-    if (product === null) {
-      const dbProduct = await Product.findOne({
-        slug,
-        isActive: true,
-        tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
-      }).lean<Record<string, unknown>>();
-
-      if (!dbProduct) {
-        return next(new AppError("No product found with that slug.", 404));
-      }
-      const [enriched] = await enrichProductsWithSalePricingAsync(
-        [leanProduct(dbProduct) as Record<string, unknown>],
-        await getActiveSaleCampaigns(),
-      );
-      const withPromos = await enrichProductWithPromotions(enriched);
-      return sendSuccess(res, { product: withPromos });
+    if (!productBase) {
+      return next(new AppError("No product found with that slug.", 404));
     }
 
-    const [freshEnriched] = await enrichProductsWithSalePricingAsync(
-      [leanProduct(product) as Record<string, unknown>],
-      await getActiveSaleCampaigns(),
-    );
-    const withPromos = await enrichProductWithPromotions(freshEnriched);
-    sendSuccess(res, { product: withPromos });
+    await respondWithPdpProduct(res, productBase);
   },
 );
 
 export const getFeaturedProducts = catchAsync(
   async (_req: Request, res: Response) => {
+    setPublicCatalogCacheHeaders(res, {
+      maxAgeSec: FEATURED_SOFT_TTL_SEC,
+      staleWhileRevalidateSec: FEATURED_HARD_TTL_SEC,
+    });
     const campaigns = await getActiveSaleCampaigns();
     const v = await getProductCacheVersion();
-    const cacheKey = featuredCacheKey(v);
-    const cached = await getCache<Record<string, unknown>[]>(cacheKey);
-    if (cached) {
-      const enriched = await enrichProductsWithSalePricingAsync(
-        cached.map(leanProduct) as Record<string, unknown>[],
-        campaigns,
-      );
-      return sendSuccess(res, { products: enriched.map(leanProduct) });
-    }
-    const products = await productRepository.findFeatured();
-    const lean = products.map(leanProduct);
-    setCache(cacheKey, lean, 120).catch(() => {});
-    const enriched = await enrichProductsWithSalePricingAsync(
-      lean as Record<string, unknown>[],
-      campaigns,
-    );
+    const cacheKey = `${featuredCacheKey(v)}:env`;
+    const lean = await cachedFetch({
+      key: cacheKey,
+      softTtlSec: FEATURED_SOFT_TTL_SEC,
+      hardTtlSec: FEATURED_HARD_TTL_SEC,
+      fetchFresh: async () => {
+        const products = await productRepository.findFeatured();
+        return products.map(leanProduct) as Record<string, unknown>[];
+      },
+    });
+    const enriched = await enrichProductsWithSalePricingAsync(lean, campaigns);
     sendSuccess(res, { products: enriched.map(leanProduct) });
   },
 );
 
 export const getProductsByCategory = catchAsync(
   async (req: Request, res: Response) => {
+    setPublicCatalogCacheHeaders(res, {
+      maxAgeSec: 90,
+      staleWhileRevalidateSec: 270,
+    });
     const categoryBaseFilter: Record<string, unknown> = {
       category: req.params.category,
       isActive: true,
@@ -429,219 +453,250 @@ export const getProductsByCategory = catchAsync(
   },
 );
 
+export type ShopFilterOptionsPayload = {
+  categories: string[];
+  colors: string[];
+  colorCodes: Record<string, string>;
+  fabrics: string[];
+  subcategories: string[];
+  occasions: string[];
+  tags: string[];
+  categoryTree: Array<{
+    name: string;
+    slug: string;
+    subcategories: Array<{ name: string; slug: string }>;
+  }>;
+  priceRange: { minPrice: number; maxPrice: number };
+};
+
+async function computeShopFilterOptions(params: {
+  categoryParam: string;
+  categoryIdParam: string;
+  subcategoryIdParam: string;
+}): Promise<ShopFilterOptionsPayload> {
+  const { categoryParam, categoryIdParam, subcategoryIdParam } = params;
+
+  const shopMatch: Record<string, unknown> = {
+    isActive: true,
+    isPremium: { $ne: true },
+    category: { $nin: ["Gifting", "Premium"] },
+    tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
+  };
+
+  const scopedMatch: Record<string, unknown> = { ...shopMatch };
+  if (categoryParam) scopedMatch.category = categoryParam;
+  if (categoryIdParam)
+    scopedMatch.categoryId = new mongoose.Types.ObjectId(categoryIdParam);
+  if (subcategoryIdParam)
+    scopedMatch.subcategoryId = new mongoose.Types.ObjectId(subcategoryIdParam);
+
+  const [facet] = await Product.aggregate<{
+    allCategories: { categories: string[] }[];
+    allColors: { color: string; colorCode: string }[];
+    allFabrics: { fabrics: string[] }[];
+    allSubcategories: { subcategories: string[] }[];
+    allTags: { tags: string[] }[];
+    allOccasions: { occasions: string[] }[];
+    scopedPrice: {
+      minPrice: number;
+      maxPrice: number;
+    }[];
+  }>([
+    {
+      $facet: {
+        allCategories: [
+          { $match: shopMatch },
+          {
+            $group: {
+              _id: null,
+              categories: { $addToSet: "$category" },
+            },
+          },
+        ],
+        allColors: [
+          { $match: shopMatch },
+          { $unwind: "$variants" },
+          { $match: { "variants.color": { $exists: true, $ne: "" } } },
+          {
+            $group: {
+              _id: {
+                color: "$variants.color",
+                colorCode: { $ifNull: ["$variants.colorCode", ""] },
+              },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              color: "$_id.color",
+              colorCode: "$_id.colorCode",
+            },
+          },
+        ],
+        allFabrics: [
+          { $match: { ...shopMatch, fabric: { $exists: true, $ne: "" } } },
+          {
+            $group: {
+              _id: null,
+              fabrics: { $addToSet: "$fabric" },
+            },
+          },
+        ],
+        allSubcategories: [
+          { $match: { ...shopMatch, subcategory: { $exists: true, $ne: "" } } },
+          {
+            $group: {
+              _id: null,
+              subcategories: { $addToSet: "$subcategory" },
+            },
+          },
+        ],
+        allTags: [
+          { $match: shopMatch },
+          { $unwind: "$tags" },
+          {
+            $group: {
+              _id: null,
+              tags: { $addToSet: "$tags" },
+            },
+          },
+        ],
+        allOccasions: [
+          { $match: shopMatch },
+          { $unwind: "$occasions" },
+          {
+            $group: {
+              _id: null,
+              occasions: { $addToSet: "$occasions" },
+            },
+          },
+        ],
+        scopedPrice: [
+          { $match: scopedMatch },
+          {
+            $group: {
+              _id: null,
+              minPrice: { $min: "$price" },
+              maxPrice: { $max: "$price" },
+            },
+          },
+        ],
+      },
+    },
+  ]).option({ maxTimeMS: 4000 });
+
+  const allCategories = facet?.allCategories?.[0];
+  const { colors: filterColors, colorCodes: filterColorCodes } =
+    buildFilterColorOptions(facet?.allColors ?? []);
+  const allFabrics = facet?.allFabrics?.[0];
+  const allSubcategories = facet?.allSubcategories?.[0];
+  const allTags = facet?.allTags?.[0];
+  const allOccasions = facet?.allOccasions?.[0];
+  const scopedPrice = facet?.scopedPrice?.[0];
+
+  const productCategoryNames = new Set(
+    (allCategories?.categories ?? []).filter(Boolean) as string[],
+  );
+  const productSubcategoryNames = new Set(
+    (allSubcategories?.subcategories ?? []).filter(Boolean) as string[],
+  );
+
+  const [dbCategories, dbSubcategories] = await Promise.all([
+    Category.find({ isActive: true, isGiftCategory: { $ne: true } })
+      .sort({ sortOrder: 1, name: 1 })
+      .select("name slug sortOrder")
+      .lean(),
+    SubCategory.find({ isActive: true })
+      .sort({ sortOrder: 1, name: 1 })
+      .select("name slug categorySlug categoryId sortOrder productCount")
+      .lean(),
+  ]);
+
+  const categoryTree = dbCategories
+    .filter(
+      (cat) => cat.name !== "Gifting" && productCategoryNames.has(cat.name),
+    )
+    .map((cat) => {
+      const catId = String(cat._id);
+      const subs = dbSubcategories
+        .filter(
+          (sub) =>
+            sub.categorySlug === cat.slug || String(sub.categoryId) === catId,
+        )
+        .filter(
+          (sub) =>
+            (sub.productCount ?? 0) > 0 ||
+            productSubcategoryNames.has(sub.name),
+        )
+        .map((sub) => ({ name: sub.name, slug: sub.slug }));
+      return {
+        name: cat.name,
+        slug: cat.slug,
+        subcategories: subs,
+      };
+    })
+    .filter(
+      (cat) =>
+        cat.subcategories.length > 0 || productCategoryNames.has(cat.name),
+    );
+
+  return {
+    categories: (allCategories?.categories ?? [])
+      .filter(Boolean)
+      .filter((c) => c !== "Gifting")
+      .sort() as string[],
+    colors: filterColors,
+    colorCodes: filterColorCodes,
+    fabrics: mergeFabricOptions(
+      (allFabrics?.fabrics ?? []).filter(Boolean) as string[],
+    ),
+    subcategories: (allSubcategories?.subcategories ?? [])
+      .filter(Boolean)
+      .sort() as string[],
+    occasions: mergeOccasionOptions(
+      (allOccasions?.occasions ?? []).filter(Boolean) as string[],
+    ),
+    tags: (allTags?.tags ?? []).filter(Boolean).sort() as string[],
+    categoryTree,
+    priceRange: {
+      minPrice: scopedPrice?.minPrice ?? 0,
+      maxPrice: scopedPrice?.maxPrice ?? 100000,
+    },
+  };
+}
+
 export const getFilterOptions = catchAsync(
   async (req: Request, res: Response) => {
+    setPublicCatalogCacheHeaders(res, {
+      maxAgeSec: FILTERS_CACHE_TTL,
+      staleWhileRevalidateSec: FILTERS_CACHE_HARD_TTL,
+    });
     const categoryParam =
       typeof req.query.category === "string" ? req.query.category.trim() : "";
     const categoryIdParam =
-      typeof req.query.categoryId === "string" ? req.query.categoryId.trim() : "";
+      typeof req.query.categoryId === "string" ?
+        req.query.categoryId.trim()
+      : "";
     const subcategoryIdParam =
-      typeof req.query.subcategoryId === "string" ? req.query.subcategoryId.trim() : "";
+      typeof req.query.subcategoryId === "string" ?
+        req.query.subcategoryId.trim()
+      : "";
 
     const v = await getProductCacheVersion();
-    const cacheKey = filtersCacheKey(v, `cc1-${categoryParam || 'all'}-${categoryIdParam || 'all'}-${subcategoryIdParam || 'all'}`);
-    const cached = await getCache<{
-      categories: string[];
-      colors: string[];
-      colorCodes: Record<string, string>;
-      fabrics: string[];
-      subcategories: string[];
-      occasions: string[];
-      tags: string[];
-      categoryTree: Array<{
-        name: string;
-        slug: string;
-        subcategories: Array<{ name: string; slug: string }>;
-      }>;
-      priceRange: { minPrice: number; maxPrice: number };
-    }>(cacheKey);
-    if (cached) return sendSuccess(res, cached);
+    const cacheKey = `${filtersCacheKey(v, `cc1-${categoryParam || "all"}-${categoryIdParam || "all"}-${subcategoryIdParam || "all"}`)}:env`;
 
-    const shopMatch: Record<string, unknown> = {
-      isActive: true,
-      isPremium: { $ne: true },
-      category: { $nin: ["Gifting", "Premium"] },
-      tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
-    };
+    const result = await cachedFetch({
+      key: cacheKey,
+      softTtlSec: FILTERS_CACHE_TTL,
+      hardTtlSec: FILTERS_CACHE_HARD_TTL,
+      fetchFresh: () =>
+        computeShopFilterOptions({
+          categoryParam,
+          categoryIdParam,
+          subcategoryIdParam,
+        }),
+    });
 
-    const scopedMatch: Record<string, unknown> = { ...shopMatch };
-    if (categoryParam) scopedMatch.category = categoryParam;
-    if (categoryIdParam) scopedMatch.categoryId = new mongoose.Types.ObjectId(categoryIdParam);
-    if (subcategoryIdParam) scopedMatch.subcategoryId = new mongoose.Types.ObjectId(subcategoryIdParam);
-
-    const [facet] = await Product.aggregate<{
-      allCategories: { categories: string[] }[];
-      allColors: { color: string; colorCode: string }[];
-      allFabrics: { fabrics: string[] }[];
-      allSubcategories: { subcategories: string[] }[];
-      allTags: { tags: string[] }[];
-      allOccasions: { occasions: string[] }[];
-      scopedPrice: {
-        minPrice: number;
-        maxPrice: number;
-      }[];
-    }>([
-      {
-        $facet: {
-          allCategories: [
-            { $match: shopMatch },
-            {
-              $group: {
-                _id: null,
-                categories: { $addToSet: "$category" },
-              },
-            },
-          ],
-          allColors: [
-            { $match: shopMatch },
-            { $unwind: "$variants" },
-            { $match: { "variants.color": { $exists: true, $ne: "" } } },
-            {
-              $group: {
-                _id: {
-                  color: "$variants.color",
-                  colorCode: { $ifNull: ["$variants.colorCode", ""] },
-                },
-              },
-            },
-            {
-              $project: {
-                _id: 0,
-                color: "$_id.color",
-                colorCode: "$_id.colorCode",
-              },
-            },
-          ],
-          allFabrics: [
-            { $match: { ...shopMatch, fabric: { $exists: true, $ne: "" } } },
-            {
-              $group: {
-                _id: null,
-                fabrics: { $addToSet: "$fabric" },
-              },
-            },
-          ],
-          allSubcategories: [
-            { $match: { ...shopMatch, subcategory: { $exists: true, $ne: "" } } },
-            {
-              $group: {
-                _id: null,
-                subcategories: { $addToSet: "$subcategory" },
-              },
-            },
-          ],
-          allTags: [
-            { $match: shopMatch },
-            { $unwind: "$tags" },
-            {
-              $group: {
-                _id: null,
-                tags: { $addToSet: "$tags" },
-              },
-            },
-          ],
-          allOccasions: [
-            { $match: shopMatch },
-            { $unwind: "$occasions" },
-            {
-              $group: {
-                _id: null,
-                occasions: { $addToSet: "$occasions" },
-              },
-            },
-          ],
-          scopedPrice: [
-            { $match: scopedMatch },
-            {
-              $group: {
-                _id: null,
-                minPrice: { $min: "$price" },
-                maxPrice: { $max: "$price" },
-              },
-            },
-          ],
-        },
-      },
-    ]).option({ maxTimeMS: 4000 });
-
-    const allCategories = facet?.allCategories?.[0];
-    const { colors: filterColors, colorCodes: filterColorCodes } =
-      buildFilterColorOptions(facet?.allColors ?? []);
-    const allFabrics = facet?.allFabrics?.[0];
-    const allSubcategories = facet?.allSubcategories?.[0];
-    const allTags = facet?.allTags?.[0];
-    const allOccasions = facet?.allOccasions?.[0];
-    const scopedPrice = facet?.scopedPrice?.[0];
-
-    const productCategoryNames = new Set(
-      (allCategories?.categories ?? []).filter(Boolean) as string[],
-    );
-    const productSubcategoryNames = new Set(
-      (allSubcategories?.subcategories ?? []).filter(Boolean) as string[],
-    );
-
-    const [dbCategories, dbSubcategories] = await Promise.all([
-      Category.find({ isActive: true, isGiftCategory: { $ne: true } })
-        .sort({ sortOrder: 1, name: 1 })
-        .select("name slug sortOrder")
-        .lean(),
-      SubCategory.find({ isActive: true })
-        .sort({ sortOrder: 1, name: 1 })
-        .select("name slug categorySlug categoryId sortOrder productCount")
-        .lean(),
-    ]);
-
-    const categoryTree = dbCategories
-      .filter((cat) => cat.name !== "Gifting" && productCategoryNames.has(cat.name))
-      .map((cat) => {
-        const catId = String(cat._id);
-        const subs = dbSubcategories
-          .filter(
-            (sub) =>
-              sub.categorySlug === cat.slug ||
-              String(sub.categoryId) === catId,
-          )
-          .filter(
-            (sub) =>
-              (sub.productCount ?? 0) > 0 || productSubcategoryNames.has(sub.name),
-          )
-          .map((sub) => ({ name: sub.name, slug: sub.slug }));
-        return {
-          name: cat.name,
-          slug: cat.slug,
-          subcategories: subs,
-        };
-      })
-      .filter(
-        (cat) =>
-          cat.subcategories.length > 0 || productCategoryNames.has(cat.name),
-      );
-
-    const result = {
-      categories: (allCategories?.categories ?? [])
-        .filter(Boolean)
-        .filter((c) => c !== "Gifting")
-        .sort() as string[],
-      colors: filterColors,
-      colorCodes: filterColorCodes,
-      fabrics: mergeFabricOptions(
-        (allFabrics?.fabrics ?? []).filter(Boolean) as string[],
-      ),
-      subcategories: (allSubcategories?.subcategories ?? [])
-        .filter(Boolean)
-        .sort() as string[],
-      occasions: mergeOccasionOptions(
-        (allOccasions?.occasions ?? []).filter(Boolean) as string[],
-      ),
-      tags: (allTags?.tags ?? []).filter(Boolean).sort() as string[],
-      categoryTree,
-      priceRange: {
-        minPrice: scopedPrice?.minPrice ?? 0,
-        maxPrice: scopedPrice?.maxPrice ?? 100000,
-      },
-    };
-
-    setCache(cacheKey, result, FILTERS_CACHE_TTL).catch(() => {});
     sendSuccess(res, result);
   },
 );
@@ -661,11 +716,7 @@ export const createProduct = catchAsync(
     const hasMeta = imagesMeta.length > 0;
 
     const variantsParsed = canonicalizeVariantColors(
-      safeJsonParse(
-        req.body.variants,
-        req.body.variants,
-        "variants",
-      ) as Array<{
+      safeJsonParse(req.body.variants, req.body.variants, "variants") as Array<{
         sku?: string;
         size?: string;
         color?: string;
@@ -726,11 +777,7 @@ export const createProduct = catchAsync(
 
     const images =
       hasMeta ?
-        buildImagesFromMeta(
-          imagesMeta,
-          uploadedImages || [],
-          req.body.name,
-        )
+        buildImagesFromMeta(imagesMeta, uploadedImages || [], req.body.name)
       : (uploadedImages || []).map((img, index) => ({
           url: img.url,
           publicId: img.publicId,
@@ -790,8 +837,7 @@ export const createProduct = catchAsync(
       sizeGuide: parseSizeGuideBody(req.body.sizeGuide),
       careInstructions: String(req.body.careInstructions ?? "").trim(),
       motionReelUrl: String(req.body.motionReelUrl ?? "").trim(),
-      isPremium:
-        req.body.isPremium === "true" || req.body.isPremium === true,
+      isPremium: req.body.isPremium === "true" || req.body.isPremium === true,
       premiumSlug:
         typeof req.body.premiumSlug === "string" ?
           req.body.premiumSlug.trim().toLowerCase() || undefined
@@ -809,7 +855,10 @@ export const createProduct = catchAsync(
           Number(req.body.weaveHours)
         : undefined,
       sortOrderPremium:
-        req.body.sortOrderPremium !== undefined && req.body.sortOrderPremium !== "" ?
+        (
+          req.body.sortOrderPremium !== undefined &&
+          req.body.sortOrderPremium !== ""
+        ) ?
           Number(req.body.sortOrderPremium)
         : 0,
       premiumEditorialOpen: safeJsonParse(
@@ -889,15 +938,13 @@ export const createProduct = catchAsync(
       const storefrontPath =
         isPremiumProduct && premiumRoute ?
           `/premium/${encodeURIComponent(premiumRoute)}`
-        : catalogSlug ?
-          `/shop/${encodeURIComponent(catalogSlug)}`
+        : catalogSlug ? `/shop/${encodeURIComponent(catalogSlug)}`
         : "";
       if (storefrontPath) notifyIndexNowStorefront(storefrontPath);
     }
     if (lean.isActive !== false) {
-      const { notifyWhatsAppCatalogAlert } = await import(
-        "../services/whatsappNotifyService"
-      );
+      const { notifyWhatsAppCatalogAlert } =
+        await import("../services/whatsappNotifyService");
       const catalogSlug = String(lean.slug || "");
       const isPremiumProduct = lean.isPremium === true;
       const premiumRoute = String(lean.premiumSlug || lean.slug || "");
@@ -911,7 +958,12 @@ export const createProduct = catchAsync(
         path: storefrontPath,
       });
     }
-    sendSuccess(res, { product: leanAdminProduct(lean) }, "Product created", 201);
+    sendSuccess(
+      res,
+      { product: leanAdminProduct(lean) },
+      "Product created",
+      201,
+    );
   },
 );
 
@@ -991,9 +1043,7 @@ export const updateProduct = catchAsync(
         currentProduct.images,
       );
       if (!built.length) {
-        return next(
-          new AppError("Product must have at least one image.", 400),
-        );
+        return next(new AppError("Product must have at least one image.", 400));
       }
       if (built.length !== imagesMeta.length) {
         return next(
@@ -1120,13 +1170,19 @@ export const updateProduct = catchAsync(
     ] as const) {
       if (req.body[key] !== undefined) {
         const val = String(req.body[key] ?? "").trim();
-        updateData[key] = key === "premiumSlug" ? val.toLowerCase() || undefined : val || undefined;
+        updateData[key] =
+          key === "premiumSlug" ?
+            val.toLowerCase() || undefined
+          : val || undefined;
       }
     }
     if (req.body.weaveHours !== undefined && req.body.weaveHours !== "") {
       updateData.weaveHours = Number(req.body.weaveHours);
     }
-    if (req.body.sortOrderPremium !== undefined && req.body.sortOrderPremium !== "") {
+    if (
+      req.body.sortOrderPremium !== undefined &&
+      req.body.sortOrderPremium !== ""
+    ) {
       updateData.sortOrderPremium = Number(req.body.sortOrderPremium);
     }
     if (req.body.premiumEditorialOpen !== undefined) {
@@ -1267,9 +1323,7 @@ export const updateProduct = catchAsync(
       currentProduct.isGiftable ||
       currentProduct.category === "Gifting";
     if (giftable) invalidateGiftingProductCache();
-    const premium =
-      updateData.isPremium === true ||
-      currentProduct.isPremium;
+    const premium = updateData.isPremium === true || currentProduct.isPremium;
     if (premium) invalidatePremiumProductCache();
 
     if (updatedProduct.isActive !== false) {
@@ -1277,9 +1331,7 @@ export const updateProduct = catchAsync(
       const isPremiumProduct =
         updatedProduct.isPremium === true || currentProduct.isPremium === true;
       const premiumRoute = String(
-        updatedProduct.premiumSlug ||
-          currentProduct.premiumSlug ||
-          catalogSlug,
+        updatedProduct.premiumSlug || currentProduct.premiumSlug || catalogSlug,
       );
       const storefrontPath =
         isPremiumProduct && premiumRoute ?

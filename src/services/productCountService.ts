@@ -1,13 +1,32 @@
 import mongoose from "mongoose";
 import Product from "../models/Product";
-import { getCache, setCache } from "./cacheService";
 import {
   countCacheKey,
   getProductCacheVersion,
 } from "./productCacheService";
+import { cachedFetch } from "./cache/cachedFetch";
 
-const COUNT_TTL_SEC = 60;
+const COUNT_SOFT_TTL_SEC = 60;
+const COUNT_HARD_TTL_SEC = 180;
 const COUNT_MAX_TIME_MS = 3000;
+
+async function countProductsFromDb(
+  filter: Record<string, unknown>,
+): Promise<number> {
+  const useEstimate =
+    process.env.USE_ESTIMATED_PRODUCT_COUNT === "true" &&
+    Object.keys(filter).length <= 3 &&
+    filter.isActive === true;
+
+  if (useEstimate) {
+    try {
+      return await Product.estimatedDocumentCount();
+    } catch {
+      return Product.countDocuments(filter).maxTimeMS(COUNT_MAX_TIME_MS);
+    }
+  }
+  return Product.countDocuments(filter).maxTimeMS(COUNT_MAX_TIME_MS);
+}
 
 /**
  * Cached document count. For very large catalogs set USE_ESTIMATED_PRODUCT_COUNT=true
@@ -18,28 +37,13 @@ export async function getCachedProductCount(
 ): Promise<number> {
   const version = await getProductCacheVersion();
   const key = countCacheKey(version, filter);
-  const cached = await getCache<number>(key);
-  if (cached !== null && Number.isFinite(cached)) return cached;
 
-  let count: number;
-  const useEstimate =
-    process.env.USE_ESTIMATED_PRODUCT_COUNT === "true" &&
-    Object.keys(filter).length <= 3 &&
-    filter.isActive === true;
-
-  if (useEstimate) {
-    try {
-      const est = await Product.estimatedDocumentCount();
-      count = est;
-    } catch {
-      count = await Product.countDocuments(filter).maxTimeMS(COUNT_MAX_TIME_MS);
-    }
-  } else {
-    count = await Product.countDocuments(filter).maxTimeMS(COUNT_MAX_TIME_MS);
-  }
-
-  setCache(key, count, COUNT_TTL_SEC).catch(() => {});
-  return count;
+  return cachedFetch({
+    key,
+    softTtlSec: COUNT_SOFT_TTL_SEC,
+    hardTtlSec: COUNT_HARD_TTL_SEC,
+    fetchFresh: () => countProductsFromDb(filter),
+  });
 }
 
 export function parseExcludeObjectIds(ids: string[]): mongoose.Types.ObjectId[] {

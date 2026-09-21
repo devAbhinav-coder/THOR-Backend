@@ -10,9 +10,27 @@ import {
 } from "./orderFinanceAggregations";
 import { getOfferAttributionSummary } from "./offerAttributionService";
 import { paidOrderLineProfitStages } from "./orderProfitAggregationHelpers";
+import { decodeHtmlEntities } from "../types/utils/decodeHtmlEntities";
 import { ORDER_CHANNEL_SWITCH, orderChannelFilterLabel, orderChannelMatch, type OrderSalesChannelFilter } from "../utils/orderChannel";
 
 const IST_TZ = "Asia/Kolkata";
+
+function decodeCatalogAnalyticsLabels<
+  T extends { _id?: string; name?: string; category?: string },
+>(rows: T[]): T[] {
+  return rows.map((r) => ({
+    ...r,
+    ...(r._id !== undefined ?
+      { _id: decodeHtmlEntities(String(r._id)) }
+    : {}),
+    ...(r.name !== undefined ?
+      { name: decodeHtmlEntities(String(r.name)) }
+    : {}),
+    ...(r.category !== undefined ?
+      { category: decodeHtmlEntities(String(r.category)) }
+    : {}),
+  }));
+}
 
 export type RevenuePeriod = "month" | "year" | "lifetime";
 
@@ -220,13 +238,29 @@ export async function getRevenuePeriodSummary(
       { $sort: { "_id.year": 1, "_id.month": 1 } },
     ]),
     Order.aggregate([
-      ...paidOrderLineProfitStages(orderMatch),
+      ...paidOrderLineProfitStages(orderMatch, { catalogOnly: true }),
       {
         $group: {
           _id: "$profitGroupKey",
-          name: { $first: "$items.name" },
-          image: { $first: "$items.image" },
-          category: { $first: "$resolvedLineCategory" },
+          name: {
+            $first: { $ifNull: ["$productDoc.name", "$items.name"] },
+          },
+          image: {
+            $first: {
+              $ifNull: [
+                {
+                  $let: {
+                    vars: {
+                      hero: { $arrayElemAt: ["$productDoc.images", 0] },
+                    },
+                    in: "$$hero.url",
+                  },
+                },
+                "$items.image",
+              ],
+            },
+          },
+          category: { $first: "$resolvedAnalyticsCategory" },
           unitsSold: { $sum: "$items.quantity" },
           revenue: { $sum: "$lineRevenue" },
           cogs: { $sum: "$lineCogs" },
@@ -271,10 +305,10 @@ export async function getRevenuePeriodSummary(
       { $limit: 30 },
     ]),
     Order.aggregate([
-      ...paidOrderLineProfitStages(orderMatch),
+      ...paidOrderLineProfitStages(orderMatch, { catalogOnly: true }),
       {
         $group: {
-          _id: "$resolvedLineCategory",
+          _id: "$resolvedAnalyticsCategory",
           revenue: { $sum: "$lineRevenue" },
           cogs: { $sum: "$lineCogs" },
           profit: { $sum: "$lineProfit" },
@@ -429,8 +463,16 @@ export async function getRevenuePeriodSummary(
         count: number;
       }[],
     ),
-    topProductsByProfit,
-    categoryProfit,
+    topProductsByProfit: decodeCatalogAnalyticsLabels(
+      topProductsByProfit as {
+        _id: string;
+        name: string;
+        category: string;
+      }[],
+    ),
+    categoryProfit: decodeCatalogAnalyticsLabels(
+      categoryProfit as { _id: string }[],
+    ),
     paymentMethodMix: paymentMethodMix as {
       _id: string;
       revenue: number;

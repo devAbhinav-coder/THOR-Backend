@@ -1,6 +1,5 @@
 import Order from "../models/Order";
 import mongoose from "mongoose";
-import { getCache, setCache } from "./cacheService";
 import {
   buildMyOrdersCacheKey,
   getUserOrdersCacheVersion,
@@ -12,12 +11,15 @@ import {
 import { recordOrderTiming } from "./orderMetricsService";
 import logger from "../types/utils/logger";
 import { getRequestContext } from "../types/utils/requestContext";
+import { cachedFetch } from "./cache/cachedFetch";
+import { sampleDbQuery } from "./observability/platformMetricsService";
 
-const CACHE_TTL = 300; // 5 minutes
+const LIST_SOFT_TTL_SEC = 300;
+const LIST_HARD_TTL_SEC = 900;
 const QUERY_TIMEOUT_MS = 3000;
 const DETAIL_TIMEOUT_MS = 2000;
 
-/** List projection — lean reads without admin blobs */
+/** List projection - lean reads without admin blobs */
 const LIST_SELECT =
   "orderNumber user items shippingAddress status paymentStatus paymentMethod subtotal discount shippingCharge codFee tax total coupon productType customRequestId invoice returnStatus returnRequest refundData trackingNumber trackingUrl shippingCarrier shippedAt deliveredAt razorpayOrderId razorpayPaymentId createdAt updatedAt";
 
@@ -31,55 +33,52 @@ export const orderReadService = {
     statusStr?: string,
   ) {
     const started = Date.now();
-    const query: Record<string, unknown> = { user: userId };
-    if (statusStr) {
-      if (statusStr.includes(",")) {
-        query.status = { $in: statusStr.split(",").map((s) => s.trim()) };
-      } else {
-        query.status = statusStr;
-      }
-    }
-
     const version = await getUserOrdersCacheVersion(userId);
-    const cacheKey = buildMyOrdersCacheKey(
+    const cacheKey = `${buildMyOrdersCacheKey(
       userId,
       version,
       skip,
       limit,
       statusStr,
-    );
-    const cached = await getCache<{
-      orders: Record<string, unknown>[];
-      total: number;
-    }>(cacheKey);
-    if (cached) {
-      recordOrderTiming("order.fetch.list", Date.now() - started, {
-        cache: "hit",
-      });
-      return cached;
-    }
+    )}:env`;
 
-    const [orders, total] = await Promise.all([
-      Order.find(query)
-        .select(LIST_SELECT)
-        .sort("-createdAt")
-        .skip(skip)
-        .limit(limit)
-        .lean()
-        .maxTimeMS(QUERY_TIMEOUT_MS),
-      Order.countDocuments(query).maxTimeMS(QUERY_TIMEOUT_MS),
-    ]);
+    const result = await cachedFetch({
+      key: cacheKey,
+      softTtlSec: LIST_SOFT_TTL_SEC,
+      hardTtlSec: LIST_HARD_TTL_SEC,
+      fetchFresh: async () => {
+        const query: Record<string, unknown> = { user: userId };
+        if (statusStr) {
+          if (statusStr.includes(",")) {
+            query.status = { $in: statusStr.split(",").map((s) => s.trim()) };
+          } else {
+            query.status = statusStr;
+          }
+        }
 
-    const serialized = serializeOrdersForClient(
-      orders as Record<string, unknown>[],
-      {
-        mode: "list",
+        sampleDbQuery("orders", "find");
+        sampleDbQuery("orders", "countDocuments");
+        const [orders, total] = await Promise.all([
+          Order.find(query)
+            .select(LIST_SELECT)
+            .sort("-createdAt")
+            .skip(skip)
+            .limit(limit)
+            .lean()
+            .maxTimeMS(QUERY_TIMEOUT_MS),
+          Order.countDocuments(query).maxTimeMS(QUERY_TIMEOUT_MS),
+        ]);
+
+        const serialized = serializeOrdersForClient(
+          orders as Record<string, unknown>[],
+          { mode: "list" },
+        );
+        return { orders: serialized, total };
       },
-    );
-    const result = { orders: serialized, total };
-    await setCache(cacheKey, result, CACHE_TTL);
+    });
+
     recordOrderTiming("order.fetch.list", Date.now() - started, {
-      cache: "miss",
+      cache: "cachedFetch",
     });
     return result;
   },
@@ -87,87 +86,82 @@ export const orderReadService = {
   async getMyOrdersSummary(userId: string) {
     const started = Date.now();
     const version = await getUserOrdersCacheVersion(userId);
-    const cacheKey = `cache:my-orders-summary:v${version}:${userId}`;
-    const cached = await getCache<{
-      total: number;
-      delivered: number;
-      inProgress: number;
-    }>(cacheKey);
-    if (cached) {
-      recordOrderTiming("order.fetch.summary", Date.now() - started, {
-        cache: "hit",
-      });
-      return cached;
-    }
+    const cacheKey = `cache:my-orders-summary:v${version}:${userId}:env`;
 
-    const ACTIVE = ["pending", "confirmed", "processing", "shipped"];
-    const rows = await Order.aggregate<{
-      total: number;
-      delivered: number;
-      inProgress: number;
-    }>([
-      { $match: { user: new mongoose.Types.ObjectId(userId) } },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: 1 },
-          delivered: {
-            $sum: { $cond: [{ $eq: ["$status", "delivered"] }, 1, 0] },
-          },
-          inProgress: {
-            $sum: {
-              $cond: [{ $in: ["$status", ACTIVE] }, 1, 0],
+    const result = await cachedFetch({
+      key: cacheKey,
+      softTtlSec: LIST_SOFT_TTL_SEC,
+      hardTtlSec: LIST_HARD_TTL_SEC,
+      fetchFresh: async () => {
+        const ACTIVE = ["pending", "confirmed", "processing", "shipped"];
+        sampleDbQuery("orders", "aggregate");
+        const rows = await Order.aggregate<{
+          total: number;
+          delivered: number;
+          inProgress: number;
+        }>([
+          { $match: { user: new mongoose.Types.ObjectId(userId) } },
+          {
+            $group: {
+              _id: null,
+              total: { $sum: 1 },
+              delivered: {
+                $sum: { $cond: [{ $eq: ["$status", "delivered"] }, 1, 0] },
+              },
+              inProgress: {
+                $sum: {
+                  $cond: [{ $in: ["$status", ACTIVE] }, 1, 0],
+                },
+              },
             },
           },
-        },
-      },
-    ]).option({ maxTimeMS: QUERY_TIMEOUT_MS });
+        ]).option({ maxTimeMS: QUERY_TIMEOUT_MS });
 
-    const summary = rows[0] ?? { total: 0, delivered: 0, inProgress: 0 };
-    const result = {
-      total: summary.total || 0,
-      delivered: summary.delivered || 0,
-      inProgress: summary.inProgress || 0,
-    };
-    await setCache(cacheKey, result, CACHE_TTL);
+        const summary = rows[0] ?? { total: 0, delivered: 0, inProgress: 0 };
+        return {
+          total: summary.total || 0,
+          delivered: summary.delivered || 0,
+          inProgress: summary.inProgress || 0,
+        };
+      },
+    });
+
     recordOrderTiming("order.fetch.summary", Date.now() - started, {
-      cache: "miss",
+      cache: "cachedFetch",
     });
     return result;
   },
 
   async getOrderById(orderId: string, userId: string) {
     const started = Date.now();
-    const cacheKey = `cache:order:${orderId}:${userId}`;
-    const cached = await getCache<Record<string, unknown>>(cacheKey);
-    if (cached) {
-      recordOrderTiming("order.fetch.detail", Date.now() - started, {
-        cache: "hit",
-      });
-      return cached;
-    }
+    const cacheKey = `cache:order:${orderId}:${userId}:env`;
 
-    const order = await Order.findOne({ _id: orderId, user: userId })
-      .select(DETAIL_SELECT)
-      .lean()
-      .maxTimeMS(DETAIL_TIMEOUT_MS);
+    const serialized = await cachedFetch({
+      key: cacheKey,
+      softTtlSec: LIST_SOFT_TTL_SEC,
+      hardTtlSec: LIST_HARD_TTL_SEC,
+      fetchFresh: async () => {
+        sampleDbQuery("orders", "findOne");
+        const order = await Order.findOne({ _id: orderId, user: userId })
+          .select(DETAIL_SELECT)
+          .lean()
+          .maxTimeMS(DETAIL_TIMEOUT_MS);
 
-    if (!order) return null;
+        if (!order) return null;
 
-    const serialized = serializeOrderForClient(
-      order as Record<string, unknown>,
-      {
-        mode: "detail",
+        return serializeOrderForClient(order as Record<string, unknown>, {
+          mode: "detail",
+        });
       },
-    );
-    await setCache(cacheKey, serialized, CACHE_TTL);
+    });
+
     recordOrderTiming("order.fetch.detail", Date.now() - started, {
-      cache: "miss",
+      cache: "cachedFetch",
     });
     return serialized;
   },
 
-  /** @deprecated Use orderCacheService.scheduleInvalidateUserOrderCache — kept for callers */
+  /** @deprecated Use orderCacheService.scheduleInvalidateUserOrderCache - kept for callers */
   async invalidateUserOrderCache(userId: string, orderId?: string) {
     const { invalidateUserOrderCache } = await import("./orderCacheService");
     await invalidateUserOrderCache(userId, orderId);

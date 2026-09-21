@@ -28,8 +28,7 @@ function sameCloudinaryAsset(a: string, b: string): boolean {
 export function mergeHeroSlides(
   payloadSlides: Record<string, unknown>[] | undefined,
   uploaded:
-    | { hero: Record<string, { url: string; publicId: string }> }
-    | undefined,
+    { hero: Record<string, { url: string; publicId: string }> } | undefined,
   previousSlides: Array<{ image?: string; imagePublicId?: string }> | undefined,
 ): Record<string, unknown>[] {
   return (payloadSlides || []).map((slide, index) => {
@@ -88,8 +87,13 @@ export function mergeShopBanner(
       continue;
     }
 
-    // Admin JSON often drops publicId on save — keep Cloudinary id so cleanup won't delete the file.
-    if (!nId && pId && pImg && (nImg === pImg || sameCloudinaryAsset(nImg, pImg))) {
+    // Admin JSON often drops publicId on save - keep Cloudinary id so cleanup won't delete the file.
+    if (
+      !nId &&
+      pId &&
+      pImg &&
+      (nImg === pImg || sameCloudinaryAsset(nImg, pImg))
+    ) {
       out[idKey] = pId;
     }
   }
@@ -220,8 +224,7 @@ export function mergeGiftingSecondaryBanners(
     | { giftingSecondary: Record<string, { url: string; publicId: string }> }
     | undefined,
   previousBanners:
-    | Array<{ image?: string; imagePublicId?: string }>
-    | undefined,
+    Array<{ image?: string; imagePublicId?: string }> | undefined,
 ): Record<string, unknown>[] {
   return (payloadBanners || []).map((banner, index) => {
     const up = uploaded?.giftingSecondary?.[String(index)];
@@ -302,7 +305,12 @@ export function mergeHomeExploreHouse(
       out[idKey] = "";
       continue;
     }
-    if (!nId && pId && pImg && (nImg === pImg || sameCloudinaryAsset(nImg, pImg))) {
+    if (
+      !nId &&
+      pId &&
+      pImg &&
+      (nImg === pImg || sameCloudinaryAsset(nImg, pImg))
+    ) {
       out[idKey] = pId;
     }
   }
@@ -351,24 +359,32 @@ export function mergeHomeGiftCards(
 export function mergePremiumAudienceBanners(
   payloadBanners: Record<string, unknown>[] | undefined,
   uploaded:
-    | { premiumAudienceImage: Record<string, { url: string; publicId: string }> }
+    | {
+        premiumAudienceImage: Record<string, { url: string; publicId: string }>;
+      }
     | undefined,
-  previousBanners: Array<{ image?: string; imagePublicId?: string }> | undefined,
+  previousBanners:
+    Array<{ image?: string; imagePublicId?: string }> | undefined,
 ): Record<string, unknown>[] {
   return (payloadBanners || []).map((banner, index) => {
     const up = uploaded?.premiumAudienceImage?.[String(index)];
     if (up) {
       return { ...banner, image: up.url, imagePublicId: up.publicId };
     }
-    const img = typeof banner.image === "string" ? (banner.image as string).trim() : "";
+    const img =
+      typeof banner.image === "string" ? (banner.image as string).trim() : "";
     if (!img) {
       const { imagePublicId: _removed, ...rest } = banner;
       return { ...rest, image: "" };
     }
-    let pid = typeof banner.imagePublicId === "string" ? (banner.imagePublicId as string).trim() : "";
+    let pid =
+      typeof banner.imagePublicId === "string" ?
+        (banner.imagePublicId as string).trim()
+      : "";
     const prev = previousBanners?.[index];
     const prevImg = typeof prev?.image === "string" ? prev.image.trim() : "";
-    const prevPid = typeof prev?.imagePublicId === "string" ? prev.imagePublicId.trim() : "";
+    const prevPid =
+      typeof prev?.imagePublicId === "string" ? prev.imagePublicId.trim() : "";
     if (prevPid && prevImg === img && !pid) {
       return { ...banner, image: img, imagePublicId: prevPid };
     }
@@ -387,9 +403,11 @@ export function mergePremiumEditorial(
     out.imagePublicId = uploaded.publicId;
   } else if (prev) {
     const img = typeof out.image === "string" ? out.image.trim() : "";
-    const pid = typeof out.imagePublicId === "string" ? out.imagePublicId.trim() : "";
+    const pid =
+      typeof out.imagePublicId === "string" ? out.imagePublicId.trim() : "";
     const prevImg = typeof prev.image === "string" ? prev.image.trim() : "";
-    const prevPid = typeof prev.imagePublicId === "string" ? prev.imagePublicId.trim() : "";
+    const prevPid =
+      typeof prev.imagePublicId === "string" ? prev.imagePublicId.trim() : "";
     if (img && prevImg === img && prevPid && !pid) {
       out.imagePublicId = prevPid;
     }
@@ -408,9 +426,11 @@ export function mergePremiumStory(
     out.imagePublicId = uploaded.publicId;
   } else if (prev) {
     const img = typeof out.image === "string" ? out.image.trim() : "";
-    const pid = typeof out.imagePublicId === "string" ? out.imagePublicId.trim() : "";
+    const pid =
+      typeof out.imagePublicId === "string" ? out.imagePublicId.trim() : "";
     const prevImg = typeof prev.image === "string" ? prev.image.trim() : "";
-    const prevPid = typeof prev.imagePublicId === "string" ? prev.imagePublicId.trim() : "";
+    const prevPid =
+      typeof prev.imagePublicId === "string" ? prev.imagePublicId.trim() : "";
     if (img && prevImg === img && prevPid && !pid) {
       out.imagePublicId = prevPid;
     }

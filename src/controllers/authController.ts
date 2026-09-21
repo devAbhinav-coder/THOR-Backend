@@ -454,7 +454,27 @@ export const logout = catchAsync(async (req: Request, res: Response) => {
 });
 
 export const getMe = catchAsync(async (req: AuthRequest, res: Response) => {
-  sendSuccess(res, { user: req.user });
+  const u = req.user!;
+  sendSuccess(res, {
+    user: {
+      _id: String(u._id),
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      adminPermissions: Array.isArray(u.adminPermissions)
+        ? u.adminPermissions
+        : [],
+      phone: u.phone,
+      avatar: u.avatar,
+      emailVerified: u.emailVerified,
+      whatsappMarketingOptIn: u.whatsappMarketingOptIn,
+      addresses: u.addresses ?? [],
+      isActive: u.isActive,
+      offlineLead: u.offlineLead,
+      createdAt: u.createdAt,
+      updatedAt: u.updatedAt,
+    },
+  });
 });
 
 export const updateMe = catchAsync(
@@ -506,6 +526,10 @@ export const updatePassword = catchAsync(
     user.password = newPassword;
     await user.save();
 
+    const { bumpUserTokenEpoch } = await import(
+      "../services/auth/authTokenEpochService"
+    );
+    await bumpUserTokenEpoch(String(user._id));
     await RefreshToken.deleteMany({ user: user._id });
     await sendAuthResponse(res, user, 200, req);
   },

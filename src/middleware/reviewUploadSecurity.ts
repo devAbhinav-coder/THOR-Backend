@@ -9,7 +9,7 @@ import { sniffImageMime } from "../types/utils/fileMagic";
 const ALLOWED_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
 
 /**
- * Defense-in-depth after multer — magic bytes + extension/count caps.
+ * Defense-in-depth after multer - magic bytes + extension/count caps.
  * Client Content-Type alone is never trusted.
  */
 export function assertReviewUploadSecurity(

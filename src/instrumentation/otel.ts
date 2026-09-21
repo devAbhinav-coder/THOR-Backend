@@ -4,7 +4,7 @@
  * Traces  → OTLP/HTTP  (default: http://localhost:4318/v1/traces)
  * Metrics → OTLP/HTTP  (default: http://localhost:4318/v1/metrics)
  *
- * Environment variables (all optional — safe to omit):
+ * Environment variables (all optional - safe to omit):
  *   OTEL_ENABLED              = true | false          (default: true when OTEL_EXPORTER_OTLP_ENDPOINT set, else false)
  *   OTEL_SERVICE_NAME         = house-of-rani-backend (default)
  *   OTEL_EXPORTER_OTLP_ENDPOINT = http://localhost:4318 (OTLP HTTP base)
@@ -13,7 +13,7 @@
  *   OTEL_TRACES_SAMPLE_RATE   = 1.0 (float 0–1, default 1.0 in dev / 0.2 in production)
  *   OTEL_METRICS_INTERVAL_MS  = 30000 (export interval for metrics, default 30 s)
  *   OTEL_LOG_LEVEL            = info | debug | warn | error (default: warn)
- *   OTEL_HEADERS              = key=value,key2=value2 (added to all OTLP requests — useful for tokens)
+ *   OTEL_HEADERS              = key=value,key2=value2 (added to all OTLP requests - useful for tokens)
  */
 
 import { NodeSDK } from "@opentelemetry/sdk-node";
@@ -43,7 +43,10 @@ function parseHeaders(raw: string | undefined): Record<string, string> {
       .map((pair) => {
         const index = pair.indexOf("=");
         if (index === -1) return ["", ""];
-        return [pair.substring(0, index).trim(), pair.substring(index + 1).trim()];
+        return [
+          pair.substring(0, index).trim(),
+          pair.substring(index + 1).trim(),
+        ];
       })
       .filter((kv): kv is [string, string] => kv[0].length > 0),
   );
@@ -51,12 +54,18 @@ function parseHeaders(raw: string | undefined): Record<string, string> {
 
 function parseLogLevel(raw: string | undefined): DiagLogLevel {
   switch ((raw || "").toLowerCase()) {
-    case "debug": return DiagLogLevel.DEBUG;
-    case "info":  return DiagLogLevel.INFO;
-    case "warn":  return DiagLogLevel.WARN;
-    case "error": return DiagLogLevel.ERROR;
-    case "none":  return DiagLogLevel.NONE;
-    default:      return DiagLogLevel.WARN;
+    case "debug":
+      return DiagLogLevel.DEBUG;
+    case "info":
+      return DiagLogLevel.INFO;
+    case "warn":
+      return DiagLogLevel.WARN;
+    case "error":
+      return DiagLogLevel.ERROR;
+    case "none":
+      return DiagLogLevel.NONE;
+    default:
+      return DiagLogLevel.WARN;
   }
 }
 
@@ -69,7 +78,7 @@ let started = false;
 
 export function isOtelEnabled(): boolean {
   const explicit = process.env.OTEL_ENABLED?.trim().toLowerCase();
-  if (explicit === "true")  return true;
+  if (explicit === "true") return true;
   if (explicit === "false") return false;
   // Auto-enable if an OTLP endpoint is configured
   return !!(
@@ -113,7 +122,10 @@ export function initOtel(): void {
     process.env.OTEL_TRACES_SAMPLE_RATE ||
       (environment === "production" ? "0.2" : "1.0"),
   );
-  const sampleRate = Math.min(1, Math.max(0, isNaN(rawSampleRate) ? 1 : rawSampleRate));
+  const sampleRate = Math.min(
+    1,
+    Math.max(0, isNaN(rawSampleRate) ? 1 : rawSampleRate),
+  );
 
   const metricsIntervalMs = parseInt(
     process.env.OTEL_METRICS_INTERVAL_MS || "30000",
@@ -160,7 +172,9 @@ export function initOtel(): void {
       enabled: true,
       // Don't trace health checks – avoid noise
       ignoreIncomingRequestHook: (req) =>
-        req.url === "/api/health" || req.url === "/api/docs" || (req.url?.startsWith("/api/docs/") ?? false),
+        req.url === "/api/health" ||
+        req.url === "/api/docs" ||
+        (req.url?.startsWith("/api/docs/") ?? false),
     },
     "@opentelemetry/instrumentation-express": { enabled: true },
 
@@ -189,8 +203,8 @@ export function initOtel(): void {
   sdk.start();
 
   console.log(
-    `[OTel] Started — service="${serviceName}" env="${environment}" ` +
-    `traces="${tracesEndpoint}" metrics="${metricsEndpoint}" sampleRate=${sampleRate}`,
+    `[OTel] Started - service="${serviceName}" env="${environment}" ` +
+      `traces="${tracesEndpoint}" metrics="${metricsEndpoint}" sampleRate=${sampleRate}`,
   );
 }
 

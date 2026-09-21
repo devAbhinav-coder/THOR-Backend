@@ -1,22 +1,28 @@
-import mongoose, { Schema } from 'mongoose';
-import { IGiftingRequest } from '../types';
+import mongoose, { Schema } from "mongoose";
+import { IGiftingRequest } from "../types";
 
-const customFieldAnswerSchema = new Schema({
-  fieldId: { type: String, required: true },
-  label: { type: String, required: true },
-  value: { type: String, required: true },
-}, { _id: false });
+const customFieldAnswerSchema = new Schema(
+  {
+    fieldId: { type: String, required: true },
+    label: { type: String, required: true },
+    value: { type: String, required: true },
+  },
+  { _id: false },
+);
 
-const giftingRequestItemSchema = new Schema({
-  product: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
-  name: { type: String, required: true },
-  quantity: { type: Number, required: true, min: 1 },
-  customFieldAnswers: [customFieldAnswerSchema],
-}, { _id: false });
+const giftingRequestItemSchema = new Schema(
+  {
+    product: { type: Schema.Types.ObjectId, ref: "Product", required: true },
+    name: { type: String, required: true },
+    quantity: { type: Number, required: true, min: 1 },
+    customFieldAnswers: [customFieldAnswerSchema],
+  },
+  { _id: false },
+);
 
 const giftingRequestSchema = new Schema<IGiftingRequest>(
   {
-    user: { type: Schema.Types.ObjectId, ref: 'User' },
+    user: { type: Schema.Types.ObjectId, ref: "User" },
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, lowercase: true, trim: true },
     phone: { type: String, trim: true },
@@ -26,8 +32,8 @@ const giftingRequestSchema = new Schema<IGiftingRequest>(
     customizationNote: { type: String, maxlength: 1000 },
     packagingPreference: {
       type: String,
-      enum: ['standard', 'premium', 'custom'],
-      default: 'standard',
+      enum: ["standard", "premium", "custom"],
+      default: "standard",
     },
     customPackagingNote: { type: String, maxlength: 500 },
     referenceImages: [
@@ -38,18 +44,24 @@ const giftingRequestSchema = new Schema<IGiftingRequest>(
     ],
     status: {
       type: String,
-      enum: ['new', 'price_quoted', 'approved_by_user', 'rejected_by_user', 'cancelled'],
-      default: 'new',
+      enum: [
+        "new",
+        "price_quoted",
+        "approved_by_user",
+        "rejected_by_user",
+        "cancelled",
+      ],
+      default: "new",
     },
     proposedPrice: { type: Number },
     quotedPrice: { type: Number },
     deliveryTime: { type: String },
     adminNote: { type: String },
-    linkedOrderId: { type: Schema.Types.ObjectId, ref: 'Order' },
-    /** Set when user accepts quote with Idempotency-Key — prevents duplicate orders on retry. */
+    linkedOrderId: { type: Schema.Types.ObjectId, ref: "Order" },
+    /** Set when user accepts quote with Idempotency-Key - prevents duplicate orders on retry. */
     acceptIdempotencyKey: { type: String, trim: true, sparse: true },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 giftingRequestSchema.index({ status: 1, createdAt: -1 });
@@ -57,7 +69,10 @@ giftingRequestSchema.index({ user: 1, createdAt: -1 });
 giftingRequestSchema.index({ linkedOrderId: 1 }, { sparse: true });
 giftingRequestSchema.index(
   { acceptIdempotencyKey: 1, user: 1 },
-  { unique: true, sparse: true }
+  { unique: true, sparse: true },
 );
 
-export default mongoose.model<IGiftingRequest>('GiftingRequest', giftingRequestSchema);
+export default mongoose.model<IGiftingRequest>(
+  "GiftingRequest",
+  giftingRequestSchema,
+);

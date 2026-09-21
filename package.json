@@ -20,6 +20,7 @@
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck",
+    "test": "ts-node --transpile-only src/types/utils/inFlightCoalesce.test.ts && ts-node --transpile-only src/services/cache/cachedFetch.test.ts && ts-node --transpile-only src/jobs/pollerLock.test.ts",
     "knip": "knip",
     "backfill:delivered-at": "ts-node --transpile-only scripts/backfill-delivered-at.ts",
     "backfill:review-fields": "ts-node --transpile-only scripts/backfill-review-fields.ts",

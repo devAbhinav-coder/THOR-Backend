@@ -28,9 +28,7 @@ import logger from "../../types/utils/logger";
 import { onOrderDelivered } from "../../services/orderDeliverySideEffects";
 import { isCustomerDeliverableEmail } from "../../types/utils/customerEmail";
 import { writeAdminAudit } from "../../services/adminAuditService";
-import {
-  isManualOfflineOrderItem,
-} from "../../utils/offlineOrderLine";
+import { isManualOfflineOrderItem } from "../../utils/offlineOrderLine";
 import {
   orderChannelMatch,
   type OrderSalesChannelFilter,
@@ -195,7 +193,9 @@ export const updateOrderLineCostAtSale = catchAsync(
 
     const costAtSale = Number(req.body?.costAtSale);
     if (!Number.isFinite(costAtSale) || costAtSale < 0) {
-      return next(new AppError("Enter a valid cost of goods (0 or more).", 400));
+      return next(
+        new AppError("Enter a valid cost of goods (0 or more).", 400),
+      );
     }
 
     const order = await Order.findById(req.params.id);
@@ -250,7 +250,7 @@ export const deleteOrder = catchAsync(
     await order.deleteOne();
 
     res.status(204).end();
-  }
+  },
 );
 
 // ─── Status Update ────────────────────────────────────────────────────────────
@@ -315,8 +315,7 @@ export const updateOrderStatus = catchAsync(
         "name email",
       );
       const user = populated?.user as unknown as
-        | { _id?: unknown; name?: string; email?: string }
-        | undefined;
+        { _id?: unknown; name?: string; email?: string } | undefined;
 
       if (populated && user?._id) {
         if (user.email && isCustomerDeliverableEmail(user.email)) {
@@ -334,9 +333,8 @@ export const updateOrderStatus = catchAsync(
           );
         }
 
-        const { notifyWhatsAppOrderStatusChange } = await import(
-          "../../services/whatsappNotifyService"
-        );
+        const { notifyWhatsAppOrderStatusChange } =
+          await import("../../services/whatsappNotifyService");
         void notifyWhatsAppOrderStatusChange({
           userId: String(user._id),
           orderId: String(populated._id),
@@ -418,8 +416,7 @@ export const updateOrderStatus = catchAsync(
       "name email",
     );
     const user = populated?.user as unknown as
-      | { _id?: unknown; name?: string; email?: string }
-      | undefined;
+      { _id?: unknown; name?: string; email?: string } | undefined;
 
     if (!sameStatus && populated && user?._id && status !== "delivered") {
       const trackingOpts =
@@ -446,9 +443,8 @@ export const updateOrderStatus = catchAsync(
       }
 
       if (status !== "delivered") {
-        const { notifyWhatsAppOrderStatusChange } = await import(
-          "../../services/whatsappNotifyService"
-        );
+        const { notifyWhatsAppOrderStatusChange } =
+          await import("../../services/whatsappNotifyService");
         void notifyWhatsAppOrderStatusChange({
           userId: String(user._id),
           orderId: String(populated._id),
@@ -529,8 +525,7 @@ export const processRefundController = catchAsync(
       "name email",
     );
     const user = populated?.user as unknown as
-      | { _id?: unknown; name?: string; email?: string }
-      | undefined;
+      { _id?: unknown; name?: string; email?: string } | undefined;
     const bankDetails = (
       order as unknown as {
         returnRequest?: {
@@ -552,7 +547,7 @@ export const processRefundController = catchAsync(
         : methodToUse === "upi_manual" ?
           `₹${amt.toFixed(2)} will be sent to your UPI ID: ${bankDetails?.upiId ?? "your UPI"}. (1-2 days)`
         : methodToUse === "bank_transfer" ?
-          `₹${amt.toFixed(2)} will be transferred to your bank account ending ${(bankDetails?.accountNumber ?? "").slice(-4) || "—"}. (2-3 days)`
+          `₹${amt.toFixed(2)} will be transferred to your bank account ending ${(bankDetails?.accountNumber ?? "").slice(-4) || "-"}. (2-3 days)`
         : `₹${amt.toFixed(2)} refund has been initiated via ${methodToUse.replace(/_/g, " ")}.`;
 
       // Fire-and-forget notifications
@@ -600,7 +595,7 @@ export const processRefundController = catchAsync(
       notifyAdminsEmail(adminTpl.subject, adminTpl.html).catch(() => {});
 
       notifyAdmins(
-        `Refund processed — ${populated.orderNumber}`,
+        `Refund processed - ${populated.orderNumber}`,
         `₹${amt.toFixed(2)} refunded to ${user.name ?? "customer"} via ${methodToUse.replace(/_/g, " ")}.`,
         `/admin/orders/${populated._id}`,
         "order",

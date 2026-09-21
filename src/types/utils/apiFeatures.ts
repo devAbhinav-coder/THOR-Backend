@@ -1,4 +1,4 @@
-import { Query } from 'mongoose';
+import { Query } from "mongoose";
 
 interface QueryString {
   page?: string;
@@ -25,29 +25,29 @@ class APIFeatures<T> {
   filter(): this {
     const queryObj = { ...this.queryString };
     const excludedFields = [
-      'page',
-      'sort',
-      'limit',
-      'fields',
-      'search',
-      'minRating',
-      'categories',
-      'category',
-      'fabrics',
-      'fabric',
-      'ratings',
-      'rating',
-      'minPrice',
-      'maxPrice',
-      'isFeatured',
-      'isActive',
-      'isPremium',
-      'simple',
-      'isRandom',
-      'excludeIds',
-      'q',
-      'sortBy',
-      'sortOrder',
+      "page",
+      "sort",
+      "limit",
+      "fields",
+      "search",
+      "minRating",
+      "categories",
+      "category",
+      "fabrics",
+      "fabric",
+      "ratings",
+      "rating",
+      "minPrice",
+      "maxPrice",
+      "isFeatured",
+      "isActive",
+      "isPremium",
+      "simple",
+      "isRandom",
+      "excludeIds",
+      "q",
+      "sortBy",
+      "sortOrder",
     ];
     excludedFields.forEach((el) => delete queryObj[el]);
 
@@ -55,7 +55,9 @@ class APIFeatures<T> {
     queryStr = queryStr.replace(/\b(gte|gt|lte|lt)\b/g, (match) => `$${match}`);
 
     this.filterExpr = JSON.parse(queryStr) as Record<string, unknown>;
-    this.query = this.query.find(this.filterExpr as Parameters<typeof this.query.find>[0]);
+    this.query = this.query.find(
+      this.filterExpr as Parameters<typeof this.query.find>[0],
+    );
     return this;
   }
 
@@ -63,15 +65,17 @@ class APIFeatures<T> {
     if (this.queryString.search) {
       // Use advanced MongoDB Text Search for pro-level relevance matching
       this.searchExpr = { $text: { $search: this.queryString.search } };
-      this.query = this.query.find(this.searchExpr as Parameters<typeof this.query.find>[0]);
-      
+      this.query = this.query.find(
+        this.searchExpr as Parameters<typeof this.query.find>[0],
+      );
+
       // Project the textScore metadata so we can sort by it
-      this.query = this.query.select({ score: { $meta: 'textScore' } });
+      this.query = this.query.select({ score: { $meta: "textScore" } });
     }
     return this;
   }
 
-  /** Case-insensitive partial match — better for short queries and typos than $text. */
+  /** Case-insensitive partial match - better for short queries and typos than $text. */
   searchRegex(fields: string[]): this {
     const term = (this.queryString.search || "").trim();
     if (!term) return this;
@@ -89,33 +93,39 @@ class APIFeatures<T> {
 
   sort(): this {
     if (this.queryString.sort) {
-      const sortBy = this.queryString.sort.split(',').join(' ');
+      const sortBy = this.queryString.sort.split(",").join(" ");
       this.query = this.query.sort(sortBy);
     } else if (this.queryString.search) {
-      // If doing a text search and no specific sort is requested, 
+      // If doing a text search and no specific sort is requested,
       // sort by the most relevant match first.
-      this.query = this.query.sort({ score: { $meta: 'textScore' } });
+      this.query = this.query.sort({ score: { $meta: "textScore" } });
     } else {
-      this.query = this.query.sort('-createdAt');
+      this.query = this.query.sort("-createdAt");
     }
     return this;
   }
 
   limitFields(): this {
     if (this.queryString.fields) {
-      const fields = this.queryString.fields.split(',').join(' ');
+      const fields = this.queryString.fields.split(",").join(" ");
       this.query = this.query.select(fields);
     } else {
-      this.query = this.query.select('-__v');
+      this.query = this.query.select("-__v");
     }
     return this;
   }
 
   paginate(): this {
-    const page = parseInt(this.queryString.page || '1', 10);
-    const maxLimit = parseInt(process.env.PAGINATION_MAX_LIMIT || '100', 10);
-    const defaultLimit = parseInt(process.env.PAGINATION_DEFAULT_LIMIT || '20', 10);
-    const requestedLimit = parseInt(this.queryString.limit || String(defaultLimit), 10);
+    const page = parseInt(this.queryString.page || "1", 10);
+    const maxLimit = parseInt(process.env.PAGINATION_MAX_LIMIT || "100", 10);
+    const defaultLimit = parseInt(
+      process.env.PAGINATION_DEFAULT_LIMIT || "20",
+      10,
+    );
+    const requestedLimit = parseInt(
+      this.queryString.limit || String(defaultLimit),
+      10,
+    );
     const limit = Math.min(Math.max(1, requestedLimit), maxLimit);
     const skip = (page - 1) * limit;
     this.pageValue = page;

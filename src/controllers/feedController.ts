@@ -78,7 +78,8 @@ export const getPinterestCatalogFeed = catchAsync(
       }
 
       // Determine main image URL safely
-      let mainImageUrl = p.isPremium ? resolveImageUrl(p.premiumHeroImage, baseUrl) : "";
+      let mainImageUrl =
+        p.isPremium ? resolveImageUrl(p.premiumHeroImage, baseUrl) : "";
       if (!mainImageUrl && Array.isArray(p.images) && p.images.length > 0) {
         mainImageUrl = resolveImageUrl(p.images[0], baseUrl);
       }
@@ -95,18 +96,23 @@ export const getPinterestCatalogFeed = catchAsync(
       const rawTitle = p.name || "Saree Product";
       const titleText =
         p.isPremium && p.premiumSubtitle ?
-          `${rawTitle} — ${p.premiumSubtitle}`
+          `${rawTitle} - ${p.premiumSubtitle}`
         : rawTitle;
       const title = escapeXml(titleText);
 
       let rawDesc =
-        p.shortDescription || p.seoDescription || p.description || p.name || "Handcrafted Luxury Saree";
+        p.shortDescription ||
+        p.seoDescription ||
+        p.description ||
+        p.name ||
+        "Handcrafted Luxury Saree";
       if (p.isPremium) {
         const extraBits: string[] = [];
         if (p.craftNote) extraBits.push(`Craft Note: ${p.craftNote}`);
-        if (p.weaveHours) extraBits.push(`Artisan Weave Time: ${p.weaveHours} Hours`);
+        if (p.weaveHours)
+          extraBits.push(`Artisan Weave Time: ${p.weaveHours} Hours`);
         if (extraBits.length > 0) {
-          rawDesc = `${extraBits.join(" | ")} — ${rawDesc}`;
+          rawDesc = `${extraBits.join(" | ")} - ${rawDesc}`;
         }
       }
       const description = escapeXml(stripHtml(rawDesc).slice(0, 4900));
@@ -153,12 +159,9 @@ export const getPinterestCatalogFeed = catchAsync(
         : "General";
       const customLabel2 = audienceTag; // women, men, kids, couple
       const customLabel3 =
-        p.fabric ?
-          p.fabric
-        : p.weaveHours ?
-          `${p.weaveHours} Hrs Weave`
-        : totalStock > 0 ?
-          "In Stock"
+        p.fabric ? p.fabric
+        : p.weaveHours ? `${p.weaveHours} Hrs Weave`
+        : totalStock > 0 ? "In Stock"
         : "Out of Stock";
       const customLabel4 = compareVal ? "On Sale" : "Full Price";
 
@@ -231,11 +234,15 @@ export const getBlogRssFeed = catchAsync(
     const itemsXml: string[] = [];
 
     for (const b of blogs) {
-      const blogUrl = b.slug ? `${baseUrl}/blog/${encodeURIComponent(b.slug)}` : `${baseUrl}/blog/${b._id}`;
+      const blogUrl =
+        b.slug ?
+          `${baseUrl}/blog/${encodeURIComponent(b.slug)}`
+        : `${baseUrl}/blog/${b._id}`;
       const title = escapeXml(b.title || "Journal Story");
 
       const plainContent = stripHtml(b.content || "");
-      const rawExcerpt = b.excerpt || b.seoDescription || plainContent || b.title;
+      const rawExcerpt =
+        b.excerpt || b.seoDescription || plainContent || b.title;
       const description = escapeXml(stripHtml(rawExcerpt).slice(0, 500));
 
       const pubDate = new Date(b.createdAt || Date.now()).toUTCString();
@@ -243,7 +250,9 @@ export const getBlogRssFeed = catchAsync(
       // Determine main cover image safely
       let coverImg = "";
       if (Array.isArray(b.images) && b.images.length > 0) {
-        const coverObj = b.images.find((img: any) => img?.placement === "cover") || b.images[0];
+        const coverObj =
+          b.images.find((img: any) => img?.placement === "cover") ||
+          b.images[0];
         coverImg = resolveImageUrl(coverObj, baseUrl);
       }
       if (!coverImg) {
@@ -335,7 +344,8 @@ export const getProductsRssFeed = catchAsync(
         continue;
       }
 
-      let mainImageUrl = p.isPremium ? resolveImageUrl(p.premiumHeroImage, baseUrl) : "";
+      let mainImageUrl =
+        p.isPremium ? resolveImageUrl(p.premiumHeroImage, baseUrl) : "";
       if (!mainImageUrl && Array.isArray(p.images) && p.images.length > 0) {
         mainImageUrl = resolveImageUrl(p.images[0], baseUrl);
       }
@@ -346,12 +356,16 @@ export const getProductsRssFeed = catchAsync(
       const rawTitle = p.name || "Saree Product";
       const titleText =
         p.isPremium && p.premiumSubtitle ?
-          `${rawTitle} — ${p.premiumSubtitle}`
+          `${rawTitle} - ${p.premiumSubtitle}`
         : rawTitle;
       const title = escapeXml(titleText);
 
       let rawDesc =
-        p.shortDescription || p.seoDescription || p.description || p.name || "Handcrafted Luxury Saree";
+        p.shortDescription ||
+        p.seoDescription ||
+        p.description ||
+        p.name ||
+        "Handcrafted Luxury Saree";
       if (p.isPremium) {
         const extraBits: string[] = [];
         if (p.craftNote) extraBits.push(`Craft Note: ${p.craftNote}`);
@@ -364,7 +378,7 @@ export const getProductsRssFeed = catchAsync(
       const priceVal = Number(p.price || 0);
       const formattedPrice = `₹${priceVal.toLocaleString("en-IN")} INR`;
       const description = escapeXml(
-        `${stripHtml(rawDesc).slice(0, 400)} — Price: ${formattedPrice}`,
+        `${stripHtml(rawDesc).slice(0, 400)} - Price: ${formattedPrice}`,
       );
 
       const pubDate = new Date(p.createdAt || Date.now()).toUTCString();
@@ -414,4 +428,3 @@ ${itemsXml.join("\n")}
     res.status(200).send(xmlPayload);
   },
 );
-

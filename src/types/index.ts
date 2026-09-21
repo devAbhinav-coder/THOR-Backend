@@ -1,18 +1,19 @@
-import { Request } from 'express';
-import { Document, Types } from 'mongoose';
+import { Request } from "express";
+import { Document, Types } from "mongoose";
 
 export interface IUser extends Document {
   _id: Types.ObjectId;
   name: string;
   email: string;
   password: string;
-  role: 'user' | 'admin';
+  role: "user" | "admin" | "staff";
+  adminPermissions?: string[];
   googleId?: string;
   /** Set when a welcome email was sent (OTP verify or new Google account). */
   welcomeEmailAt?: Date;
   emailVerified?: boolean;
   phone?: string;
-  /** Marketing WhatsApp — default on; set false to opt out of catalog/offer alerts. */
+  /** Marketing WhatsApp - default on; set false to opt out of catalog/offer alerts. */
   whatsappMarketingOptIn?: boolean;
   avatar?: string;
   adminNote?: string;
@@ -23,9 +24,10 @@ export interface IUser extends Document {
   lastActiveAt?: Date;
   reengagementEmailAt?: Date;
   passwordChangedAt?: Date;
+  tokenEpoch?: number;
   passwordResetToken?: string;
   passwordResetExpires?: Date;
-  /** Admin TOTP 2FA — enabled after setup verify. */
+  /** Admin TOTP 2FA - enabled after setup verify. */
   adminTwoFactorEnabled?: boolean;
   adminTwoFactorSecret?: string;
   adminTwoFactorBackupCodes?: string[];
@@ -59,7 +61,7 @@ export interface IProductVariant {
   stock: number;
   sku: string;
   price?: number;
-  /** Purchase / landed cost per unit — used for margin calculation in inventory hub. */
+  /** Purchase / landed cost per unit - used for margin calculation in inventory hub. */
   costPrice?: number;
   /** Lifetime units sold for this SKU. */
   soldCount?: number;
@@ -69,7 +71,7 @@ export interface IProductCustomField {
   _id?: Types.ObjectId;
   label: string;
   placeholder?: string;
-  fieldType: 'text' | 'textarea' | 'select' | 'image';
+  fieldType: "text" | "textarea" | "select" | "image";
   options?: string[];
   isRequired: boolean;
 }
@@ -94,10 +96,10 @@ export interface IProduct extends Document {
   price: number;
   comparePrice?: number;
   category: string;
-  /** FK reference to Category — populated during Phase 2 migration */
+  /** FK reference to Category - populated during Phase 2 migration */
   categoryId?: Types.ObjectId;
   subcategory?: string;
-  /** FK reference to SubCategory — populated during Phase 2 migration */
+  /** FK reference to SubCategory - populated during Phase 2 migration */
   subcategoryId?: Types.ObjectId;
   fabric?: string;
   careInstructions?: string;
@@ -110,7 +112,7 @@ export interface IProduct extends Document {
   tags: string[];
   isFeatured: boolean;
   isActive: boolean;
-  audience?: 'women' | 'men' | 'kids' | 'couple' | 'all';
+  audience?: "women" | "men" | "kids" | "couple" | "all";
   // Gifting
   isGiftable: boolean;
   isCustomizable: boolean;
@@ -119,7 +121,7 @@ export interface IProduct extends Document {
   customFields: IProductCustomField[];
   // Premium collection
   isPremium: boolean;
-  /** Stable URL slug for /premium/[slug] — independent of auto product slug */
+  /** Stable URL slug for /premium/[slug] - independent of auto product slug */
   premiumSlug?: string;
   premiumSubtitle?: string;
   craftNote?: string;
@@ -147,7 +149,7 @@ export interface IProduct extends Document {
   viewCount: number;
   /** Checkout frequency tracker */
   soldCount: number;
-  /** Vector search embedding — not selected by default in queries */
+  /** Vector search embedding - not selected by default in queries */
   contentEmbedding?: number[];
   discountPercent?: number;
   hsnCode?: string;
@@ -155,12 +157,11 @@ export interface IProduct extends Document {
   seoDescription?: string;
   /** Admin-controlled sort position within a category/subcategory listing */
   sortOrder?: number;
-  /** Old slug stored before Phase 3 slug regeneration — used for 301 redirects */
+  /** Old slug stored before Phase 3 slug regeneration - used for 301 redirects */
   oldSlug?: string;
   createdAt: Date;
   updatedAt: Date;
 }
-
 
 export interface IProductImage {
   url: string;
@@ -228,12 +229,19 @@ export interface IOrder extends Document {
   user: Types.ObjectId;
   items: IOrderItem[];
   shippingAddress: IAddress;
-  status: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded';
-  paymentStatus: 'pending' | 'paid' | 'failed' | 'refunded';
-  paymentMethod: 'razorpay' | 'cod' | 'offline_upi' | 'offline_cash';
+  status:
+    | "pending"
+    | "confirmed"
+    | "processing"
+    | "shipped"
+    | "delivered"
+    | "cancelled"
+    | "refunded";
+  paymentStatus: "pending" | "paid" | "failed" | "refunded";
+  paymentMethod: "razorpay" | "cod" | "offline_upi" | "offline_cash";
   offlineMeta?: {
-    source: 'stall' | 'personal_contact' | 'b2b';
-    fulfillment: 'delhivery' | 'offline_handover';
+    source: "stall" | "personal_contact" | "b2b";
+    fulfillment: "delhivery" | "offline_handover";
     createdByAdmin?: Types.ObjectId;
   };
   b2bMeta?: {
@@ -278,18 +286,18 @@ export interface IOrder extends Document {
   trackingUrl?: string;
   shippedAt?: Date;
   deliveredAt?: Date;
-  productType: 'standard' | 'custom';
+  productType: "standard" | "custom";
   customRequestId?: Types.ObjectId;
   invoice?: {
     isGenerated: boolean;
     generatedAt?: Date;
   };
   taxSalesInvoiceId?: Types.ObjectId;
-  returnStatus?: 'none' | 'requested' | 'approved' | 'rejected' | 'returned';
+  returnStatus?: "none" | "requested" | "approved" | "rejected" | "returned";
   returnRequest?: {
     reason: string;
     note?: string;
-    refundMethod?: 'original_payment' | 'upi' | 'bank_transfer';
+    refundMethod?: "original_payment" | "upi" | "bank_transfer";
     userBankDetails?: {
       upiId?: string;
       accountName?: string;
@@ -303,7 +311,7 @@ export interface IOrder extends Document {
   };
   refundData?: {
     amount: number;
-    method: 'razorpay_auto' | 'cash' | 'bank_transfer' | 'upi_manual';
+    method: "razorpay_auto" | "cash" | "bank_transfer" | "upi_manual";
     gatewayRefundId?: string;
     notes?: string;
     processedAt: Date;
@@ -325,14 +333,15 @@ export interface IOrder extends Document {
   updatedAt: Date;
 }
 
-export type ReviewStatus = 'visible' | 'hidden' | 'flagged' | 'pending_moderation';
+export type ReviewStatus =
+  "visible" | "hidden" | "flagged" | "pending_moderation";
 
 export interface IReview extends Document {
   _id: Types.ObjectId;
   product: Types.ObjectId;
   user: Types.ObjectId;
   order?: Types.ObjectId;
-  source?: 'purchase' | 'share_link' | 'invite';
+  source?: "purchase" | "share_link" | "invite";
   rating: number;
   title?: string;
   comment: string;
@@ -347,7 +356,7 @@ export interface IReview extends Document {
   moderationScore?: number;
   reports?: {
     user: Types.ObjectId;
-    reason: 'spam' | 'abusive' | 'misleading' | 'other';
+    reason: "spam" | "abusive" | "misleading" | "other";
     details?: string;
     createdAt: Date;
   }[];
@@ -357,14 +366,15 @@ export interface IReview extends Document {
   updatedAt: Date;
 }
 
-export type PromoScopeType = 'all' | 'categories' | 'subcategories' | 'products';
+export type PromoScopeType =
+  "all" | "categories" | "subcategories" | "products";
 
 export interface ICoupon extends Document {
   _id: Types.ObjectId;
   isValid: (
     userId: string,
     orderAmount: number,
-    opts?: { completedOrders?: number }
+    opts?: { completedOrders?: number },
   ) => { valid: boolean; message?: string };
   calculateDiscount: (orderAmount: number) => number;
   code: string;
@@ -373,7 +383,7 @@ export interface ICoupon extends Document {
   imageUrl?: string;
   imagePublicId?: string;
   showOnStorefront: boolean;
-  discountType: 'percentage' | 'flat' | 'fixed';
+  discountType: "percentage" | "flat" | "fixed";
   discountValue: number;
   minOrderAmount?: number;
   maxDiscountAmount?: number;
@@ -391,7 +401,7 @@ export interface ICoupon extends Document {
   applicableCategoryIds: Types.ObjectId[];
   applicableSubcategoryIds: Types.ObjectId[];
   applicableProductIds: Types.ObjectId[];
-  eligibilityType: 'all' | 'first_order' | 'returning';
+  eligibilityType: "all" | "first_order" | "returning";
   minCompletedOrders: number;
   maxCompletedOrders?: number;
   createdAt: Date;
@@ -403,7 +413,7 @@ export interface ISaleCampaign extends Document {
   name: string;
   description?: string;
   badgeText?: string;
-  discountType: 'percentage' | 'flat' | 'fixed';
+  discountType: "percentage" | "flat" | "fixed";
   discountValue: number;
   maxDiscountPerItem?: number;
   imageUrl?: string;
@@ -431,7 +441,7 @@ export interface IPromotion extends Document {
   badgeText?: string;
   imageUrl?: string;
   imagePublicId?: string;
-  promotionType: 'bogo' | 'flat' | 'percentage';
+  promotionType: "bogo" | "flat" | "percentage";
   buyQuantity: number;
   getQuantity: number;
   getDiscountPercent: number;
@@ -456,14 +466,9 @@ export interface IPromotion extends Document {
 }
 
 export type BlogImageLayout =
-  | 'hero'
-  | 'wide'
-  | 'portrait'
-  | 'square'
-  | 'inline'
-  | 'split';
+  "hero" | "wide" | "portrait" | "square" | "inline" | "split";
 
-export type BlogImagePlacement = 'cover' | 'article' | 'gallery';
+export type BlogImagePlacement = "cover" | "article" | "gallery";
 
 export interface IBlogImage {
   url: string;
@@ -490,7 +495,7 @@ export interface IBlog extends Document {
   keywords: string[];
   tags: string[];
   category: string;
-  articleTemplate?: 'classic' | 'magazine' | 'minimal' | 'lookbook';
+  articleTemplate?: "classic" | "magazine" | "minimal" | "lookbook";
   relatedProductIds: Types.ObjectId[];
   readingTimeMin: number;
   aiGenerated: boolean;
@@ -502,7 +507,8 @@ export interface IBlog extends Document {
   updatedAt: Date;
 }
 
-export type BlogContentPlanStatus = 'planned' | 'drafted' | 'published' | 'skipped';
+export type BlogContentPlanStatus =
+  "planned" | "drafted" | "published" | "skipped";
 
 export interface IBlogContentPlan extends Document {
   _id: Types.ObjectId;
@@ -535,12 +541,16 @@ export interface JwtPayload {
   id: string;
   iat: number;
   exp: number;
+  /** Refresh session id - access revoked when session is logged out. */
+  sid?: string;
+  /** Must match User.tokenEpoch. */
+  ver?: number;
   /** Set when admin completes TOTP verification. */
   a2f?: boolean;
   purpose?: string;
 }
 
-export type UserRole = 'user' | 'admin';
+export type UserRole = "user" | "admin";
 
 export interface IGiftingRequestItem {
   product: Types.ObjectId;
@@ -559,10 +569,15 @@ export interface IGiftingRequest extends Document {
   items: IGiftingRequestItem[];
   recipientMessage?: string;
   customizationNote?: string;
-  packagingPreference: 'standard' | 'premium' | 'custom';
+  packagingPreference: "standard" | "premium" | "custom";
   customPackagingNote?: string;
   referenceImages?: { url: string; publicId: string }[];
-  status: 'new' | 'price_quoted' | 'approved_by_user' | 'rejected_by_user' | 'cancelled';
+  status:
+    | "new"
+    | "price_quoted"
+    | "approved_by_user"
+    | "rejected_by_user"
+    | "cancelled";
   proposedPrice?: number;
   quotedPrice?: number;
   deliveryTime?: string;

@@ -4,7 +4,7 @@
  * Usage:
  *   npm run seed:premium-catalog
  *
- * Upserts by premiumSlug — safe to re-run.
+ * Upserts by premiumSlug - safe to re-run.
  */
 import "dotenv/config";
 import slugify from "slugify";
@@ -18,7 +18,7 @@ function toImages(urls: string[], name: string) {
   return urls.map((url, i) => ({
     url,
     publicId: `seed/premium/${slugify(name, { lower: true, strict: true })}/${i}`,
-    alt: `${name} — image ${i + 1}`,
+    alt: `${name} - image ${i + 1}`,
   }));
 }
 
@@ -27,8 +27,7 @@ async function main() {
   let upserted = 0;
 
   for (const [index, item] of PREMIUM_PRODUCTS.entries()) {
-    const imageUrls =
-      item.images.length > 0 ? item.images : [item.heroImage];
+    const imageUrls = item.images.length > 0 ? item.images : [item.heroImage];
     const images = toImages(imageUrls, item.name);
     const hero = images[0]!;
     const sku = `PREM-${item.slug.toUpperCase().replace(/-/g, "").slice(0, 16)}`;
@@ -72,7 +71,12 @@ async function main() {
     await Product.findOneAndUpdate(
       { premiumSlug: item.slug },
       { $set: doc },
-      { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true },
+      {
+        upsert: true,
+        new: true,
+        runValidators: true,
+        setDefaultsOnInsert: true,
+      },
     );
     upserted += 1;
     console.log(`✓ ${item.name} (${item.slug})`);
@@ -80,7 +84,7 @@ async function main() {
 
   await bumpProductCacheVersion();
   invalidatePremiumProductCache();
-  console.log(`\nDone — ${upserted} premium products upserted.`);
+  console.log(`\nDone - ${upserted} premium products upserted.`);
   process.exit(0);
 }
 

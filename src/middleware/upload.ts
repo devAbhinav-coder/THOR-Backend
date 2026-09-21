@@ -10,7 +10,7 @@ import {
 
 const memoryStorage = multer.memoryStorage();
 
-/** Raster images only — SVG/XML rejected to block stored XSS via image uploads. */
+/** Raster images only - SVG/XML rejected to block stored XSS via image uploads. */
 const ALLOWED_IMAGE_MIMES = new Set([
   "image/jpeg",
   "image/jpg",
@@ -87,7 +87,7 @@ export const uploadCategoryImages = multer({
   limits: { fileSize: 2 * 1024 * 1024, files: 2 },
 }).fields([
   { name: "avatar", maxCount: 1 },
-  { name: "heroBanner", maxCount: 1 }
+  { name: "heroBanner", maxCount: 1 },
 ]);
 
 export const uploadCouponBanner = multer({
@@ -111,12 +111,16 @@ export const processCouponBanner = async (
     const file = req.file;
     if (!file) return next();
 
-    const result = await uploadToCloudinary(file.buffer, "house-of-rani/coupons", [
-      { width: 900, height: 1200, crop: "limit", quality: "auto:good" },
-    ]);
+    const result = await uploadToCloudinary(
+      file.buffer,
+      "house-of-rani/coupons",
+      [{ width: 900, height: 1200, crop: "limit", quality: "auto:good" }],
+    );
 
     (
-      req as Request & { uploadedCouponImage?: { url: string; publicId: string } }
+      req as Request & {
+        uploadedCouponImage?: { url: string; publicId: string };
+      }
     ).uploadedCouponImage = {
       url: result.secure_url,
       publicId: result.public_id,
@@ -143,9 +147,11 @@ export const processSaleBanner = async (
     const file = req.file;
     if (!file) return next();
 
-    const result = await uploadToCloudinary(file.buffer, "house-of-rani/sales", [
-      { width: 900, height: 1200, crop: "limit", quality: "auto:good" },
-    ]);
+    const result = await uploadToCloudinary(
+      file.buffer,
+      "house-of-rani/sales",
+      [{ width: 900, height: 1200, crop: "limit", quality: "auto:good" }],
+    );
 
     (
       req as Request & { uploadedSaleImage?: { url: string; publicId: string } }
@@ -175,12 +181,16 @@ export const processPromotionBanner = async (
     const file = req.file;
     if (!file) return next();
 
-    const result = await uploadToCloudinary(file.buffer, "house-of-rani/promotions", [
-      { width: 900, height: 1200, crop: "limit", quality: "auto:good" },
-    ]);
+    const result = await uploadToCloudinary(
+      file.buffer,
+      "house-of-rani/promotions",
+      [{ width: 900, height: 1200, crop: "limit", quality: "auto:good" }],
+    );
 
     (
-      req as Request & { uploadedPromotionImage?: { url: string; publicId: string } }
+      req as Request & {
+        uploadedPromotionImage?: { url: string; publicId: string };
+      }
     ).uploadedPromotionImage = {
       url: result.secure_url,
       publicId: result.public_id,
@@ -399,7 +409,8 @@ export const processCategoryImages = async (
   next: NextFunction,
 ): Promise<void> => {
   try {
-    const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+    const files = req.files as
+      { [fieldname: string]: Express.Multer.File[] } | undefined;
     if (!files) return next();
 
     if (files["avatar"] && files["avatar"].length > 0) {
@@ -739,14 +750,20 @@ export const processStorefrontAssets = async (
           "house-of-rani/storefront/premium",
           [{ width: 1536, crop: "limit" }],
         );
-        uploaded.premiumEditorial = { url: result.secure_url, publicId: result.public_id };
+        uploaded.premiumEditorial = {
+          url: result.secure_url,
+          publicId: result.public_id,
+        };
       } else if (file.fieldname === "premiumStoryImage") {
         const result = await uploadToCloudinary(
           file.buffer,
           "house-of-rani/storefront/premium",
           [{ width: 2560, height: 1080, crop: "limit" }],
         );
-        uploaded.premiumStory = { url: result.secure_url, publicId: result.public_id };
+        uploaded.premiumStory = {
+          url: result.secure_url,
+          publicId: result.public_id,
+        };
       }
     }
 
@@ -765,7 +782,7 @@ export const uploadBlogImages = multer({
   limits: { fileSize: 5 * 1024 * 1024, files: 10 },
 }).array("images", 10);
 
-/** Express error middleware — surface multer failures instead of hanging requests. */
+/** Express error middleware - surface multer failures instead of hanging requests. */
 export const handleBlogUploadError = (
   err: unknown,
   _req: Request,

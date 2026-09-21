@@ -6,10 +6,15 @@ import {
   discoverPremiumProducts,
   getPremiumProductBySlug,
 } from "../services/premium/premiumProductDiscoveryService";
+import { setPublicCatalogCacheHeaders } from "../constants/publicHttpCache";
 
 /** GET /api/premium/products */
 export const getPremiumProducts = catchAsync(
   async (req: Request, res: Response) => {
+    setPublicCatalogCacheHeaders(res, {
+      maxAgeSec: 120,
+      staleWhileRevalidateSec: 360,
+    });
     const result = await discoverPremiumProducts(
       req.query as Record<string, string>,
     );
@@ -29,6 +34,10 @@ export const getPremiumProducts = catchAsync(
 /** GET /api/premium/products/:slug */
 export const getPremiumProduct = catchAsync(
   async (req: Request, res: Response) => {
+    setPublicCatalogCacheHeaders(res, {
+      maxAgeSec: 120,
+      staleWhileRevalidateSec: 360,
+    });
     const product = await getPremiumProductBySlug(req.params.slug);
     if (!product) {
       throw new AppError("Premium product not found", 404);

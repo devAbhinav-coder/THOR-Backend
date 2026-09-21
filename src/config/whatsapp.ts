@@ -8,7 +8,7 @@ function envFlag(name: string, fallback = false): boolean {
 export function whatsappConfigured(): boolean {
   return Boolean(
     process.env.WHATSAPP_ACCESS_TOKEN?.trim() &&
-      process.env.WHATSAPP_PHONE_NUMBER_ID?.trim(),
+    process.env.WHATSAPP_PHONE_NUMBER_ID?.trim(),
   );
 }
 
@@ -66,7 +66,8 @@ export const whatsAppAutomatedTriggers = [
     id: "order_status",
     label: "Order status updates (confirmed, processing, refund)",
     templateKey: "orderStatus" as WhatsAppTemplateKey,
-    schedule: "When admin updates order status — COD accepted, processing, etc.",
+    schedule:
+      "When admin updates order status - COD accepted, processing, etc.",
   },
   {
     id: "order_cancelled",
@@ -90,19 +91,22 @@ export const whatsAppAutomatedTriggers = [
     id: "order_delivered",
     label: "Order delivered + invoice PDF",
     templateKey: "delivered" as WhatsAppTemplateKey,
-    schedule: "When order marked delivered — thank-you, invoice link, PDF (online + offline courier)",
+    schedule:
+      "When order marked delivered - thank-you, invoice link, PDF (online + offline courier)",
   },
   {
     id: "offline_handover",
     label: "In-person handover thank-you + invoice PDF",
     templateKey: "offlineHandover" as WhatsAppTemplateKey,
-    schedule: "Offline handover order created — thank-you, invoice link, PDF on WhatsApp",
+    schedule:
+      "Offline handover order created - thank-you, invoice link, PDF on WhatsApp",
   },
   {
     id: "offline_thankyou",
     label: "Offline courier thank-you (create only)",
     templateKey: "offlineThankYou" as WhatsAppTemplateKey,
-    schedule: "Offline courier order created — thank-you only (invoice on delivery)",
+    schedule:
+      "Offline courier order created - thank-you only (invoice on delivery)",
   },
   {
     id: "review_invite",
@@ -114,7 +118,7 @@ export const whatsAppAutomatedTriggers = [
     id: "abandoned_cart",
     label: "Abandoned cart reminder",
     templateKey: "abandonedCart" as WhatsAppTemplateKey,
-    schedule: "Auto — 2h inactive cart (hourly job)",
+    schedule: "Auto - 2h inactive cart (hourly job)",
   },
   {
     id: "catalog_alert",
@@ -126,14 +130,18 @@ export const whatsAppAutomatedTriggers = [
     id: "marketing_campaign",
     label: "Admin marketing broadcast",
     templateKey: "catalog" as WhatsAppTemplateKey,
-    schedule: "Manual — Marketing campaigns page",
+    schedule: "Manual - Marketing campaigns page",
   },
 ] as const;
 
 export function toWhatsAppMsisdn(phone?: string | null): string | null {
   const digits = String(phone || "").replace(/\D/g, "");
   if (digits.length === 10 && /^[6-9]/.test(digits)) return `91${digits}`;
-  if (digits.length === 12 && digits.startsWith("91") && /^91[6-9]/.test(digits)) {
+  if (
+    digits.length === 12 &&
+    digits.startsWith("91") &&
+    /^91[6-9]/.test(digits)
+  ) {
     return digits;
   }
   return null;

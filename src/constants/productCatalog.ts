@@ -1,29 +1,29 @@
-/** Predefined product occasions — admin form + shop filters. */
+/** Predefined product occasions - admin form + shop filters. */
 export const PRODUCT_OCCASIONS = [
-  'Wedding',
-  'Bridal',
-  'Reception',
-  'Festive',
-  'Party',
-  'Casual',
-  'Office / Formal',
-  'Daily Wear',
+  "Wedding",
+  "Bridal",
+  "Reception",
+  "Festive",
+  "Party",
+  "Casual",
+  "Office / Formal",
+  "Daily Wear",
 ] as const;
 
 export const PRODUCT_FABRICS = [
-  'Silk',
-  'Cotton',
-  'Chiffon',
-  'Georgette',
-  'Banarasi',
-  'Kanjeevaram',
-  'Linen',
-  'Crepe',
-  'Net',
-  'Velvet',
-  'Jacquard',
-  'Chanderi',
-  'Other',
+  "Silk",
+  "Cotton",
+  "Chiffon",
+  "Georgette",
+  "Banarasi",
+  "Kanjeevaram",
+  "Linen",
+  "Crepe",
+  "Net",
+  "Velvet",
+  "Jacquard",
+  "Chanderi",
+  "Other",
 ] as const;
 
 function mergeCatalogOptions(
@@ -33,9 +33,9 @@ function mergeCatalogOptions(
   const seen = new Set<string>();
   const out: string[] = [];
   for (const value of [...presets, ...fromProducts]) {
-    const trimmed = String(value || '').trim();
+    const trimmed = String(value || "").trim();
     if (!trimmed) continue;
-    const key = trimmed.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const key = trimmed.toLowerCase().replace(/[^a-z0-9]/g, "");
     if (!key || seen.has(key)) continue;
     seen.add(key);
     out.push(trimmed);

@@ -12,13 +12,21 @@ import {
 import { emitAuthEvent } from "./authEventService";
 import { securityLog } from "../types/utils/securityLog";
 
-const ACCESS_EXPIRES = process.env.JWT_EXPIRES_IN || "15m";
+import {
+  accessTokenExpiresInForRole,
+  accessTokenTtlSeconds,
+} from "../auth/accessTokenTtl";
+import { revokeAccessSession } from "./auth/authAccessRevokeService";
+import { bumpUserTokenEpoch } from "./auth/authTokenEpochService";
+
 const REFRESH_MS =
   parseInt(process.env.REFRESH_TOKEN_DAYS || "30", 10) * 24 * 60 * 60 * 1000;
 
+export { accessTokenTtlSeconds };
+
 /**
  * Native apps need Bearer tokens in the JSON body (no cookie jar).
- * Never trust a spoofable `X-Client` from a browser (Origin present) —
+ * Never trust a spoofable `X-Client` from a browser (Origin present) -
  * same-origin XSS could otherwise harvest refresh tokens from JSON.
  */
 function clientWantsBearerTokens(req?: Request): boolean {
@@ -37,16 +45,30 @@ function clientWantsBearerTokens(req?: Request): boolean {
   return client === "mobile" || client === "app" || client === "expo";
 }
 
+export type SignAccessTokenOpts = {
+  admin2faVerified?: boolean;
+  sessionId?: string;
+  tokenEpoch?: number;
+  role?: "user" | "admin" | "staff";
+};
+
 export const signAccessToken = (
   userId: string,
-  opts?: { admin2faVerified?: boolean },
+  opts?: SignAccessTokenOpts,
 ): string => {
   const payload: Record<string, unknown> = { id: userId };
   if (opts?.admin2faVerified) payload.a2f = true;
-  return jwt.sign(payload, process.env.JWT_SECRET as string, {
-    expiresIn: ACCESS_EXPIRES,
-    algorithm: "HS256",
-  } as jwt.SignOptions);
+  if (opts?.sessionId) payload.sid = opts.sessionId;
+  if (typeof opts?.tokenEpoch === "number") payload.ver = opts.tokenEpoch;
+  const expiresIn = accessTokenExpiresInForRole(opts?.role);
+  return jwt.sign(
+    payload,
+    process.env.JWT_SECRET as string,
+    {
+      expiresIn,
+      algorithm: "HS256",
+    } as jwt.SignOptions,
+  );
 };
 
 export const hashToken = (raw: string): string => {
@@ -64,12 +86,17 @@ export type RefreshSessionMeta = {
 export const createRefreshTokenForUser = async (
   userId: string,
   meta: RefreshSessionMeta = {},
-): Promise<{ raw: string; expiresAt: Date; familyId: string }> => {
+): Promise<{
+  raw: string;
+  expiresAt: Date;
+  familyId: string;
+  sessionId: string;
+}> => {
   const raw = crypto.randomBytes(48).toString("hex");
   const expiresAt = new Date(Date.now() + REFRESH_MS);
   const familyId = meta.familyId || crypto.randomUUID();
 
-  await RefreshToken.create({
+  const doc = await RefreshToken.create({
     user: userId,
     tokenHash: hashToken(raw),
     expiresAt,
@@ -81,7 +108,12 @@ export const createRefreshTokenForUser = async (
     admin2faVerified: Boolean(meta.admin2faVerified),
   });
 
-  return { raw, expiresAt, familyId };
+  return {
+    raw,
+    expiresAt,
+    familyId,
+    sessionId: String(doc._id),
+  };
 };
 
 const cookieBase = () => {
@@ -98,11 +130,13 @@ export const setTokenCookies = (
   accessToken: string,
   refreshRaw: string,
   refreshExpires: Date,
+  opts?: { role?: "user" | "admin" | "staff" },
 ): void => {
   const base = cookieBase();
+  const accessMs = accessTokenTtlSeconds(opts?.role) * 1000;
   res.cookie("accessToken", accessToken, {
     ...base,
-    maxAge: 15 * 60 * 1000,
+    maxAge: accessMs,
   });
   res.cookie("refreshToken", refreshRaw, {
     ...base,
@@ -143,15 +177,19 @@ export const sendAuthResponse = async (
     throw new AppError("Two-factor authentication required.", 403);
   }
 
-  const accessToken = signAccessToken(String(user._id), {
-    admin2faVerified,
-  });
   const meta = req ? sessionMetaFromRequest(req) : {};
-  const { raw, expiresAt } = await createRefreshTokenForUser(
+  const { raw, expiresAt, sessionId } = await createRefreshTokenForUser(
     String(user._id),
     { ...meta, admin2faVerified },
   );
-  setTokenCookies(res, accessToken, raw, expiresAt);
+  const tokenEpoch = user.tokenEpoch ?? 0;
+  const accessToken = signAccessToken(String(user._id), {
+    admin2faVerified,
+    sessionId,
+    tokenEpoch,
+    role: user.role,
+  });
+  setTokenCookies(res, accessToken, raw, expiresAt, { role: user.role });
 
   void User.updateOne(
     { _id: user._id },
@@ -228,17 +266,27 @@ export async function rotateRefreshToken(
     throw new AppError(SESSION_EXPIRED, 401);
   }
 
-  if (user.role === "admin" && user.adminTwoFactorEnabled && !doc.admin2faVerified) {
+  if (
+    user.role === "admin" &&
+    user.adminTwoFactorEnabled &&
+    !doc.admin2faVerified
+  ) {
     throw new AppError("Admin two-factor verification required.", 401);
   }
 
   const meta = sessionMetaFromRequest(req);
   const familyId = doc.familyId || crypto.randomUUID();
   const admin2faVerified = Boolean(doc.admin2faVerified);
-  const { raw: newRaw, expiresAt } = await createRefreshTokenForUser(
-    String(user._id),
-    { ...meta, familyId, admin2faVerified },
-  );
+  const oldSessionId = String(doc._id);
+  const {
+    raw: newRaw,
+    expiresAt,
+    sessionId,
+  } = await createRefreshTokenForUser(String(user._id), {
+    ...meta,
+    familyId,
+    admin2faVerified,
+  });
 
   await RefreshToken.updateOne(
     { _id: doc._id },
@@ -251,12 +299,18 @@ export async function rotateRefreshToken(
     },
   );
 
+  await revokeAccessSession(oldSessionId, accessTokenTtlSeconds(user.role));
+
   const accessToken = signAccessToken(String(user._id), {
-    admin2faVerified: user.role === "admin" && user.adminTwoFactorEnabled
-      ? admin2faVerified
+    admin2faVerified:
+      user.role === "admin" && user.adminTwoFactorEnabled ?
+        admin2faVerified
       : undefined,
+    sessionId,
+    tokenEpoch: user.tokenEpoch ?? 0,
+    role: user.role,
   });
-  setTokenCookies(res, accessToken, newRaw, expiresAt);
+  setTokenCookies(res, accessToken, newRaw, expiresAt, { role: user.role });
 
   const userObj = user.toObject() as unknown as Record<string, unknown>;
   delete userObj["password"];
@@ -289,6 +343,8 @@ export const revokeRefreshByRawCookie = async (
       { user: doc.user, revokedAt: { $exists: false } },
       { $set: { revokedAt: new Date() } },
     );
+    await bumpUserTokenEpoch(String(doc.user));
+    await revokeAccessSession(String(doc._id), accessTokenTtlSeconds());
     return;
   }
 
@@ -296,4 +352,5 @@ export const revokeRefreshByRawCookie = async (
     { _id: doc._id },
     { $set: { revokedAt: new Date() } },
   );
+  await revokeAccessSession(String(doc._id), accessTokenTtlSeconds());
 };

@@ -298,7 +298,7 @@ export async function runLowStockAlertJob(): Promise<number> {
     .map((p) => {
       const low = (p.variants ?? []).filter((v) => v.stock <= threshold);
       const skus = low.map((v) => `${v.sku}(${v.stock})`).join(", ");
-      return `<li><b>${p.name}</b> — ${skus}</li>`;
+      return `<li><b>${p.name}</b> - ${skus}</li>`;
     })
     .join("");
 
@@ -309,7 +309,7 @@ export async function runLowStockAlertJob(): Promise<number> {
     "alert",
   );
   // await notifyAdminsEmail(
-  //   "Low stock alert — The House of Rani",
+  //   "Low stock alert - The House of Rani",
   //   `<p>The following products need restocking (threshold ≤ ${threshold}):</p><ul>${lines}</ul>`,
   // );
 
@@ -360,7 +360,7 @@ export async function runOrderSlaBreachJob(): Promise<number> {
   const lines = overdue
     .map(
       (o) =>
-        `<li>${o.orderNumber} — ${o.status} since ${new Date(o.createdAt).toLocaleDateString("en-IN")}</li>`,
+        `<li>${o.orderNumber} - ${o.status} since ${new Date(o.createdAt).toLocaleDateString("en-IN")}</li>`,
     )
     .join("");
 
@@ -371,7 +371,7 @@ export async function runOrderSlaBreachJob(): Promise<number> {
     "alert",
   );
   await notifyAdminsEmail(
-    "Order SLA breach — The House of Rani",
+    "Order SLA breach - The House of Rani",
     `<p>These orders exceed the shipping SLA:</p><ul>${lines}</ul>`,
   );
 
@@ -528,9 +528,11 @@ export async function runAnalyticsPreAggregationJob(): Promise<number> {
       status: "cancelled",
       createdAt: { $gte: start, $lt: end },
     }).maxTimeMS(5000),
-    User.countDocuments({ createdAt: { $gte: start, $lt: end } }).maxTimeMS(
-      5000,
-    ),
+    User.countDocuments({
+      role: "user",
+      offlineLead: { $ne: true },
+      createdAt: { $gte: start, $lt: end },
+    }).maxTimeMS(5000),
     StoreVisitSession.countDocuments({ visitDate: dateKey }).maxTimeMS(5000),
     Order.aggregate([
       {

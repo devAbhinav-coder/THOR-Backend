@@ -2,10 +2,7 @@ import { Types } from "mongoose";
 import Blog from "../../models/Blog";
 import Product from "../../models/Product";
 import { advancedSearchService } from "../advancedSearchService";
-import {
-  vectorSearchBlogs,
-  vectorSearchProducts,
-} from "./vectorIndexService";
+import { vectorSearchBlogs, vectorSearchProducts } from "./vectorIndexService";
 import {
   BLOG_CATEGORIES,
   plainBlogExcerpt,
@@ -13,16 +10,19 @@ import {
 
 const CATEGORY_CONTEXT: Record<string, string> = {
   "saree-styling": "draping, pleats, pallu, blouse pairing, occasion looks",
-  bridal: "wedding, reception, haldi, bridal saree, salwar suit, corset pairings",
-  gifting: "corporate gifting, handmade gifts, pen gifts, festive hampers, personalization",
-  "fabric-care": "silk care, storage, ironing, dry clean, banarasi preservation",
+  bridal:
+    "wedding, reception, haldi, bridal saree, salwar suit, corset pairings",
+  gifting:
+    "corporate gifting, handmade gifts, pen gifts, festive hampers, personalization",
+  "fabric-care":
+    "silk care, storage, ironing, dry clean, banarasi preservation",
   festive: "Diwali, Navratri, Karva Chauth, Durga Puja outfit ideas",
   trends: "seasonal colours, celebrity-inspired drapes, new arrivals styling",
 };
 
 const BRAND_VOICE = {
   name: "The House of Rani Journal",
-  tone: "warm, expert, conversational — professional English only",
+  tone: "warm, expert, conversational - professional English only",
   audience: "Indian women shopping sarees, bridal wear, gifting",
   avoid: [
     "clickbait",
@@ -159,7 +159,11 @@ function buildKeywordSuggestions(
     .map((s) => s.trim())
     .filter(Boolean);
   const base = [topic, ...keywords, ...fromProducts, ...catHints];
-  return [...new Set(base.map((k) => k.toLowerCase().trim()).filter((k) => k.length > 2))].slice(0, 15);
+  return [
+    ...new Set(
+      base.map((k) => k.toLowerCase().trim()).filter((k) => k.length > 2),
+    ),
+  ].slice(0, 15);
 }
 
 async function getTopPerformingBlogSamples(limit = 3) {
@@ -208,12 +212,14 @@ export async function buildBlogRagContext(input: {
     : textBlogs.map((b) => ({ ...b, retrieval: "text" as const }));
 
   const seenProductSlugs = new Set<string>();
-  const relatedProducts = [...vectorProducts, ...searchProducts].filter((p) => {
-    const slug = String((p as { slug?: string }).slug || "");
-    if (!slug || seenProductSlugs.has(slug)) return false;
-    seenProductSlugs.add(slug);
-    return true;
-  }).slice(0, 6);
+  const relatedProducts = [...vectorProducts, ...searchProducts]
+    .filter((p) => {
+      const slug = String((p as { slug?: string }).slug || "");
+      if (!slug || seenProductSlugs.has(slug)) return false;
+      seenProductSlugs.add(slug);
+      return true;
+    })
+    .slice(0, 6);
 
   const keywordSuggestions = buildKeywordSuggestions(
     topic,
@@ -251,14 +257,16 @@ export async function buildBlogRagContext(input: {
       "800-1200 words for medium length",
       "Use keywords naturally in title, first paragraph, and one H2",
       "Include 2-3 internal product links as HTML anchors",
-      "Unique angle — do not repeat similarPublishedBlogs topics",
+      "Unique angle - do not repeat similarPublishedBlogs topics",
       "Safe HTML only: p, h2, h3, ul, ol, li, strong, em, a, br",
     ],
   };
 }
 
-/** Compact context for Groq — keeps TPM low. */
-export function compactBlogRagContext(ctx: Record<string, unknown>): Record<string, unknown> {
+/** Compact context for Groq - keeps TPM low. */
+export function compactBlogRagContext(
+  ctx: Record<string, unknown>,
+): Record<string, unknown> {
   return {
     topic: ctx.topic,
     keywords: ctx.keywords,
@@ -269,8 +277,13 @@ export function compactBlogRagContext(ctx: Record<string, unknown>): Record<stri
     season: ctx.season,
     keywordSuggestions: (ctx.keywordSuggestions as string[])?.slice(0, 10),
     duplicateWarnings: ctx.duplicateWarnings,
-    similarPublishedBlogs: (ctx.similarPublishedBlogs as unknown[])?.slice(0, 3),
-    topPerformingBlogSamples: (ctx.topPerformingBlogSamples as unknown[])?.slice(0, 2),
+    similarPublishedBlogs: (ctx.similarPublishedBlogs as unknown[])?.slice(
+      0,
+      3,
+    ),
+    topPerformingBlogSamples: (
+      ctx.topPerformingBlogSamples as unknown[]
+    )?.slice(0, 2),
     relatedProducts: (ctx.relatedProducts as unknown[])?.slice(0, 4),
     retrievalMethod: ctx.retrievalMethod,
     allowedCategories: ctx.allowedCategories,

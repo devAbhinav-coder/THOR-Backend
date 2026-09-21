@@ -56,7 +56,7 @@ function configured(): boolean {
   return false;
 }
 
-/** Safe flags for admin analytics — never exposes token or pixel secrets. */
+/** Safe flags for admin analytics - never exposes token or pixel secrets. */
 export function getMetaTrackingStatus(): {
   pixelConfigured: boolean;
   capiConfigured: boolean;
@@ -130,11 +130,13 @@ export const sendPurchaseEvent = async (
   try {
     const contents = order.items.map((item) => {
       const productId =
-        typeof item.product === "object" &&
-        item.product !== null &&
-        "_id" in item.product
-          ? (item.product as { _id: { toString(): string } })._id.toString()
-          : String(item.product);
+        (
+          typeof item.product === "object" &&
+          item.product !== null &&
+          "_id" in item.product
+        ) ?
+          (item.product as { _id: { toString(): string } })._id.toString()
+        : String(item.product);
 
       return {
         id: getMetaCatalogItemId(productId, item.variant),

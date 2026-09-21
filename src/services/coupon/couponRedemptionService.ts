@@ -173,7 +173,7 @@ export const couponRedemptionService = {
     return true;
   },
 
-  /** COD checkout path — throws on race to preserve existing checkout behavior. */
+  /** COD checkout path - throws on race to preserve existing checkout behavior. */
   async redeemOrThrowInTransaction(
     session: mongoose.ClientSession | null,
     userId: mongoose.Types.ObjectId,

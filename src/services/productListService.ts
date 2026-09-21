@@ -15,20 +15,29 @@ import {
   getCachedProductCount,
   parseExcludeObjectIds,
 } from "./productCountService";
-import {
-  filtersCacheKey,
-  getProductCacheVersion,
-  randomPoolCountKey,
-} from "./productCacheService";
-import { getCache, setCache } from "./cacheService";
+import { cachedFetch } from "./cache/cachedFetch";
+import { buildShopListCacheKey } from "./cache/catalogCacheKeys";
 import { buildShopCollectionFilter } from "./shopCollectionFilterService";
-import { mergeOnSaleFilter, mergeHasOfferFilter } from "../constants/onSaleFilter";
+import {
+  mergeOnSaleFilter,
+  mergeHasOfferFilter,
+} from "../constants/onSaleFilter";
 import { colorFlexibleRegex } from "../utils/catalogAttributes";
 import { getActiveSaleCampaigns } from "./sale/saleCacheService";
 import { enrichProductsWithSalePricingAsync } from "./sale/saleProductEnrichment";
 import { couponValidationService } from "./coupon/couponValidationService";
 
-const RANDOM_COUNT_TTL = 300;
+const LIST_SOFT_TTL_SEC = 90;
+const LIST_HARD_TTL_SEC = 270;
+
+type CachedListBody = {
+  products: Record<string, unknown>[];
+  page: number;
+  limit: number;
+  total: number;
+  hasNextPage?: boolean;
+  searchMethod?: string;
+};
 
 function buildColorMongoFilter(
   colors: string[],
@@ -102,25 +111,21 @@ export async function listRandomProducts(
     parsed.onSale === true,
     campaigns,
   );
-  baseFilter = mergeHasOfferFilter(baseFilter, parsed.hasOffer === true, offerScopes);
+  baseFilter = mergeHasOfferFilter(
+    baseFilter,
+    parsed.hasOffer === true,
+    offerScopes,
+  );
 
   const excludeIds = parseExcludeObjectIds(parsed.excludeIds);
   if (excludeIds.length) {
     baseFilter._id = { $nin: excludeIds };
   }
 
-  /** Count pool only on the first random page — later pages use batch size (much faster). */
+  /** Count pool only on the first random page - later pages use batch size (much faster). */
   let poolSize = 0;
   if (excludeIds.length === 0) {
-    const version = await getProductCacheVersion();
-    const countKey = randomPoolCountKey(version, "excl0");
-    const cached = await getCache<number>(countKey);
-    if (cached !== null && Number.isFinite(cached)) {
-      poolSize = cached;
-    } else {
-      poolSize = await getCachedProductCount(baseFilter);
-      setCache(countKey, poolSize, RANDOM_COUNT_TTL).catch(() => {});
-    }
+    poolSize = await getCachedProductCount(baseFilter);
   }
 
   const products = await Product.aggregate<Record<string, unknown>>([
@@ -163,7 +168,10 @@ export async function listRandomProducts(
       loaded < poolSize && products.length >= parsed.limit
     : products.length >= parsed.limit);
 
-  const enriched = await enrichProductsWithSalePricingAsync(products, campaigns);
+  const enriched = await enrichProductsWithSalePricingAsync(
+    products,
+    campaigns,
+  );
 
   return {
     products: enriched,
@@ -174,10 +182,10 @@ export async function listRandomProducts(
   };
 }
 
-export async function listProductsViaApiFeatures(
+async function fetchListBodyViaApiFeatures(
   parsed: ParsedProductListQuery,
   reqQuery: Record<string, string | undefined>,
-): Promise<ProductListResult> {
+): Promise<CachedListBody> {
   const ratingFilter: Record<string, unknown> = {};
   if (parsed.minRating !== undefined) {
     ratingFilter["ratings.average"] = { $gte: parsed.minRating };
@@ -249,7 +257,15 @@ export async function listProductsViaApiFeatures(
     queryString,
   )
     .filter()
-    .search(["name", "description", "shortDescription", "tags", "category", "subcategory", "fabric"])
+    .search([
+      "name",
+      "description",
+      "shortDescription",
+      "tags",
+      "category",
+      "subcategory",
+      "fabric",
+    ])
     .sort()
     .paginate();
 
@@ -271,15 +287,47 @@ export async function listProductsViaApiFeatures(
   const skip = (page - 1) * limit;
   const hasNextPage = products.length > 0 && skip + products.length < total;
 
-  const enriched = await enrichProductsWithSalePricingAsync(products, campaigns);
-
   return {
-    products: enriched,
+    products,
     page,
     limit,
     total,
     hasNextPage,
     searchMethod: parsed.search ? "text" : "basic",
+  };
+}
+
+export async function listProductsViaApiFeatures(
+  parsed: ParsedProductListQuery,
+  reqQuery: Record<string, string | undefined>,
+): Promise<ProductListResult> {
+  const campaigns = await getActiveSaleCampaigns();
+
+  let body: CachedListBody;
+  const listCacheKey = await buildShopListCacheKey(parsed, reqQuery);
+  if (listCacheKey) {
+    body = await cachedFetch({
+      key: listCacheKey,
+      softTtlSec: LIST_SOFT_TTL_SEC,
+      hardTtlSec: LIST_HARD_TTL_SEC,
+      fetchFresh: () => fetchListBodyViaApiFeatures(parsed, reqQuery),
+    });
+  } else {
+    body = await fetchListBodyViaApiFeatures(parsed, reqQuery);
+  }
+
+  const enriched = await enrichProductsWithSalePricingAsync(
+    body.products,
+    campaigns,
+  );
+
+  return {
+    products: enriched,
+    page: body.page,
+    limit: body.limit,
+    total: body.total,
+    hasNextPage: body.hasNextPage,
+    searchMethod: body.searchMethod,
   };
 }
 

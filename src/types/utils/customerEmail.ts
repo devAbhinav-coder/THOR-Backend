@@ -1,5 +1,9 @@
 /** Placeholder emails for POS / offline guests without a real inbox. */
-const NON_DELIVERABLE_SUFFIXES = ["@offline.local", "@review.local"] as const;
+const NON_DELIVERABLE_SUFFIXES = [
+  "@offline.local",
+  "@review.local",
+  "@pos.lead.local",
+] as const;
 
 const EMAIL_RE =
   /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;

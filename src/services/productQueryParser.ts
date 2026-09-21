@@ -30,17 +30,17 @@ export type ParsedProductListQuery = {
   minRatings: number[];
   minRating?: number;
   isFeatured?: boolean;
-  /** Storefront — products where comparePrice > price OR covered by active sale campaign */
+  /** Storefront - products where comparePrice > price OR covered by active sale campaign */
   onSale?: boolean;
-  /** Storefront — products in scope of an active targeted coupon offer */
+  /** Storefront - products in scope of an active targeted coupon offer */
   hasOffer?: boolean;
-  /** Admin catalog only — filter by active/inactive when set. */
+  /** Admin catalog only - filter by active/inactive when set. */
   isActive?: boolean;
-  /** Admin/storefront — Premium Edit only when true; exclude premium when false. */
+  /** Admin/storefront - Premium Edit only when true; exclude premium when false. */
   isPremium?: boolean;
   isRandom: boolean;
   excludeIds: string[];
-  /** Admin catalog — includes inactive / gifting / offline-tagged when true. */
+  /** Admin catalog - includes inactive / gifting / offline-tagged when true. */
   adminScope: boolean;
 };
 
@@ -92,26 +92,28 @@ export function parseProductListQuery(req: Request): ParsedProductListQuery {
   const page = parsePositiveInt(q.page, 1, 10_000);
   const limit = parsePositiveInt(q.limit, defaultLimit, maxLimit);
 
-  const search =
-    normalizeSearchQuery(q.search) ||
-    normalizeSearchQuery(q.q);
+  const search = normalizeSearchQuery(q.search) || normalizeSearchQuery(q.q);
 
   const sort =
-    typeof q.sort === "string" && q.sort.trim() ?
-      q.sort.trim()
-    : "-createdAt";
+    typeof q.sort === "string" && q.sort.trim() ? q.sort.trim() : "-createdAt";
 
   const categories = parseQueryStringList(q, "categories", "category");
   const subcategories = parseQueryStringList(q, "subcategories", "subcategory");
   const colors = parseQueryStringList(q, "colors", "color");
   const fabrics = parseQueryStringList(q, "fabrics", "fabric");
-  const occasions = parseQueryStringList(q, "occasions", "occasion", "occasions");
+  const occasions = parseQueryStringList(
+    q,
+    "occasions",
+    "occasion",
+    "occasions",
+  );
   const minRatings = parseRatingList(q);
-  const minRating =
-    minRatings.length > 0 ? Math.min(...minRatings) : undefined;
+  const minRating = minRatings.length > 0 ? Math.min(...minRatings) : undefined;
 
-  const minPriceRaw = q.minPrice ?? (q.price as Record<string, unknown>)?.gte ?? q["price[gte]"];
-  const maxPriceRaw = q.maxPrice ?? (q.price as Record<string, unknown>)?.lte ?? q["price[lte]"];
+  const minPriceRaw =
+    q.minPrice ?? (q.price as Record<string, unknown>)?.gte ?? q["price[gte]"];
+  const maxPriceRaw =
+    q.maxPrice ?? (q.price as Record<string, unknown>)?.lte ?? q["price[lte]"];
   const minPrice =
     minPriceRaw !== undefined && minPriceRaw !== "" ?
       Number(minPriceRaw)
@@ -127,18 +129,18 @@ export function parseProductListQuery(req: Request): ParsedProductListQuery {
       Number.parseInt(String(minRatingRaw), 10)
     : undefined;
   const legacyMinRating =
-    minRatingParsed !== undefined &&
-    Number.isFinite(minRatingParsed) &&
-    minRatingParsed >= 1 &&
-    minRatingParsed <= 5 ?
+    (
+      minRatingParsed !== undefined &&
+      Number.isFinite(minRatingParsed) &&
+      minRatingParsed >= 1 &&
+      minRatingParsed <= 5
+    ) ?
       minRatingParsed
     : undefined;
   const resolvedMinRating = minRating ?? legacyMinRating;
   const resolvedMinRatings =
-    minRatings.length > 0 ?
-      minRatings
-    : resolvedMinRating !== undefined ?
-      [resolvedMinRating]
+    minRatings.length > 0 ? minRatings
+    : resolvedMinRating !== undefined ? [resolvedMinRating]
     : [];
 
   const isFeaturedRaw = q.isFeatured;
@@ -176,9 +178,11 @@ export function parseProductListQuery(req: Request): ParsedProductListQuery {
 
   const excludeIds =
     typeof q.excludeIds === "string" ?
-      q.excludeIds.split(",").map((s) => s.trim()).filter(Boolean)
+      q.excludeIds
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
     : [];
-
 
   return {
     page,

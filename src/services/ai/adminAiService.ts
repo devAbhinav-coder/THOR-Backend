@@ -33,10 +33,16 @@ import {
   buildSmartActionSummary,
   loadProductById,
 } from "./adminAiContextBuilder";
-import { buildBlogRagContext, compactBlogRagContext } from "./blogRagContextBuilder";
+import {
+  buildBlogRagContext,
+  compactBlogRagContext,
+} from "./blogRagContextBuilder";
 import { normalizeBlogDraft } from "./blogDraftNormalize";
 import { draftBlogWithGemini } from "./blogGeminiDraft";
-import { AI_ENGLISH_ONLY_RULE, ASK_STORE_SYSTEM_GUARDRAILS } from "./aiPromptConstants";
+import {
+  AI_ENGLISH_ONLY_RULE,
+  ASK_STORE_SYSTEM_GUARDRAILS,
+} from "./aiPromptConstants";
 
 export type AiResultPayload = {
   text: string;
@@ -148,7 +154,7 @@ export function getAiStatus() {
   };
 }
 
-/** Tier 1 — Daily business pulse (global cache per day) */
+/** Tier 1 - Daily business pulse (global cache per day) */
 export async function getDailyBrief(force = false): Promise<AiResultPayload> {
   const cacheKey = `ai:admin:daily-brief:${todayKey()}`;
   if (!force) {
@@ -180,7 +186,7 @@ ${JSON.stringify(ctx)}`;
   return payload;
 }
 
-/** Tier 1 — Rule-based actions + compact finance summary (no duplicate Groq polish) */
+/** Tier 1 - Rule-based actions + compact finance summary (no duplicate Groq polish) */
 export async function getActionSuggestions(): Promise<{
   rules: ReturnType<typeof computeRuleBasedActions>;
   summary: AiResultPayload | null;
@@ -253,7 +259,7 @@ ${JSON.stringify(ctx)}`,
   );
 }
 
-/** Tier 2 — Product copy draft (full form: description, SEO, product detail table) */
+/** Tier 2 - Product copy draft (full form: description, SEO, product detail table) */
 export async function draftProductCopy(body: {
   name: string;
   category?: string;
@@ -276,7 +282,7 @@ export async function draftProductCopy(body: {
     variants.filter((v) => v.color || v.size).length === 0
   ) {
     throw new AppError(
-      "Add design notes (e.g. floral, Banarasi, partner piece) or fill in variant size/color — the AI needs product context.",
+      "Add design notes (e.g. floral, Banarasi, partner piece) or fill in variant size/color - the AI needs product context.",
       400,
     );
   }
@@ -339,17 +345,17 @@ Use product name + ALL variants (size, color, SKU) + design notes. productInput.
 
 Return ONLY valid JSON:
 {
-  "shortDescription": "120-220 chars — exactly TWO complete sentences for listing cards (not one short phrase, not the full essay)",
+  "shortDescription": "120-220 chars - exactly TWO complete sentences for listing cards (not one short phrase, not the full essay)",
   "description": "plain text: 3 short paragraphs separated by \\n\\n, then 4-6 feature lines each starting with - ",
   "seoTitle": "50-60 chars, include product type + brand-friendly keywords",
   "seoDescription": "140-160 chars, searchable, mentions fabric/motif if known",
   "tags": ["6-8 search tags"],
-  "productDetailKeys": "newline-separated — MUST include at least:\\nFabric\\nWork\\nLength\\nBlouse\\nCare",
-  "productDetailValues": "newline-separated values — SAME line count as keys. Fabric value MUST match productInput.fabric when set."
+  "productDetailKeys": "newline-separated - MUST include at least:\\nFabric\\nWork\\nLength\\nBlouse\\nCare",
+  "productDetailValues": "newline-separated values - SAME line count as keys. Fabric value MUST match productInput.fabric when set."
 }
 
 Rules:
-- shortDescription: two sentences, evocative (color, motif, occasion) — different from description opening
+- shortDescription: two sentences, evocative (color, motif, occasion) - different from description opening
 - description must NOT be empty; bullets after paragraphs
 - productDetailKeys and productDetailValues: equal lines, 5-8 rows
 - If productInput.fabric is set, first Fabric value MUST be that exact string
@@ -433,7 +439,7 @@ function normalizeCatalogSeoDraft(raw: string): {
   return { metaTitle, metaDescription };
 }
 
-/** Tier 2 — Category / subcategory SERP meta from collection name */
+/** Tier 2 - Category / subcategory SERP meta from collection name */
 export async function draftCatalogSeo(body: {
   kind: "category" | "subcategory";
   name: string;
@@ -446,24 +452,32 @@ export async function draftCatalogSeo(body: {
   const parent = String(body.parentCategoryName || "").trim();
   const description = String(body.description || "").trim();
 
-  const input = { kind, name, parentCategoryName: parent || undefined, description: description || undefined };
+  const input = {
+    kind,
+    name,
+    parentCategoryName: parent || undefined,
+    description: description || undefined,
+  };
   const cacheKey = `ai:admin:draft:catalog-seo:v2:${blogAiConfig.provider}:${cacheHash(JSON.stringify(input))}`;
   const cached = await getCache<CatalogSeoDraftPayload>(cacheKey);
   if (cached?.metaTitle && cached?.metaDescription) {
     return { ...cached, cached: true };
   }
 
-  const pageLabel = kind === "subcategory" ? "subcategory collection page" : "category collection page";
+  const pageLabel =
+    kind === "subcategory" ?
+      "subcategory collection page"
+    : "category collection page";
   const prompt = `Write unique SEO meta for a ${pageLabel} on The House of Rani (premium Indian ethnic wear ecommerce, India).
 
 Return ONLY valid JSON:
 {
-  "metaTitle": "50-60 chars — include the exact collection name + Online India intent. Do NOT include the brand name The House of Rani (site template appends it).",
-  "metaDescription": "140-160 chars — unique, benefit-led, India shoppers, mention free delivery over ₹1,099 or 5-day returns once max"
+  "metaTitle": "50-60 chars - include the exact collection name + Online India intent. Do NOT include the brand name The House of Rani (site template appends it).",
+  "metaDescription": "140-160 chars - unique, benefit-led, India shoppers, mention free delivery over ₹1,099 or 5-day returns once max"
 }
 
 Rules:
-- metaTitle MUST mention "${name}" clearly (unique per collection — never reuse a generic "Premium Sarees Collection" line)
+- metaTitle MUST mention "${name}" clearly (unique per collection - never reuse a generic "Premium Sarees Collection" line)
 - If parentCategoryName is set, weave it naturally once in title or description
 - No clickbait, no ALL CAPS, no pipe/brand suffix
 - ${AI_ENGLISH_ONLY_RULE}
@@ -471,7 +485,7 @@ Rules:
 INPUT JSON:
 ${JSON.stringify(input)}`;
 
-  // Same LLM path as blog drafts — Gemini when GEMINI_API_KEY is set, else Groq.
+  // Same LLM path as blog drafts - Gemini when GEMINI_API_KEY is set, else Groq.
   // Gemini 2.5 needs headroom: thinking tokens count toward maxOutputTokens.
   const { text, model } = await blogChatCompletion(prompt, {
     systemExtra:
@@ -502,7 +516,7 @@ ${JSON.stringify(input)}`;
   return payload;
 }
 
-/** Tier 2 — Review reply draft */
+/** Tier 2 - Review reply draft */
 export async function draftReviewReply(
   reviewId: string,
 ): Promise<ReviewDraftPayload> {
@@ -542,7 +556,7 @@ ${JSON.stringify(ctx)}`;
   return payload;
 }
 
-/** Tier 2 — Marketing email draft from admin's own brief */
+/** Tier 2 - Marketing email draft from admin's own brief */
 export async function draftMarketingEmail(body: {
   adminBrief?: string;
   subjectHint?: string;
@@ -555,7 +569,7 @@ export async function draftMarketingEmail(body: {
   const brief = String(body.adminBrief || "").trim();
   if (brief.length < 10) {
     throw new AppError(
-      "Write what the email should say in the Message box first (offer, festival, products, tone — at least 1–2 lines).",
+      "Write what the email should say in the Message box first (offer, festival, products, tone - at least 1–2 lines).",
       400,
     );
   }
@@ -569,7 +583,7 @@ export async function draftMarketingEmail(body: {
   const req = ctx.adminRequirements as Record<string, string | number>;
   const prompt = `Write a complete marketing email for The House of Rani.
 
-ADMIN REQUIREMENTS (you MUST follow — do not invent unrelated offers):
+ADMIN REQUIREMENTS (you MUST follow - do not invent unrelated offers):
 """
 ${brief}
 """
@@ -589,7 +603,7 @@ Rules for messageHtml:
 - Warm Indian ethnic wear brand voice; ${AI_ENGLISH_ONLY_RULE}
 - End with a clear CTA line mentioning the button
 - No fake coupon codes unless admin wrote them
-- Do not use markdown ** — HTML only inside messageHtml`;
+- Do not use markdown ** - HTML only inside messageHtml`;
 
   const { text, model } = await groqChatCompletion(prompt, {
     maxTokens: 900,
@@ -623,12 +637,12 @@ Rules for messageHtml:
   return payload;
 }
 
-/** Auto-offer T&C — plain-language terms for PDP / popup */
+/** Auto-offer T&C - plain-language terms for PDP / popup */
 export async function draftPromotionTerms(body: {
   name?: string;
   displayTitle?: string;
   description?: string;
-  promotionType: 'bogo' | 'flat' | 'percentage';
+  promotionType: "bogo" | "flat" | "percentage";
   buyQuantity?: number;
   getQuantity?: number;
   getDiscountPercent?: number;
@@ -637,42 +651,42 @@ export async function draftPromotionTerms(body: {
   scopeType?: string;
   adminNotes?: string;
 }): Promise<AiResultPayload> {
-  const title = String(body.displayTitle || body.name || 'Auto offer').trim();
+  const title = String(body.displayTitle || body.name || "Auto offer").trim();
   const type = body.promotionType;
   const buy = Math.max(1, Number(body.buyQuantity) || 1);
   const get = Math.max(1, Number(body.getQuantity) || 1);
-  const notes = String(body.adminNotes || '').trim();
+  const notes = String(body.adminNotes || "").trim();
 
-  let ruleSummary = '';
-  if (type === 'bogo') {
+  let ruleSummary = "";
+  if (type === "bogo") {
     const pct = Number(body.getDiscountPercent ?? 100);
     ruleSummary =
-      pct >= 100
-        ? `Buy ${buy} Get ${get} Free (cheapest eligible item(s) discounted)`
-        : `Buy ${buy} Get ${get} at ${pct}% off on eligible item(s)`;
-  } else if (type === 'flat') {
+      pct >= 100 ?
+        `Buy ${buy} Get ${get} Free (cheapest eligible item(s) discounted)`
+      : `Buy ${buy} Get ${get} at ${pct}% off on eligible item(s)`;
+  } else if (type === "flat") {
     ruleSummary = `Buy ${buy}+ eligible item(s) → flat ₹${body.discountValue ?? 0} off cart on those items`;
   } else {
     ruleSummary = `Buy ${buy}+ eligible item(s) → ${body.discountValue ?? 0}% off on those items`;
   }
 
-  const scope = body.scopeType || 'all';
+  const scope = body.scopeType || "all";
   const minOrder = Number(body.minOrderAmount) || 0;
 
   const cacheKey = `ai:admin:draft:promo-tc:v1:${cacheHash(JSON.stringify({ title, ruleSummary, scope, minOrder, notes }))}`;
   const cached = await getCache<AiResultPayload>(cacheKey);
   if (cached?.text) return { ...cached, cached: true };
 
-  const prompt = `Write Terms & Conditions for an e-commerce AUTO OFFER (no coupon code — applies automatically in cart).
+  const prompt = `Write Terms & Conditions for an e-commerce AUTO OFFER (no coupon code - applies automatically in cart).
 
 Brand: The House of Rani (Indian ethnic wear)
 
 Offer title: ${title}
 Offer rule: ${ruleSummary}
-Applies to: ${scope === 'all' ? 'entire cart' : scope}
-${minOrder > 0 ? `Minimum order on eligible items: ₹${minOrder}` : ''}
-${body.description ? `Description: ${body.description}` : ''}
-${notes ? `Admin notes (follow these): ${notes}` : ''}
+Applies to: ${scope === "all" ? "entire cart" : scope}
+${minOrder > 0 ? `Minimum order on eligible items: ₹${minOrder}` : ""}
+${body.description ? `Description: ${body.description}` : ""}
+${notes ? `Admin notes (follow these): ${notes}` : ""}
 
 Return ONLY valid JSON:
 { "termsAndConditions": "..." }
@@ -694,10 +708,10 @@ Rules for termsAndConditions:
   });
 
   const parsed = parseJsonFromModel<{ termsAndConditions?: string }>(text);
-  const terms = String(parsed?.termsAndConditions || text || '').trim();
+  const terms = String(parsed?.termsAndConditions || text || "").trim();
   if (terms.length < 20) {
     throw new AppError(
-      'AI could not write T&C. Fill offer type and quantities first, then try again.',
+      "AI could not write T&C. Fill offer type and quantities first, then try again.",
       502,
     );
   }
@@ -714,7 +728,7 @@ Rules for termsAndConditions:
   return payload;
 }
 
-/** Tier 2 — SEO blog draft with RAG context */
+/** Tier 2 - SEO blog draft with RAG context */
 export async function draftBlogPost(body: {
   topic: string;
   keywords?: string[];
@@ -728,7 +742,7 @@ export async function draftBlogPost(body: {
   const topic = String(body.topic || "").trim();
   if (topic.length < 8) {
     throw new AppError(
-      "Topic must be at least 8 characters — e.g. Banarasi saree wedding styling tips",
+      "Topic must be at least 8 characters - e.g. Banarasi saree wedding styling tips",
       400,
     );
   }
@@ -768,7 +782,7 @@ export async function draftBlogPost(body: {
 
     if (!norm.content || norm.content.length < 120) {
       throw new AppError(
-        "Blog draft failed — Gemini returned an empty response. Wait a minute and click Regenerate.",
+        "Blog draft failed - Gemini returned an empty response. Wait a minute and click Regenerate.",
         502,
       );
     }
@@ -865,7 +879,7 @@ Products to link: ${JSON.stringify((compactCtx.relatedProducts as unknown[]) || 
 
   if (!norm.content || norm.content.length < 120) {
     throw new AppError(
-      "Blog draft failed — Groq returned an empty or truncated response. Wait a moment and click Regenerate.",
+      "Blog draft failed - Groq returned an empty or truncated response. Wait a moment and click Regenerate.",
       502,
     );
   }
@@ -899,7 +913,7 @@ Products to link: ${JSON.stringify((compactCtx.relatedProducts as unknown[]) || 
   return payload;
 }
 
-/** Tier 3 — Natural language ask (supports multi-turn follow-ups) */
+/** Tier 3 - Natural language ask (supports multi-turn follow-ups) */
 export async function askStore(
   question: string,
   history: AiChatTurn[] = [],

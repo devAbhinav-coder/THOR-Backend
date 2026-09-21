@@ -12,6 +12,7 @@ import {
   buildOrderItemsFromProductsWithSalePricing,
 } from "./orderService";
 import { cartService } from "./cartService";
+import { cartHydrationService } from "./cart/cartHydrationService";
 import { emitCartEvent } from "./cart/cartEventService";
 import { cartRevalidationService } from "./cart/cartRevalidationService";
 import { getActiveSaleCampaigns } from "./sale/saleCacheService";
@@ -20,18 +21,22 @@ import { buildSaleScopeContext } from "./sale/saleScopeResolver";
 import { buildCouponLinesFromCartItems } from "./coupon/couponLineScopeService";
 import { resolveCartPromotion } from "./promotion/promotionApplyService";
 import { createRazorpayOrder } from "./razorpay";
-import { decrementVariantStock, incrementVariantStock, logStockMovement } from "./inventoryService";
-import type { CheckoutIntentSnapshotItem, CheckoutIntentStockLine } from "../models/CheckoutPaymentIntent";
+import {
+  decrementVariantStock,
+  incrementVariantStock,
+  logStockMovement,
+} from "./inventoryService";
+import type {
+  CheckoutIntentSnapshotItem,
+  CheckoutIntentStockLine,
+} from "../models/CheckoutPaymentIntent";
 import {
   sessionOpts,
   withOptionalTransaction,
 } from "../types/utils/mongoTransaction";
 import { CHECKOUT_STOCK_HOLD_MS } from "../constants/paymentQuery";
 
-function findVariantBySku(
-  product: InstanceType<typeof Product>,
-  sku: string,
-) {
+function findVariantBySku(product: InstanceType<typeof Product>, sku: string) {
   const normalized = String(sku || "").trim();
   if (!normalized) return undefined;
   return product.variants?.find(
@@ -96,7 +101,8 @@ export const checkoutService = {
         price: Number(product.price) || 0,
         comparePrice: product.comparePrice,
         categoryId: product.categoryId ? String(product.categoryId) : null,
-        subcategoryId: product.subcategoryId ? String(product.subcategoryId) : null,
+        subcategoryId:
+          product.subcategoryId ? String(product.subcategoryId) : null,
         category: product.category ? String(product.category) : null,
         subcategory: product.subcategory ? String(product.subcategory) : null,
       },
@@ -137,7 +143,8 @@ export const checkoutService = {
     quantity: number;
   }) {
     const resolved = await this.resolveBuyNowLine(buyNowItem);
-    const { product, variant, linePrice, quantity, checkoutSubtotal } = resolved;
+    const { product, variant, linePrice, quantity, checkoutSubtotal } =
+      resolved;
 
     const lines = await buildCouponLinesFromCartItems(
       resolved.checkoutItems.map((item) => ({
@@ -165,7 +172,9 @@ export const checkoutService = {
 
   async processBuyNowItem(buyNowItem: any) {
     const resolved = await this.resolveBuyNowLine(buyNowItem);
-    const productMap = new Map([[String(resolved.product._id), resolved.product]]);
+    const productMap = new Map([
+      [String(resolved.product._id), resolved.product],
+    ]);
 
     return {
       checkoutItems: resolved.checkoutItems,
@@ -178,7 +187,9 @@ export const checkoutService = {
   },
 
   async processCartItems(userId: string) {
-    const cartDto = await cartService.getCart(userId);
+    const cartDto = await cartHydrationService.getCartDto(userId, {
+      skipCache: true,
+    });
     await cartRevalidationService.assertCartReadyForCheckout(userId, cartDto);
 
     const cart = await orderRepository.findCartForCheckout(userId);
@@ -278,7 +289,10 @@ export const checkoutService = {
       }
     }
 
-    return buildOrderItemsFromProductsWithSalePricing(checkoutItems, productMap);
+    return buildOrderItemsFromProductsWithSalePricing(
+      checkoutItems,
+      productMap,
+    );
   },
 
   async createRazorpayIntent(userId: string, intentData: any) {
@@ -311,7 +325,11 @@ export const checkoutService = {
     });
 
     const stockLines: CheckoutIntentStockLine[] = checkoutItems.map(
-      (item: { product: unknown; variant: { sku: string }; quantity: number }) => ({
+      (item: {
+        product: unknown;
+        variant: { sku: string };
+        quantity: number;
+      }) => ({
         productId: String(item.product),
         sku: item.variant.sku,
         quantity: item.quantity,
@@ -370,12 +388,17 @@ export const checkoutService = {
           sessionOpts(session),
         );
       } catch (err) {
-        // Standalone Mongo: no txn rollback — manually release any soft holds.
+        // Standalone Mongo: no txn rollback - manually release any soft holds.
         if (!session && heldOutsideTx.length) {
           for (const line of heldOutsideTx) {
-            await incrementVariantStock(line.productId, line.sku, line.quantity, {
-              soldCountDelta: -line.quantity,
-            });
+            await incrementVariantStock(
+              line.productId,
+              line.sku,
+              line.quantity,
+              {
+                soldCountDelta: -line.quantity,
+              },
+            );
             await logStockMovement(line.productId, line.sku, line.quantity, {
               reason: "sale_return",
               referenceId: String(intentId),
@@ -400,7 +423,7 @@ export const checkoutService = {
     let codOrder: InstanceType<typeof Order> | undefined;
 
     await withOptionalTransaction(async (session) => {
-      // COD decrements stock immediately — mark reserved so cancel/auto-cancel restock once.
+      // COD decrements stock immediately - mark reserved so cancel/auto-cancel restock once.
       const created = await Order.create(
         [{ ...orderPayload, inventoryReserved: true }],
         sessionOpts(session),

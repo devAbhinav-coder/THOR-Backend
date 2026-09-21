@@ -1,4 +1,5 @@
 import { redisConnection } from "../../config/redis";
+import { recordPlatformMetric } from "../../services/observability/platformMetricsService";
 import logger from "./logger";
 
 /**
@@ -51,6 +52,12 @@ export class CacheMutex {
         "NX",
       );
       if (acquired === "OK") {
+        if (attempt > 0) {
+          recordPlatformMetric("cache.fetch.lock_wait", {
+            key: this.key.slice(0, 80),
+            attempts: attempt + 1,
+          });
+        }
         return true;
       }
       if (attempt < this.maxRetries - 1) {
@@ -81,6 +88,9 @@ export class CacheMutex {
   async withLock<T>(fn: () => Promise<T>): Promise<T | null> {
     const acquired = await this.acquire();
     if (!acquired) {
+      recordPlatformMetric("cache.fetch.lock_fail", {
+        key: this.key.slice(0, 80),
+      });
       return null;
     }
     try {

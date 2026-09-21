@@ -7,9 +7,9 @@ import type { CartDto } from './cartDto';
 
 export function cartCacheKey(userId: string, version?: number): string {
   if (version !== undefined) {
-    return `${CART_CACHE_KEY_PREFIX}${userId}:v${version}`;
+    return `${CART_CACHE_KEY_PREFIX}${userId}:v${version}:env`;
   }
-  return `${CART_CACHE_KEY_PREFIX}${userId}`;
+  return `${CART_CACHE_KEY_PREFIX}${userId}:env`;
 }
 
 export const cartCacheService = {

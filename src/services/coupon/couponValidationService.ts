@@ -50,7 +50,9 @@ function discountFromValidity(
   lines?: CouponLineScope[],
 ): number {
   const base =
-    validity.eligibleAmount !== undefined ? validity.eligibleAmount : orderAmount;
+    validity.eligibleAmount !== undefined ?
+      validity.eligibleAmount
+    : orderAmount;
   return calculateCouponDiscount(coupon, base, lines);
 }
 
@@ -110,7 +112,9 @@ export const couponValidationService = {
     return doc;
   },
 
-  async listPublicCoupons(): Promise<ReturnType<typeof toCouponStorefrontDto>[]> {
+  async listPublicCoupons(): Promise<
+    ReturnType<typeof toCouponStorefrontDto>[]
+  > {
     const now = new Date();
     const coupons = await Coupon.find({
       ...ACTIVE_COUPON_DB_FILTER,
@@ -154,8 +158,10 @@ export const couponValidationService = {
 
     for (const c of coupons) {
       if (!isWithinValidityWindow(c.startDate, c.expiryDate, now)) continue;
-      for (const id of c.applicableCategoryIds || []) categoryIds.add(String(id));
-      for (const id of c.applicableSubcategoryIds || []) subcategoryIds.add(String(id));
+      for (const id of c.applicableCategoryIds || [])
+        categoryIds.add(String(id));
+      for (const id of c.applicableSubcategoryIds || [])
+        subcategoryIds.add(String(id));
       for (const id of c.applicableProductIds || []) productIds.add(String(id));
     }
 
@@ -232,13 +238,15 @@ export const couponValidationService = {
     const discount = discountFromValidity(coupon, orderAmount, validity, lines);
     if (discount <= 0) {
       await recordFailedCouponAttempt(userId, ip, normalized);
-      recordCouponMetric("coupon.validate.failure", { reason: "zero_discount" });
+      recordCouponMetric("coupon.validate.failure", {
+        reason: "zero_discount",
+      });
       throw new AppError(
-        coupon.discountType === "fixed"
-          ? (coupon.scopeType || "all") !== "all"
-            ? `Eligible items must be priced above ₹${coupon.discountValue} for this offer`
-            : `Eligible items must total more than ₹${coupon.discountValue} for this offer`
-          : "This coupon does not reduce the price of items in your cart",
+        coupon.discountType === "fixed" ?
+          (coupon.scopeType || "all") !== "all" ?
+            `Eligible items must be priced above ₹${coupon.discountValue} for this offer`
+          : `Eligible items must total more than ₹${coupon.discountValue} for this offer`
+        : "This coupon does not reduce the price of items in your cart",
         400,
       );
     }
@@ -278,7 +286,7 @@ export const couponValidationService = {
     }
 
     // Code-only / influencer coupons (showOnStorefront: false) stay off this
-    // list — users must type the code. Apply + validate still accept them.
+    // list - users must type the code. Apply + validate still accept them.
     // $ne:false keeps legacy docs (missing field) treated as public.
     const coupons = await Coupon.find({
       ...ACTIVE_COUPON_DB_FILTER,
@@ -352,11 +360,20 @@ export const couponValidationService = {
         throw new AppError(validity.message || "Coupon is not valid.", 400);
       }
       return {
-        discount: discountFromValidity(coupon, checkoutSubtotal, validity, lines),
+        discount: discountFromValidity(
+          coupon,
+          checkoutSubtotal,
+          validity,
+          lines,
+        ),
         couponId: coupon._id as mongoose.Types.ObjectId,
       };
     }
-    if (cartCouponId && cartCouponDiscount !== undefined && cartCouponDiscount > 0) {
+    if (
+      cartCouponId &&
+      cartCouponDiscount !== undefined &&
+      cartCouponDiscount > 0
+    ) {
       const coupon = await Coupon.findById(cartCouponId)
         .select("+usedBy")
         .maxTimeMS(COUPON_QUERY_MAX_MS)
@@ -372,7 +389,12 @@ export const couponValidationService = {
         );
         if (validity.valid) {
           return {
-            discount: discountFromValidity(enriched, checkoutSubtotal, validity, lines),
+            discount: discountFromValidity(
+              enriched,
+              checkoutSubtotal,
+              validity,
+              lines,
+            ),
             couponId: cartCouponId,
           };
         }

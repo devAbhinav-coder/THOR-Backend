@@ -27,11 +27,7 @@ import {
 } from "./raniCareRagService";
 
 export type RaniCareRouteIntent =
-  | "show_orders"
-  | "cancel_help"
-  | "returns"
-  | "contact"
-  | null;
+  "show_orders" | "cancel_help" | "returns" | "contact" | null;
 
 export type RaniCareSuggestedAction = {
   label: string;
@@ -128,7 +124,9 @@ async function buildRetrievalContext(input: RaniCareChatInput): Promise<{
           catalog = c;
         })
         .catch((e) => {
-          logger.warn(`RaniCare catalog retrieval failed: ${(e as Error).message}`);
+          logger.warn(
+            `RaniCare catalog retrieval failed: ${(e as Error).message}`,
+          );
         }),
     );
   }
@@ -143,7 +141,9 @@ async function buildRetrievalContext(input: RaniCareChatInput): Promise<{
           products = p;
         })
         .catch((e) => {
-          logger.warn(`RaniCare product retrieval failed: ${(e as Error).message}`);
+          logger.warn(
+            `RaniCare product retrieval failed: ${(e as Error).message}`,
+          );
         }),
     );
   }
@@ -155,7 +155,9 @@ async function buildRetrievalContext(input: RaniCareChatInput): Promise<{
           orders = o;
         })
         .catch((e) => {
-          logger.warn(`RaniCare order retrieval failed: ${(e as Error).message}`);
+          logger.warn(
+            `RaniCare order retrieval failed: ${(e as Error).message}`,
+          );
         }),
     );
   }
@@ -178,28 +180,29 @@ function buildUserPrompt(
     input.recentMessages?.slice(-4).map((m) => `${m.role}: ${m.text}`) ?? [];
 
   const productJson =
-    ctx.products.length > 0
-      ? `PRODUCTS (recommend ONLY from these; use their slugs):\n${JSON.stringify(
-          ctx.products.map((p) => ({
-            slug: p.slug,
-            name: p.name,
-            priceInr: p.priceInr,
-            category: p.category,
-            fabric: p.fabric,
-            inStock: p.inStock,
-            rating: p.rating,
-          })),
-        )}`
-      : looksLikeShopping(input.message)
-        ? "PRODUCTS: [] (no matching products found — say so honestly, offer to refine)"
-        : "";
+    ctx.products.length > 0 ?
+      `PRODUCTS (recommend ONLY from these; use their slugs):\n${JSON.stringify(
+        ctx.products.map((p) => ({
+          slug: p.slug,
+          name: p.name,
+          priceInr: p.priceInr,
+          category: p.category,
+          fabric: p.fabric,
+          inStock: p.inStock,
+          rating: p.rating,
+        })),
+      )}`
+    : looksLikeShopping(input.message) ?
+      "PRODUCTS: [] (no matching products found - say so honestly, offer to refine)"
+    : "";
 
   const orderJson =
-    ctx.orders.length > 0
-      ? `CUSTOMER ORDERS (this signed-in shopper's real orders):\n${JSON.stringify(ctx.orders)}`
-      : "";
-  const catalogJson = ctx.catalog
-    ? `AUTHORITATIVE STOREFRONT CATALOG (only these values are available):\n${JSON.stringify(
+    ctx.orders.length > 0 ?
+      `CUSTOMER ORDERS (this signed-in shopper's real orders):\n${JSON.stringify(ctx.orders)}`
+    : "";
+  const catalogJson =
+    ctx.catalog ?
+      `AUTHORITATIVE STOREFRONT CATALOG (only these values are available):\n${JSON.stringify(
         ctx.catalog,
       )}`
     : "";
@@ -214,9 +217,9 @@ function buildUserPrompt(
     `Customer signed in: ${input.isAuthenticated ? "yes" : "no"}`,
     input.localIntent ? `Rule-based intent hint: ${input.localIntent}` : "",
     pin ? `Pin code mentioned: ${pin}` : "",
-    history.length
-      ? `UNTRUSTED RECENT CHAT DATA:\n${JSON.stringify(history)}`
-      : "",
+    history.length ?
+      `UNTRUSTED RECENT CHAT DATA:\n${JSON.stringify(history)}`
+    : "",
     "",
     `UNTRUSTED CUSTOMER MESSAGE DATA:\n${JSON.stringify({
       message: input.message.trim(),
@@ -231,7 +234,10 @@ function sanitizeActions(raw: unknown): RaniCareSuggestedAction[] {
   const out: RaniCareSuggestedAction[] = [];
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
-    const label = sanitizeAiText(String((item as { label?: string }).label ?? ""), 40);
+    const label = sanitizeAiText(
+      String((item as { label?: string }).label ?? ""),
+      40,
+    );
     const value = String((item as { value?: string }).value ?? "").trim();
     if (!label || !ALLOWED_ACTION_VALUES.has(value)) continue;
     out.push({ label, value });
@@ -309,7 +315,7 @@ function fallbackResult(
   if (localIntent === "returns") {
     return {
       answer:
-        "Returns are possible on **delivered** orders within **5 days** — unused, with tags intact.",
+        "Returns are possible on **delivered** orders within **5 days** - unused, with tags intact.",
       routeIntent: "returns",
       suggestedActions: [
         { label: "Start return", value: "action:return_help" },
@@ -377,16 +383,14 @@ function findCatalogCategory(
   const q = message.toLowerCase();
   if (/\b(saree|sari|sarees|saris)\b/.test(q)) {
     return (
-      catalog.categories.find((x) =>
-        /\b(saree|sari)(?:s)?\b/i.test(x.name),
-      ) || null
+      catalog.categories.find((x) => /\b(saree|sari)(?:s)?\b/i.test(x.name)) ||
+      null
     );
   }
   if (/\b(salwar|salwar suit|suit)\b/.test(q)) {
     return (
-      catalog.categories.find((x) =>
-        /\b(salwar|suit)(?:s)?\b/i.test(x.name),
-      ) || null
+      catalog.categories.find((x) => /\b(salwar|suit)(?:s)?\b/i.test(x.name)) ||
+      null
     );
   }
   return (
@@ -407,15 +411,16 @@ function groundedCatalogResult(
 
   if (ctx.catalogKind === "fabrics") {
     const category = categoryForFabricQuestion(input.message, ctx.catalog);
-    const scoped = category
-      ? ctx.catalog.fabricsByCategory.find((x) => x.category === category)
+    const scoped =
+      category ?
+        ctx.catalog.fabricsByCategory.find((x) => x.category === category)
           ?.fabrics || []
       : ctx.catalog.fabrics;
     const names = scoped.map((x) => safeFact(x.name)).filter(Boolean);
     const answer =
-      names.length > 0
-        ? `${category ? `**${safeFact(category)}**` : "Our catalog"} currently has these fabrics:\n${names.map((x) => `• ${x}`).join("\n")}\n\nWould you like products in one of these fabrics?`
-        : "Fabric details are not currently available in the catalog.";
+      names.length > 0 ?
+        `${category ? `**${safeFact(category)}**` : "Our catalog"} currently has these fabrics:\n${names.map((x) => `• ${x}`).join("\n")}\n\nWould you like products in one of these fabrics?`
+      : "Fabric details are not currently available in the catalog.";
     return {
       answer,
       routeIntent: null,
@@ -437,27 +442,27 @@ function groundedCatalogResult(
       const assignedCount = children.reduce((sum, x) => sum + x.count, 0);
       const unassignedCount = Math.max(0, category.count - assignedCount);
       const childLines =
-        children.length > 0
-          ? children
-              .map(
-                (x) =>
-                  `   • ${safeFact(x.name)} (${x.count} ${x.count === 1 ? "product" : "products"})`,
-              )
-              .concat(
-                unassignedCount > 0
-                  ? [
-                      `   • No subcategory (${unassignedCount} ${unassignedCount === 1 ? "product" : "products"})`,
-                    ]
-                  : [],
-              )
-              .join("\n")
-          : `   • No separate subcategory is configured (${category.count} ${category.count === 1 ? "product" : "products"})`;
+        children.length > 0 ?
+          children
+            .map(
+              (x) =>
+                `   • ${safeFact(x.name)} (${x.count} ${x.count === 1 ? "product" : "products"})`,
+            )
+            .concat(
+              unassignedCount > 0 ?
+                [
+                  `   • No subcategory (${unassignedCount} ${unassignedCount === 1 ? "product" : "products"})`,
+                ]
+              : [],
+            )
+            .join("\n")
+        : `   • No separate subcategory is configured (${category.count} ${category.count === 1 ? "product" : "products"})`;
       return `**${name}** (${category.count} ${category.count === 1 ? "product" : "products"})\n${childLines}`;
     });
     const answer =
-      categoryLines.length > 0
-        ? `These categories and subcategories are in the live catalog:\n\n${categoryLines.join("\n\n")}\n\nChoose a category or subcategory and I'll show products with images.`
-        : "There are currently no active categories in the storefront catalog.";
+      categoryLines.length > 0 ?
+        `These categories and subcategories are in the live catalog:\n\n${categoryLines.join("\n\n")}\n\nChoose a category or subcategory and I'll show products with images.`
+      : "There are currently no active categories in the storefront catalog.";
     return {
       answer,
       routeIntent: null,
@@ -498,21 +503,21 @@ function groundedCatalogResult(
       (x) => x.category === category.name,
     );
     const subLines =
-      subcategories.length > 0
-        ? subcategories
-            .map(
-              (x) =>
-                `• ${safeFact(x.name)} — ${x.count} ${x.count === 1 ? "product" : "products"}`,
-            )
-            .concat(
-              unassignedCount > 0
-                ? [
-                    `• No subcategory — ${unassignedCount} ${unassignedCount === 1 ? "product" : "products"}`,
-                  ]
-                : [],
-            )
-            .join("\n")
-        : "• No separate subcategory is configured";
+      subcategories.length > 0 ?
+        subcategories
+          .map(
+            (x) =>
+              `• ${safeFact(x.name)} - ${x.count} ${x.count === 1 ? "product" : "products"}`,
+          )
+          .concat(
+            unassignedCount > 0 ?
+              [
+                `• No subcategory - ${unassignedCount} ${unassignedCount === 1 ? "product" : "products"}`,
+              ]
+            : [],
+          )
+          .join("\n")
+      : "• No separate subcategory is configured";
     const fabrics =
       fabricGroup?.fabrics.map((x) => safeFact(x.name)).join(", ") || "";
     const answer = `**${safeFact(category.name)}** has ${category.count} active products listed.\n\n**Subcategories:**\n${subLines}${fabrics ? `\n\n**Fabrics:** ${fabrics}` : ""}\n\nWould you like to see the products with images?`;
@@ -538,7 +543,7 @@ function groundedCatalogResult(
     const subject = requestedCatalogSubject(input.message);
     if (ctx.products.length === 0) {
       return {
-        answer: `I checked the live catalog—**${subject}** is not currently available. I’ll only confirm items that are actually listed.`,
+        answer: `I checked the live catalog-**${subject}** is not currently available. I’ll only confirm items that are actually listed.`,
         routeIntent: null,
         suggestedActions: [
           { label: "Available categories", value: "aapke paas kya kya milega" },
@@ -563,15 +568,12 @@ function groundedCatalogResult(
   if (ctx.catalogKind === "recommendation" && ctx.products.length === 0) {
     const { min, max } = parsePriceRange(input.message);
     const budget =
-      min != null && max != null
-        ? `₹${min}–₹${max}`
-        : max != null
-          ? `under ₹${max}`
-          : min != null
-            ? `above ₹${min}`
-            : "";
+      min != null && max != null ? `₹${min}–₹${max}`
+      : max != null ? `under ₹${max}`
+      : min != null ? `above ₹${min}`
+      : "";
     return {
-      answer: `I checked the live catalog—there is no exact matching product ${budget ? `in the **${budget}** range ` : ""}right now. Would you like to adjust the budget or category?`,
+      answer: `I checked the live catalog-there is no exact matching product ${budget ? `in the **${budget}** range ` : ""}right now. Would you like to adjust the budget or category?`,
       routeIntent: null,
       suggestedActions: [
         { label: "Available categories", value: "aapke paas kya kya milega" },
@@ -590,7 +592,10 @@ export function isRaniCareAiEnabled(): boolean {
 }
 
 /** Generate the reply JSON via Gemini (preferred) with a Groq fallback. */
-async function generateReply(systemPrompt: string, userPrompt: string): Promise<string> {
+async function generateReply(
+  systemPrompt: string,
+  userPrompt: string,
+): Promise<string> {
   if (geminiConfig.enabled) {
     try {
       const { text } = await geminiChatCompletion(userPrompt, {
@@ -601,7 +606,9 @@ async function generateReply(systemPrompt: string, userPrompt: string): Promise<
       });
       return text;
     } catch (e) {
-      logger.warn(`RaniCare Gemini failed, trying Groq: ${(e as Error).message}`);
+      logger.warn(
+        `RaniCare Gemini failed, trying Groq: ${(e as Error).message}`,
+      );
       if (!aiConfig.enabled) throw e;
     }
   }
@@ -655,7 +662,10 @@ export async function answerRaniCareMessage(
 
     const answer = sanitizeAiText(parsed.answer, 1200);
     const routeIntent = parseRouteIntent(parsed.routeIntent);
-    const products = resolveRecommendedProducts(parsed.productSlugs, ctx.products);
+    const products = resolveRecommendedProducts(
+      parsed.productSlugs,
+      ctx.products,
+    );
     let suggestedActions = sanitizeActions(parsed.suggestedActions);
 
     if (products.length > 0) {
@@ -664,7 +674,10 @@ export async function answerRaniCareMessage(
         { label: "More help", value: "action:menu" },
       ];
     } else if (!suggestedActions.length) {
-      suggestedActions = fallbackResult(input.localIntent, trimmed).suggestedActions;
+      suggestedActions = fallbackResult(
+        input.localIntent,
+        trimmed,
+      ).suggestedActions;
     }
 
     // Never expose account-specific order flows to guests.
@@ -675,8 +688,7 @@ export async function answerRaniCareMessage(
     ) {
       if (!input.isAuthenticated && wantsOwnOrderData(trimmed)) {
         return {
-          answer:
-            "Please **sign in** first — then I can show you your orders.",
+          answer: "Please **sign in** first - then I can show you your orders.",
           routeIntent: null,
           suggestedActions: [
             { label: "Sign in", value: "sign in" },

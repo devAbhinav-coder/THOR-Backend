@@ -12,7 +12,7 @@ export function normalizeOriginUrl(origin: string): string {
 /**
  * Browsers send `Origin` as the exact site the user opened (e.g. https://www.site.com vs https://site.com).
  * Optional: when `CORS_MIRROR_WWW_APEX=true`, mirror www ↔ apex for simple `name.tld` hosts so a single
- * listed origin also allows the www (or bare) variant. **Default is off** — only origins you list (or
+ * listed origin also allows the www (or bare) variant. **Default is off** - only origins you list (or
  * FRONTEND_URL fallback) are trusted unless you opt in.
  */
 function expandWwwApexMirror(allowed: Set<string>): void {
@@ -34,7 +34,7 @@ function expandWwwApexMirror(allowed: Set<string>): void {
       continue;
     }
 
-    // e.g. example.com — also allow https://www.example.com
+    // e.g. example.com - also allow https://www.example.com
     const parts = host.split(".");
     if (parts.length === 2) {
       additions.push(normalizeOriginUrl(`${u.protocol}//www.${host}`));

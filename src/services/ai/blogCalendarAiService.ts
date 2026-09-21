@@ -59,10 +59,7 @@ function nextPublishDates(count: number, weeks: number): string[] {
   return dates;
 }
 
-function normalizeItems(
-  raw: RawPlan,
-  weeks: number,
-): BlogCalendarPlanItem[] {
+function normalizeItems(raw: RawPlan, weeks: number): BlogCalendarPlanItem[] {
   const fallbackDates = nextPublishDates(
     Math.max(4, Math.min(8, weeks * 2)),
     weeks,
@@ -80,12 +77,18 @@ function normalizeItems(
 
       const plan: BlogCalendarPlanItem = {
         topic: topic.slice(0, 280),
-        keywords: keywords.length ? keywords : [topic.split(" ")[0]].filter(Boolean),
+        keywords:
+          keywords.length ? keywords : [topic.split(" ")[0]].filter(Boolean),
         category: String(item.category || "saree-styling").slice(0, 40),
-        plannedDate: item.plannedDate?.slice(0, 10) || fallbackDates[i] || fallbackDates[0],
+        plannedDate:
+          item.plannedDate?.slice(0, 10) ||
+          fallbackDates[i] ||
+          fallbackDates[0],
         notes: String(item.notes || item.trendReason || "").slice(0, 500),
         trendScore: Math.min(100, Math.max(0, Number(item.trendScore) || 70)),
-        trendReason: String(item.trendReason || "Seasonal ethnic wear interest").slice(0, 200),
+        trendReason: String(
+          item.trendReason || "Seasonal ethnic wear interest",
+        ).slice(0, 200),
       };
       if (item.festivalHook) {
         plan.festivalHook = String(item.festivalHook).slice(0, 120);
@@ -160,13 +163,16 @@ ${JSON.stringify(ctx)}`;
 
   if (items.length < Math.min(3, totalPosts)) {
     throw new AppError(
-      "Calendar plan incomplete — wait a minute and click Generate Plan again.",
+      "Calendar plan incomplete - wait a minute and click Generate Plan again.",
       502,
     );
   }
 
   const payload: BlogCalendarPlanResult = {
-    summary: String(parsed?.summary || "AI content calendar ready.").slice(0, 600),
+    summary: String(parsed?.summary || "AI content calendar ready.").slice(
+      0,
+      600,
+    ),
     items,
     model,
     cached: false,

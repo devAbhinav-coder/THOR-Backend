@@ -56,7 +56,7 @@ export async function resolveReturn(
       await order.save();
     }
 
-    // Audit (non-critical — best effort)
+    // Audit (non-critical - best effort)
     await writeAdminAudit(
       req,
       `order.return_${newStatus}` as string,

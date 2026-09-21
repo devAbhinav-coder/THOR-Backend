@@ -5,6 +5,7 @@ import {
   redisEnabled,
   reconnectRedisIfNeeded,
 } from "./redis";
+import { isRedisStrictReadinessRequired } from "./redisReadiness";
 import { smtpConfigured } from "../services/emailService";
 import {
   getRunMode,
@@ -46,15 +47,13 @@ function envEnabled(name: string, defaultEnabled = true): boolean {
 }
 
 export function emailConfigured(): boolean {
-  return (
-    smtpConfigured() || Boolean(process.env.RESEND_API_KEY?.trim())
-  );
+  return smtpConfigured() || Boolean(process.env.RESEND_API_KEY?.trim());
 }
 
 export function razorpayConfigured(): boolean {
   return Boolean(
     process.env.RAZORPAY_KEY_ID?.trim() &&
-      process.env.RAZORPAY_KEY_SECRET?.trim(),
+    process.env.RAZORPAY_KEY_SECRET?.trim(),
   );
 }
 
@@ -83,8 +82,7 @@ export async function verifyEmailTransport(): Promise<InfrastructureCheck> {
   if (!emailConfigured()) {
     return {
       status: "missing",
-      message:
-        "No email provider configured (set SMTP_HOST or RESEND_API_KEY)",
+      message: "No email provider configured (set SMTP_HOST or RESEND_API_KEY)",
     };
   }
 
@@ -106,8 +104,9 @@ export async function verifyEmailTransport(): Promise<InfrastructureCheck> {
         host: process.env.SMTP_HOST,
         port: Number(process.env.SMTP_PORT || 587),
         secure: process.env.SMTP_SECURE === "true",
-        auth: process.env.SMTP_USER
-          ? {
+        auth:
+          process.env.SMTP_USER ?
+            {
               user: process.env.SMTP_USER,
               pass: process.env.SMTP_PASS,
             }
@@ -149,30 +148,31 @@ export async function buildInfrastructureReport(): Promise<InfrastructureReport>
   const redisPingOk = await pingRedis();
 
   const redisCheck: InfrastructureCheck =
-    !redisEnabled
-      ? {
-          status: "missing",
-          message:
-            "Redis not configured — auth rate limits, cart sync, and jobs use in-memory fallbacks (single instance only)",
-        }
-    : !isRedisOperational()
-      ? {
-          status: "degraded",
-          message:
-            "Redis configured but unreachable — using in-memory fallbacks until reconnect succeeds",
-        }
-    : redisPingOk
-      ? {
-          status: "ok",
-          message: "Redis connected",
-        }
-      : {
-          status: "degraded",
-          message: "Redis client up but ping failed",
-        };
+    !redisEnabled ?
+      {
+        status: "missing",
+        message:
+          "Redis not configured - auth rate limits, cart sync, and jobs use in-memory fallbacks (single instance only)",
+      }
+    : !isRedisOperational() ?
+      {
+        status: "degraded",
+        message:
+          "Redis configured but unreachable - using in-memory fallbacks until reconnect succeeds",
+      }
+    : redisPingOk ?
+      {
+        status: "ok",
+        message: "Redis connected",
+      }
+    : {
+        status: "degraded",
+        message: "Redis client up but ping failed",
+      };
 
-  const emailCheck: InfrastructureCheck = emailConfigured()
-    ? {
+  const emailCheck: InfrastructureCheck =
+    emailConfigured() ?
+      {
         status: "ok",
         message: "Email provider configured",
         details: {
@@ -183,104 +183,109 @@ export async function buildInfrastructureReport(): Promise<InfrastructureReport>
     : {
         status: "missing",
         message:
-          "Email not configured — abandoned cart, OTP, and order emails will fail",
+          "Email not configured - abandoned cart, OTP, and order emails will fail",
       };
 
-  const razorpayCheck: InfrastructureCheck = razorpayConfigured()
-    ? { status: "ok", message: "Razorpay credentials configured" }
+  const razorpayCheck: InfrastructureCheck =
+    razorpayConfigured() ?
+      { status: "ok", message: "Razorpay credentials configured" }
     : {
         status: "missing",
-        message: "Razorpay not configured — online payments and recovery disabled",
+        message:
+          "Razorpay not configured - online payments and recovery disabled",
       };
 
   const workerCheck: InfrastructureCheck =
-    runMode === "worker" || runMode === "all"
-      ? queueWorkersEnabled
-        ? {
-            status: "ok",
-            message: "Worker process role with BullMQ workers enabled",
-          }
-        : {
-            status: "degraded",
-            message: "Worker role but QUEUE_WORKERS_ENABLED=false — emails/jobs may not process",
-          }
-      : jobsEnabled
-        ? {
-            status: "degraded",
-            message:
-              "API-only mode — run `npm run worker:dev` (or RUN_MODE=worker) for background jobs",
-          }
-        : {
-            status: "disabled",
-            message: "Background jobs disabled on this process",
-          };
+    runMode === "worker" || runMode === "all" ?
+      queueWorkersEnabled ?
+        {
+          status: "ok",
+          message: "Worker process role with BullMQ workers enabled",
+        }
+      : {
+          status: "degraded",
+          message:
+            "Worker role but QUEUE_WORKERS_ENABLED=false - emails/jobs may not process",
+        }
+    : jobsEnabled ?
+      {
+        status: "degraded",
+        message:
+          "API-only mode - run `npm run worker:dev` (or RUN_MODE=worker) for background jobs",
+      }
+    : {
+        status: "disabled",
+        message: "Background jobs disabled on this process",
+      };
 
   const cartAbandonEnabled = envEnabled("CART_ABANDON_JOB_ENABLED");
   const cartAbandonCheck: InfrastructureCheck =
-    !cartAbandonEnabled
-      ? {
-          status: "disabled",
-          message: "Abandoned cart recovery disabled (CART_ABANDON_JOB_ENABLED=false)",
-        }
-    : !jobsEnabled
-      ? {
-          status: "degraded",
-          message: "Abandoned cart job enabled but no worker process running jobs",
-        }
-    : !emailConfigured()
-      ? {
-          status: "degraded",
-          message:
-            "Abandoned cart job will enqueue emails but no SMTP/Resend configured",
-        }
-    : !redisPingOk && redisEnabled
-      ? {
-          status: "degraded",
-          message:
-            "Abandoned cart needs Redis + worker for reliable email delivery",
-        }
-      : {
-          status: "ok",
-          message: "Abandoned cart recovery ready",
-          details: {
-            inactiveMs: Number(
-              process.env.CART_ABANDON_INACTIVE_MS || 2 * 60 * 60 * 1000,
-            ),
-            intervalMs: Number(
-              process.env.CART_ABANDON_JOB_MS || 60 * 60 * 1000,
-            ),
-          },
-        };
+    !cartAbandonEnabled ?
+      {
+        status: "disabled",
+        message:
+          "Abandoned cart recovery disabled (CART_ABANDON_JOB_ENABLED=false)",
+      }
+    : !jobsEnabled ?
+      {
+        status: "degraded",
+        message:
+          "Abandoned cart job enabled but no worker process running jobs",
+      }
+    : !emailConfigured() ?
+      {
+        status: "degraded",
+        message:
+          "Abandoned cart job will enqueue emails but no SMTP/Resend configured",
+      }
+    : !redisPingOk && redisEnabled ?
+      {
+        status: "degraded",
+        message:
+          "Abandoned cart needs Redis + worker for reliable email delivery",
+      }
+    : {
+        status: "ok",
+        message: "Abandoned cart recovery ready",
+        details: {
+          inactiveMs: Number(
+            process.env.CART_ABANDON_INACTIVE_MS || 2 * 60 * 60 * 1000,
+          ),
+          intervalMs: Number(process.env.CART_ABANDON_JOB_MS || 60 * 60 * 1000),
+        },
+      };
 
   const paymentRecoveryEnabled = envEnabled("PAYMENT_RECOVERY_ENABLED");
   const paymentRecoveryCheck: InfrastructureCheck =
-    !paymentRecoveryEnabled
-      ? {
-          status: "disabled",
-          message: "Payment recovery disabled (PAYMENT_RECOVERY_ENABLED=false)",
-        }
-    : !jobsEnabled
-      ? {
-          status: "degraded",
-          message: "Payment recovery enabled but no worker process running jobs",
-        }
-    : !razorpayConfigured()
-      ? {
-          status: "missing",
-          message: "Payment recovery requires RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET",
-        }
+    !paymentRecoveryEnabled ?
+      {
+        status: "disabled",
+        message: "Payment recovery disabled (PAYMENT_RECOVERY_ENABLED=false)",
+      }
+    : !jobsEnabled ?
+      {
+        status: "degraded",
+        message: "Payment recovery enabled but no worker process running jobs",
+      }
+    : !razorpayConfigured() ?
+      {
+        status: "missing",
+        message:
+          "Payment recovery requires RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET",
+      }
     : {
-          status: "ok",
-          message: "Payment recovery job ready",
-          details: {
-            intervalMs: Number(
-              process.env.PAYMENT_RECOVERY_MS || 30 * 60 * 1000,
-            ),
-          },
-        };
+        status: "ok",
+        message: "Payment recovery job ready",
+        details: {
+          intervalMs: Number(process.env.PAYMENT_RECOVERY_MS || 30 * 60 * 1000),
+        },
+      };
 
+  const strictRedisDown =
+    redisEnabled && isRedisStrictReadinessRequired() && !isRedisOperational();
   const criticalOk =
     mongoOk &&
+    !strictRedisDown &&
     (!process.env.NODE_ENV ||
       process.env.NODE_ENV !== "production" ||
       redisPingOk);
@@ -299,8 +304,9 @@ export async function buildInfrastructureReport(): Promise<InfrastructureReport>
     queueWorkersEnabled,
     ready,
     checks: {
-      mongodb: mongoOk
-        ? { status: "ok", message: "MongoDB connected" }
+      mongodb:
+        mongoOk ?
+          { status: "ok", message: "MongoDB connected" }
         : { status: "degraded", message: "MongoDB not connected" },
       redis: redisCheck,
       email: emailCheck,
@@ -314,18 +320,18 @@ export async function buildInfrastructureReport(): Promise<InfrastructureReport>
 
 export function logInfrastructureReport(report: InfrastructureReport): void {
   const lines = [
-    `Infrastructure (${report.runMode}) — ready=${report.ready}`,
-    `  MongoDB: ${report.checks.mongodb.status} — ${report.checks.mongodb.message}`,
-    `  Redis: ${report.checks.redis.status} — ${report.checks.redis.message}`,
-    `  Email: ${report.checks.email.status} — ${report.checks.email.message}`,
-    `  Worker: ${report.checks.workerProcess.status} — ${report.checks.workerProcess.message}`,
-    `  Abandoned cart: ${report.checks.abandonedCartRecovery.status} — ${report.checks.abandonedCartRecovery.message}`,
-    `  Payment recovery: ${report.checks.paymentRecovery.status} — ${report.checks.paymentRecovery.message}`,
+    `Infrastructure (${report.runMode}) - ready=${report.ready}`,
+    `  MongoDB: ${report.checks.mongodb.status} - ${report.checks.mongodb.message}`,
+    `  Redis: ${report.checks.redis.status} - ${report.checks.redis.message}`,
+    `  Email: ${report.checks.email.status} - ${report.checks.email.message}`,
+    `  Worker: ${report.checks.workerProcess.status} - ${report.checks.workerProcess.message}`,
+    `  Abandoned cart: ${report.checks.abandonedCartRecovery.status} - ${report.checks.abandonedCartRecovery.message}`,
+    `  Payment recovery: ${report.checks.paymentRecovery.status} - ${report.checks.paymentRecovery.message}`,
   ];
   logger.info(lines.join("\n"));
 }
 
-/** Worker startup — fail fast in production when critical infra is missing. */
+/** Worker startup - fail fast in production when critical infra is missing. */
 export async function assertWorkerInfrastructure(): Promise<void> {
   await ensureRedisReady();
   const report = await buildInfrastructureReport();
@@ -360,6 +366,8 @@ export async function assertWorkerInfrastructure(): Promise<void> {
   }
 
   if (failures.length) {
-    throw new Error(`Worker infrastructure check failed:\n- ${failures.join("\n- ")}`);
+    throw new Error(
+      `Worker infrastructure check failed:\n- ${failures.join("\n- ")}`,
+    );
   }
 }

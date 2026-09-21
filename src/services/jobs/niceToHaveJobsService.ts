@@ -6,7 +6,10 @@ import logger from "../../types/utils/logger";
 import { emailTemplates } from "../emailService";
 import { enqueueEmail } from "../../queues/emailQueue";
 import { resolveReturn } from "../adminReturnService";
-import { syncProductEmbedding, syncBlogEmbedding } from "../ai/vectorIndexService";
+import {
+  syncProductEmbedding,
+  syncBlogEmbedding,
+} from "../ai/vectorIndexService";
 import { cloudinaryInstance } from "../cloudinary";
 
 /** Re-embed products/blogs updated since last embedding sync. */
@@ -51,8 +54,12 @@ export async function runInactiveUserReengagementJob(): Promise<number> {
   const inactiveDays = Number(process.env.REENGAGE_INACTIVE_DAYS || 30);
   const batch = Number(process.env.REENGAGE_BATCH || 100);
   const cooldownDays = Number(process.env.REENGAGE_COOLDOWN_DAYS || 30);
-  const inactiveBefore = new Date(Date.now() - inactiveDays * 24 * 60 * 60 * 1000);
-  const cooldownBefore = new Date(Date.now() - cooldownDays * 24 * 60 * 60 * 1000);
+  const inactiveBefore = new Date(
+    Date.now() - inactiveDays * 24 * 60 * 60 * 1000,
+  );
+  const cooldownBefore = new Date(
+    Date.now() - cooldownDays * 24 * 60 * 60 * 1000,
+  );
 
   const users = await User.find({
     role: "user",
@@ -109,7 +116,8 @@ export async function runReturnAutoApproveJob(): Promise<number> {
   if (allowedReasons.length === 0) {
     logger.debug({
       msg: "return_auto_approve_skipped",
-      reason: "RETURN_AUTO_APPROVE_REASONS empty — configure whitelist to enable",
+      reason:
+        "RETURN_AUTO_APPROVE_REASONS empty - configure whitelist to enable",
     });
     return 0;
   }
@@ -124,10 +132,7 @@ export async function runReturnAutoApproveJob(): Promise<number> {
     "returnRequest.reason": { $in: allowedReasons },
   };
 
-  const orders = await Order.find(query)
-    .limit(batch)
-    .lean()
-    .maxTimeMS(8000);
+  const orders = await Order.find(query).limit(batch).lean().maxTimeMS(8000);
 
   let approved = 0;
   for (const row of orders) {
@@ -154,10 +159,7 @@ export async function runReturnAutoApproveJob(): Promise<number> {
 
 /** Warm Cloudinary optimized transforms for recent product images. */
 export async function runBulkImageOptimizerJob(): Promise<number> {
-  if (
-    !process.env.CLOUDINARY_CLOUD_NAME ||
-    !process.env.CLOUDINARY_API_KEY
-  ) {
+  if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY) {
     return 0;
   }
 
@@ -182,7 +184,14 @@ export async function runBulkImageOptimizerJob(): Promise<number> {
       try {
         await cloudinaryInstance.uploader.explicit(img.publicId, {
           type: "upload",
-          eager: [{ fetch_format: "auto", quality: "auto", width: 1200, crop: "limit" }],
+          eager: [
+            {
+              fetch_format: "auto",
+              quality: "auto",
+              width: 1200,
+              crop: "limit",
+            },
+          ],
           eager_async: false,
         });
         optimized += 1;

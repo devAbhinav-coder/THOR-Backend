@@ -6,7 +6,11 @@ export async function getCache<T>(key: string): Promise<T | null> {
   return JSON.parse(raw) as T;
 }
 
-export async function setCache<T>(key: string, value: T, ttlSeconds: number): Promise<void> {
+export async function setCache<T>(
+  key: string,
+  value: T,
+  ttlSeconds: number,
+): Promise<void> {
   await redisConnection.set(key, JSON.stringify(value), "EX", ttlSeconds);
 }
 
@@ -14,7 +18,24 @@ export async function deleteCache(key: string): Promise<void> {
   await redisConnection.del(key);
 }
 
-/** SCAN instead of KEYS — safe on production Redis (no event-loop block). */
+/** SCAN instead of KEYS - safe on production Redis (no event-loop block). */
+export async function scanRedisKeys(pattern: string): Promise<string[]> {
+  const out: string[] = [];
+  let cursor = "0";
+  do {
+    const [next, keys] = await redisConnection.scan(
+      cursor,
+      "MATCH",
+      pattern,
+      "COUNT",
+      200,
+    );
+    cursor = next;
+    out.push(...keys);
+  } while (cursor !== "0");
+  return out;
+}
+
 export async function clearCachePattern(pattern: string): Promise<void> {
   let cursor = "0";
   do {

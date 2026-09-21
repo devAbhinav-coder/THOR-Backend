@@ -6,7 +6,7 @@ const hasHostConfig = Boolean(process.env.REDIS_HOST || process.env.REDIS_PORT);
 const configuredRedis = Boolean(redisUrl || hasHostConfig);
 const isProd = process.env.NODE_ENV === "production";
 
-/** False until startup probe succeeds — avoids routing to a dead client before bootstrap. */
+/** False until startup probe succeeds - avoids routing to a dead client before bootstrap. */
 let redisOperational = false;
 
 export function isRedisOperational(): boolean {
@@ -155,14 +155,15 @@ function createRedisClient(): IORedis {
       });
 }
 
-const realRedisClient: IORedis | null = configuredRedis ? createRedisClient() : null;
+const realRedisClient: IORedis | null =
+  configuredRedis ? createRedisClient() : null;
 
 function activeConnection(): RedisLike {
   if (redisOperational && realRedisClient) return realRedisClient;
   return fallbackRedis;
 }
 
-/** App Redis — falls back to in-memory only if startup probe fails. */
+/** App Redis - falls back to in-memory only if startup probe fails. */
 export const redisConnection: RedisLike = new Proxy({} as RedisLike, {
   get(_target, prop: keyof RedisLike) {
     const conn = activeConnection();
@@ -171,7 +172,7 @@ export const redisConnection: RedisLike = new Proxy({} as RedisLike, {
   },
 });
 
-/** @deprecated Prefer isRedisOperational() — true when REDIS_URL/REDIS_HOST is set. */
+/** @deprecated Prefer isRedisOperational() - true when REDIS_URL/REDIS_HOST is set. */
 export const redisEnabled = configuredRedis;
 
 let bullMqQueueConnection: IORedis | null = null;
@@ -249,7 +250,7 @@ export async function bootstrapRedis(): Promise<void> {
       /* ignore */
     }
     logger.warn(
-      `Redis unavailable (${(err as Error).message}). Using in-memory fallbacks — ` +
+      `Redis unavailable (${(err as Error).message}). Using in-memory fallbacks - ` +
         "start Redis: npm run redis:up (or REDIS_URL=redis://127.0.0.1:6379).",
     );
   }

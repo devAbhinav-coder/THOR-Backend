@@ -1,12 +1,15 @@
-import mongoose from 'mongoose';
-import Product from '../../models/Product';
-import Category from '../../models/Category';
-import SubCategory from '../../models/SubCategory';
-import type { CouponLineScope } from './couponBusinessRules';
-import { COUPON_QUERY_MAX_MS } from './couponBusinessRules';
+import mongoose from "mongoose";
+import Product from "../../models/Product";
+import Category from "../../models/Category";
+import SubCategory from "../../models/SubCategory";
+import type { CouponLineScope } from "./couponBusinessRules";
+import { COUPON_QUERY_MAX_MS } from "./couponBusinessRules";
 
 type LineLike = {
-  product: mongoose.Types.ObjectId | string | { _id?: mongoose.Types.ObjectId | string };
+  product:
+    | mongoose.Types.ObjectId
+    | string
+    | { _id?: mongoose.Types.ObjectId | string };
   price: number;
   quantity: number;
 };
@@ -21,20 +24,20 @@ type ProductLean = {
 
 function productIdOf(line: LineLike): string {
   const p = line.product as unknown;
-  if (p && typeof p === 'object' && '_id' in (p as object)) {
+  if (p && typeof p === "object" && "_id" in (p as object)) {
     return String((p as { _id: unknown })._id);
   }
   return String(p);
 }
 
 function normName(value?: string | null): string {
-  return String(value || '')
+  return String(value || "")
     .trim()
     .toLowerCase();
 }
 
 function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function nameMatchFilter(names: string[]) {
@@ -42,27 +45,31 @@ function nameMatchFilter(names: string[]) {
   if (!unique.length) return null;
   return {
     $or: unique.map((name) => ({
-      name: { $regex: `^${escapeRegex(name)}$`, $options: 'i' },
+      name: { $regex: `^${escapeRegex(name)}$`, $options: "i" },
     })),
   };
 }
 
 /**
  * Resolve category/subcategory for cart or checkout lines via Product lookup.
- * Legacy products may only have string `category` / `subcategory` — resolve FK ids
+ * Legacy products may only have string `category` / `subcategory` - resolve FK ids
  * so scoped coupons (category / subcategory) apply correctly.
  */
 export async function buildCouponLinesFromCartItems(
-  items: LineLike[]
+  items: LineLike[],
 ): Promise<CouponLineScope[]> {
   if (!items.length) return [];
 
   const productIds = [
-    ...new Set(items.map(productIdOf).filter((id) => mongoose.Types.ObjectId.isValid(id))),
+    ...new Set(
+      items
+        .map(productIdOf)
+        .filter((id) => mongoose.Types.ObjectId.isValid(id)),
+    ),
   ];
 
   const products = await Product.find({ _id: { $in: productIds } })
-    .select('categoryId subcategoryId category subcategory')
+    .select("categoryId subcategoryId category subcategory")
     .maxTimeMS(COUPON_QUERY_MAX_MS)
     .lean<ProductLean[]>();
 
@@ -87,34 +94,55 @@ export async function buildCouponLinesFromCartItems(
   const categoryNameFilter = nameMatchFilter([...namesNeedingCategory]);
   const subcategoryNameFilter = nameMatchFilter([...namesNeedingSubcategory]);
 
-  const [categories, subcategoriesByName, subcategoriesById] = await Promise.all([
-    categoryNameFilter ?
-      Category.find(categoryNameFilter)
-        .select('_id name')
-        .maxTimeMS(COUPON_QUERY_MAX_MS)
-        .lean<{ _id: mongoose.Types.ObjectId; name: string }[]>()
-    : Promise.resolve([] as { _id: mongoose.Types.ObjectId; name: string }[]),
-    subcategoryNameFilter ?
-      SubCategory.find(subcategoryNameFilter)
-        .select('_id name categoryId')
-        .maxTimeMS(COUPON_QUERY_MAX_MS)
-        .lean<
-          { _id: mongoose.Types.ObjectId; name: string; categoryId: mongoose.Types.ObjectId }[]
-        >()
-    : Promise.resolve(
-        [] as { _id: mongoose.Types.ObjectId; name: string; categoryId: mongoose.Types.ObjectId }[],
-      ),
-    subcategoryIdsNeedingParent.size ?
-      SubCategory.find({
-        _id: {
-          $in: [...subcategoryIdsNeedingParent].map((id) => new mongoose.Types.ObjectId(id)),
-        },
-      })
-        .select('_id categoryId')
-        .maxTimeMS(COUPON_QUERY_MAX_MS)
-        .lean<{ _id: mongoose.Types.ObjectId; categoryId: mongoose.Types.ObjectId }[]>()
-    : Promise.resolve([] as { _id: mongoose.Types.ObjectId; categoryId: mongoose.Types.ObjectId }[]),
-  ]);
+  const [categories, subcategoriesByName, subcategoriesById] =
+    await Promise.all([
+      categoryNameFilter ?
+        Category.find(categoryNameFilter)
+          .select("_id name")
+          .maxTimeMS(COUPON_QUERY_MAX_MS)
+          .lean<{ _id: mongoose.Types.ObjectId; name: string }[]>()
+      : Promise.resolve([] as { _id: mongoose.Types.ObjectId; name: string }[]),
+      subcategoryNameFilter ?
+        SubCategory.find(subcategoryNameFilter)
+          .select("_id name categoryId")
+          .maxTimeMS(COUPON_QUERY_MAX_MS)
+          .lean<
+            {
+              _id: mongoose.Types.ObjectId;
+              name: string;
+              categoryId: mongoose.Types.ObjectId;
+            }[]
+          >()
+      : Promise.resolve(
+          [] as {
+            _id: mongoose.Types.ObjectId;
+            name: string;
+            categoryId: mongoose.Types.ObjectId;
+          }[],
+        ),
+      subcategoryIdsNeedingParent.size ?
+        SubCategory.find({
+          _id: {
+            $in: [...subcategoryIdsNeedingParent].map(
+              (id) => new mongoose.Types.ObjectId(id),
+            ),
+          },
+        })
+          .select("_id categoryId")
+          .maxTimeMS(COUPON_QUERY_MAX_MS)
+          .lean<
+            {
+              _id: mongoose.Types.ObjectId;
+              categoryId: mongoose.Types.ObjectId;
+            }[]
+          >()
+      : Promise.resolve(
+          [] as {
+            _id: mongoose.Types.ObjectId;
+            categoryId: mongoose.Types.ObjectId;
+          }[],
+        ),
+    ]);
 
   const categoryIdByName = new Map(
     categories.map((c) => [normName(c.name), String(c._id)]),
@@ -134,9 +162,12 @@ export async function buildCouponLinesFromCartItems(
     const product = byId.get(productId);
 
     let categoryId = product?.categoryId ? String(product.categoryId) : null;
-    let subcategoryId = product?.subcategoryId ? String(product.subcategoryId) : null;
-    const categoryName = product?.category ? String(product.category).trim() : null;
-    const subcategoryName = product?.subcategory ? String(product.subcategory).trim() : null;
+    let subcategoryId =
+      product?.subcategoryId ? String(product.subcategoryId) : null;
+    const categoryName =
+      product?.category ? String(product.category).trim() : null;
+    const subcategoryName =
+      product?.subcategory ? String(product.subcategory).trim() : null;
 
     if (!subcategoryId && subcategoryName) {
       const hit = subcategoryByName.get(normName(subcategoryName));
@@ -172,13 +203,13 @@ export async function buildCouponLinesFromCartItems(
 }
 
 export async function buildCouponLinesFromProductIds(
-  entries: Array<{ productId: string; price: number; quantity: number }>
+  entries: Array<{ productId: string; price: number; quantity: number }>,
 ): Promise<CouponLineScope[]> {
   return buildCouponLinesFromCartItems(
     entries.map((e) => ({
       product: e.productId,
       price: e.price,
       quantity: e.quantity,
-    }))
+    })),
   );
 }

@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import Product from "../../models/Product";
 import { productRepository } from "../../repositories/productRepository";
-import { getCache, setCache } from "../cacheService";
+import { cachedFetch } from "../cache/cachedFetch";
 import { redisConnection, redisEnabled } from "../../config/redis";
 import { reconcileProductJson } from "../../types/utils/productStock";
 import {
@@ -25,8 +25,7 @@ function buildGiftableFilter(params: {
   search?: string;
 }): Record<string, unknown> {
   const filter: Record<string, unknown> = { isGiftable: true, isActive: true };
-  if (params.giftOccasion)
-    filter.occasions = { $in: [params.giftOccasion] };
+  if (params.giftOccasion) filter.occasions = { $in: [params.giftOccasion] };
   if (params.category) filter.category = params.category;
   if (params.search?.trim()) {
     filter.$text = { $search: params.search.trim() };
@@ -76,7 +75,7 @@ function pickRandomIds(
 }
 
 /**
- * Random giftable products without $sample — uses Redis pool + indexed random skip fallback.
+ * Random giftable products without $sample - uses Redis pool + indexed random skip fallback.
  */
 async function findRandomGiftable(
   filter: Record<string, unknown>,
@@ -186,39 +185,37 @@ export async function discoverGiftableProducts(query: Record<string, string>) {
 
   const pageNum = Math.max(1, parseInt(page, 10));
   const skip = (pageNum - 1) * limit;
-  const cacheKey = `cache:gifting:products:v3:${JSON.stringify({ giftOccasion, category, search, page: pageNum, limit })}`;
+  const cacheKey = `cache:gifting:products:env:v4:${JSON.stringify({ giftOccasion, category, search, page: pageNum, limit })}`;
 
-  const cached = await getCache<{
-    products: Record<string, unknown>[];
-    total: number;
-  }>(cacheKey);
-  if (cached) {
-    const loaded = skip + cached.products.length;
-    return {
-      products: normalizeProducts(cached.products),
-      page: pageNum,
-      limit,
-      total: cached.total,
-      hasNextPage: cached.products.length > 0 && loaded < cached.total,
-    };
-  }
+  const cached = await cachedFetch({
+    key: cacheKey,
+    softTtlSec: GIFTING_PRODUCT_CACHE_TTL,
+    hardTtlSec: Math.max(
+      GIFTING_PRODUCT_CACHE_TTL * 3,
+      GIFTING_PRODUCT_CACHE_TTL + 60,
+    ),
+    fetchFresh: async () => {
+      const [products, total] = await Promise.all([
+        productRepository.findGiftable(filter, skip, limit),
+        Product.countDocuments(filter).maxTimeMS(GIFTING_QUERY_MAX_MS),
+      ]);
+      return {
+        products: normalizeProducts(products as Record<string, unknown>[]),
+        total,
+      };
+    },
+  });
 
-  const [products, total] = await Promise.all([
-    productRepository.findGiftable(filter, skip, limit),
-    Product.countDocuments(filter).maxTimeMS(GIFTING_QUERY_MAX_MS),
-  ]);
+  const loaded = skip + cached.products.length;
+  const hasNextPage = cached.products.length > 0 && loaded < cached.total;
 
-  const normalized = normalizeProducts(products as Record<string, unknown>[]);
-  setCache(
-    cacheKey,
-    { products: normalized, total },
-    GIFTING_PRODUCT_CACHE_TTL,
-  ).catch(() => {});
-
-  const loaded = skip + normalized.length;
-  const hasNextPage = normalized.length > 0 && loaded < total;
-
-  return { products: normalized, page: pageNum, limit, total, hasNextPage };
+  return {
+    products: cached.products,
+    page: pageNum,
+    limit,
+    total: cached.total,
+    hasNextPage,
+  };
 }
 
 export async function getGiftCategories() {
@@ -234,6 +231,6 @@ export async function getGiftCategories() {
 export function invalidateGiftingProductCache(): void {
   // Namespace bump could be added; pattern clear is async-safe for low volume
   import("../cacheService").then(({ clearCachePattern }) => {
-    clearCachePattern("cache:gifting:products:*").catch(() => {});
+    clearCachePattern("cache:gifting:products:env:*").catch(() => {});
   });
 }

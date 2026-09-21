@@ -109,7 +109,7 @@ export const verifyPaymentAndThrow = (
   }
 };
 
-/** Razorpay axios layer throws `{ statusCode, error: { description, code } }` — not an `Error`. */
+/** Razorpay axios layer throws `{ statusCode, error: { description, code } }` - not an `Error`. */
 function razorpayApiMessage(err: unknown): string {
   if (err && typeof err === "object") {
     const o = err as {

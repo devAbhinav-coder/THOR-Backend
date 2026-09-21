@@ -6,8 +6,7 @@ export type WhatsAppTemplateComponent = {
   sub_type?: string;
   index?: string;
   parameters: Array<
-    | { type: "text"; text: string }
-    | { type: "payload"; payload: string }
+    { type: "text"; text: string } | { type: "payload"; payload: string }
   >;
 };
 
@@ -55,7 +54,9 @@ export async function sendWhatsAppTemplate(opts: {
       type: "button",
       sub_type: "url",
       index: "0",
-      parameters: [{ type: "text", text: opts.buttonUrl.trim().slice(0, 1024) }],
+      parameters: [
+        { type: "text", text: opts.buttonUrl.trim().slice(0, 1024) },
+      ],
     });
   }
 
@@ -109,7 +110,7 @@ export async function sendWhatsAppTemplate(opts: {
   }
 }
 
-/** Upload PDF/image to Meta — required before sending as WhatsApp document. */
+/** Upload PDF/image to Meta - required before sending as WhatsApp document. */
 export async function uploadWhatsAppMedia(opts: {
   buffer: Buffer;
   mimeType: string;

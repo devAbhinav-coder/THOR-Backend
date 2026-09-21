@@ -44,7 +44,9 @@ async function postIndexNow(body: Record<string, unknown>): Promise<void> {
   );
 }
 
-function buildIndexNowPayload(pathsOrUrls: string[]): Record<string, unknown> | null {
+function buildIndexNowPayload(
+  pathsOrUrls: string[],
+): Record<string, unknown> | null {
   const key =
     process.env.INDEXNOW_API_KEY?.trim() ||
     process.env.NEXT_PUBLIC_INDEXNOW_API_KEY?.trim();
@@ -88,7 +90,7 @@ export function notifyIndexNow(pathsOrUrls: string[]): void {
   });
 }
 
-/** Awaitable batch submit — use in one-off scripts. */
+/** Awaitable batch submit - use in one-off scripts. */
 export async function notifyIndexNowAsync(
   pathsOrUrls: string[],
 ): Promise<void> {

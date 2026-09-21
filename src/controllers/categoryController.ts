@@ -7,40 +7,43 @@ import { sendSuccess } from "../types/utils/response";
 import { categoryRepository } from "../repositories/categoryRepository";
 import { subcategoryRepository } from "../repositories/subcategoryRepository";
 import { enqueueImageDelete } from "../queues/imageQueue";
-import { buildCategoryProductCountMap } from "../services/categoryProductCountService";
+import {
+  getCachedCategoryList,
+  getCachedCategoryStats,
+  invalidateCategoryListCaches,
+} from "../services/category/categoryListCacheService";
+import { setPublicCatalogCacheHeaders } from "../constants/publicHttpCache";
+import { invalidateMegaMenuCache } from "./navigationController";
 import { notifyIndexNowStorefront } from "../services/indexNowService";
 
-
-// GET /api/categories — public
+// GET /api/categories - public
 export const getAllCategories = catchAsync(
   async (req: Request, res: Response) => {
+    setPublicCatalogCacheHeaders(res, {
+      maxAgeSec: 300,
+      staleWhileRevalidateSec: 900,
+    });
     const filter: Record<string, unknown> = {};
     if (req.query.active !== "false") filter.isActive = true;
 
-    const categories = await categoryRepository.list(filter);
+    const categories = await getCachedCategoryList(filter);
     sendSuccess(res, { categories });
   },
 );
 
-// GET /api/categories/stats — public — returns categories with real product counts
+// GET /api/categories/stats - public - returns categories with real product counts
 export const getCategoryStats = catchAsync(
   async (_req: Request, res: Response) => {
-    const categories = await Category.find({ isActive: true })
-      .sort({ name: 1 })
-      .lean();
-
-    const countMap = await buildCategoryProductCountMap(categories);
-
-    const result = categories.map((cat) => ({
-      ...cat,
-      productCount: countMap.get(String(cat._id)) || 0,
-    }));
-
+    setPublicCatalogCacheHeaders(res, {
+      maxAgeSec: 300,
+      staleWhileRevalidateSec: 900,
+    });
+    const result = await getCachedCategoryStats();
     sendSuccess(res, { categories: result });
   },
 );
 
-// GET /api/categories/:id — public (legacy, by ObjectId)
+// GET /api/categories/:id - public (legacy, by ObjectId)
 export const getCategory = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const cat = await Category.findById(req.params.id);
@@ -49,7 +52,7 @@ export const getCategory = catchAsync(
   },
 );
 
-// GET /api/categories/slug/:slug — public (new, by slug)
+// GET /api/categories/slug/:slug - public (new, by slug)
 export const getCategoryBySlug = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const cat = await categoryRepository.findBySlug(req.params.slug);
@@ -58,16 +61,20 @@ export const getCategoryBySlug = catchAsync(
   },
 );
 
-// GET /api/categories/slug/:slug/subcategories — public
+// GET /api/categories/slug/:slug/subcategories - public
 export const getCategorySubcategories = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const cat = await categoryRepository.findBySlug(req.params.slug);
     if (!cat) return next(new AppError("Category not found", 404));
-    const subcategories = await subcategoryRepository.listByCategorySlug(req.params.slug);
-    sendSuccess(res, { subcategories, category: { _id: cat._id, name: cat.name, slug: cat.slug } });
+    const subcategories = await subcategoryRepository.listByCategorySlug(
+      req.params.slug,
+    );
+    sendSuccess(res, {
+      subcategories,
+      category: { _id: cat._id, name: cat.name, slug: cat.slug },
+    });
   },
 );
-
 
 function parseSubcategories(raw: unknown): string[] {
   if (Array.isArray(raw)) return raw.map(String).filter(Boolean);
@@ -86,7 +93,7 @@ function parseSubcategories(raw: unknown): string[] {
   return [];
 }
 
-// POST /api/admin/categories — admin only
+// POST /api/admin/categories - admin only
 export const createCategory = catchAsync(
   async (req: Request, res: Response) => {
     const {
@@ -101,10 +108,14 @@ export const createCategory = catchAsync(
       metaDescription,
     } = req.body;
 
-    const uploadedImage =
-      (req as Request & { uploadedImage?: { url: string; publicId: string } }).uploadedImage;
-    const uploadedHeroBanner =
-      (req as Request & { uploadedHeroBanner?: { url: string; publicId: string } }).uploadedHeroBanner;
+    const uploadedImage = (
+      req as Request & { uploadedImage?: { url: string; publicId: string } }
+    ).uploadedImage;
+    const uploadedHeroBanner = (
+      req as Request & {
+        uploadedHeroBanner?: { url: string; publicId: string };
+      }
+    ).uploadedHeroBanner;
 
     const category = await Category.create({
       name,
@@ -127,20 +138,21 @@ export const createCategory = catchAsync(
       );
     }
     if (category.isActive !== false) {
-      const { notifyWhatsAppCatalogAlert } = await import(
-        "../services/whatsappNotifyService"
-      );
+      const { notifyWhatsAppCatalogAlert } =
+        await import("../services/whatsappNotifyService");
       notifyWhatsAppCatalogAlert({
         kind: "category",
         title: String(category.name || "New collection"),
         path: `/shop/collections/${encodeURIComponent(String(category.slug || ""))}`,
       });
     }
+    invalidateCategoryListCaches();
+    invalidateMegaMenuCache();
     sendSuccess(res, { category }, "Category created", 201);
   },
 );
 
-// PATCH /api/admin/categories/:id — admin only
+// PATCH /api/admin/categories/:id - admin only
 export const updateCategory = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const update: Record<string, unknown> = { ...req.body };
@@ -160,14 +172,16 @@ export const updateCategory = catchAsync(
     if (update.giftType === "") {
       update.giftType = undefined;
     }
-    
+
     // We need the existing category to check for old images
     const existingCategory = await Category.findById(req.params.id);
     if (!existingCategory) return next(new AppError("Category not found", 404));
 
     const publicIdsToDelete: string[] = [];
 
-    const uploadedImage = (req as Request & { uploadedImage?: { url: string; publicId: string } }).uploadedImage;
+    const uploadedImage = (
+      req as Request & { uploadedImage?: { url: string; publicId: string } }
+    ).uploadedImage;
     if (uploadedImage) {
       update.image = uploadedImage.url;
       update.imagePublicId = uploadedImage.publicId;
@@ -176,7 +190,11 @@ export const updateCategory = catchAsync(
       }
     }
 
-    const uploadedHeroBanner = (req as Request & { uploadedHeroBanner?: { url: string; publicId: string } }).uploadedHeroBanner;
+    const uploadedHeroBanner = (
+      req as Request & {
+        uploadedHeroBanner?: { url: string; publicId: string };
+      }
+    ).uploadedHeroBanner;
     if (uploadedHeroBanner) {
       update.heroBannerImage = uploadedHeroBanner.url;
       update.heroBannerPublicId = uploadedHeroBanner.publicId;
@@ -200,18 +218,22 @@ export const updateCategory = catchAsync(
         `/shop/collections/${encodeURIComponent(String(category.slug))}`,
       );
     }
+    invalidateCategoryListCaches();
+    invalidateMegaMenuCache();
     sendSuccess(res, { category }, "Category updated");
   },
 );
 
-// DELETE /api/admin/categories/:id — admin only
+// DELETE /api/admin/categories/:id - admin only
 export const deleteCategory = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const category = await Category.findById(req.params.id);
     if (!category) return next(new AppError("Category not found", 404));
 
     // Guard 1: legacy string-based product association
-    const legacyCount = await Product.countDocuments({ category: category.name });
+    const legacyCount = await Product.countDocuments({
+      category: category.name,
+    });
     // Guard 2: new FK-based product association (populated after migration)
     const fkCount = await Product.countDocuments({ categoryId: category._id });
     const productCount = Math.max(legacyCount, fkCount);
@@ -227,13 +249,15 @@ export const deleteCategory = catchAsync(
 
     const publicIdsToDelete: string[] = [];
     if (category.imagePublicId) publicIdsToDelete.push(category.imagePublicId);
-    if (category.heroBannerPublicId) publicIdsToDelete.push(category.heroBannerPublicId);
+    if (category.heroBannerPublicId)
+      publicIdsToDelete.push(category.heroBannerPublicId);
     if (publicIdsToDelete.length > 0) {
       await enqueueImageDelete(publicIdsToDelete);
     }
 
     await category.deleteOne();
+    invalidateCategoryListCaches();
+    invalidateMegaMenuCache();
     res.status(204).end();
   },
 );
-

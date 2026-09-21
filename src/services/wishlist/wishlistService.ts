@@ -19,6 +19,7 @@ import { emitWishlistEvent } from "./wishlistEventService";
 import WishlistPriceAlert from "../../models/WishlistPriceAlert";
 import { getActiveSaleCampaigns } from "../sale/saleCacheService";
 import { resolveEffectivePrice } from "../sale/salePriceService";
+import { coalesceInFlight } from "../../types/utils/inFlightCoalesce";
 
 export type WishlistListOptions = {
   paginated: boolean;
@@ -59,7 +60,7 @@ function isDuplicateKeyError(err: unknown): boolean {
   );
 }
 
-/** Add product — $expr cap check cannot be combined with upsert in MongoDB. */
+/** Add product - $expr cap check cannot be combined with upsert in MongoDB. */
 async function addProductToWishlist(
   userObjectId: mongoose.Types.ObjectId,
   productObjectId: mongoose.Types.ObjectId,
@@ -282,8 +283,7 @@ async function fetchWishlistProductsOrdered(
     maxTimeMS: WISHLIST_QUERY_MAX_MS,
   });
   const row = rows[0] as
-    | { products?: RawWishlistProduct[]; totalProducts?: number }
-    | undefined;
+    { products?: RawWishlistProduct[]; totalProducts?: number } | undefined;
 
   return {
     products: row?.products ?? [],
@@ -308,9 +308,10 @@ export const wishlistService = {
 
     recordWishlistMetric("wishlist.fetch.cache_miss", { userId });
 
-    const { products: rawProducts, total } = await fetchWishlistProductsOrdered(
-      userId,
-      options,
+    const coalesceKey = `wishlist:fetch:${userId}:${page ?? "all"}:${limit ?? "all"}`;
+    const { products: rawProducts, total } = await coalesceInFlight(
+      coalesceKey,
+      () => fetchWishlistProductsOrdered(userId, options),
     );
     const products = serializeWishlistProducts(rawProducts);
 

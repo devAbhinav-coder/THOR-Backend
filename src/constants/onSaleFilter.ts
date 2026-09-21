@@ -1,11 +1,14 @@
-import mongoose from 'mongoose';
-import { collectCampaignScopeIds, type SaleCampaignLike } from '../services/sale/salePriceService';
+import mongoose from "mongoose";
+import {
+  collectCampaignScopeIds,
+  type SaleCampaignLike,
+} from "../services/sale/salePriceService";
 
 /** Products with comparePrice above selling price (legacy catalog MRP). */
 export function comparePriceOnSaleClause(): Record<string, unknown> {
   return {
     comparePrice: { $exists: true, $ne: null, $gt: 0 },
-    $expr: { $gt: ['$comparePrice', '$price'] },
+    $expr: { $gt: ["$comparePrice", "$price"] },
   };
 }
 
@@ -48,7 +51,7 @@ export function buildCampaignCoverageClause(
   return { $or: or };
 }
 
-/** Admin sale filter — only products covered by an active sale campaign. */
+/** Admin sale filter - only products covered by an active sale campaign. */
 export function buildOnSaleMongoFilter(
   campaigns: SaleCampaignLike[],
 ): Record<string, unknown> {
@@ -56,7 +59,7 @@ export function buildOnSaleMongoFilter(
   if (!campaignClause) {
     return { _id: { $in: [] } };
   }
-  if ('isActive' in campaignClause && !('$or' in campaignClause)) {
+  if ("isActive" in campaignClause && !("$or" in campaignClause)) {
     return { isActive: true };
   }
   return campaignClause;

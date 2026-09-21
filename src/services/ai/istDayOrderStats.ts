@@ -7,10 +7,10 @@ const PAYMENT_STATUS_GROSS = {
 };
 
 const PAYMENT_LABELS: Record<string, string> = {
-  razorpay: "Online — Razorpay/UPI",
-  cod: "Online — COD",
-  offline_upi: "Offline — UPI",
-  offline_cash: "Offline — Cash",
+  razorpay: "Online - Razorpay/UPI",
+  cod: "Online - COD",
+  offline_upi: "Offline - UPI",
+  offline_cash: "Offline - Cash",
 };
 
 export type DayChannelStats = {

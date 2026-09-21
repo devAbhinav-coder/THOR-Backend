@@ -26,9 +26,14 @@ import {
   processCartCustomFieldImage,
 } from '../middleware/upload';
 import { cartCouponLimiter, cartMutationLimiter } from '../middleware/cartRateLimit';
+import { setPrivateNoStore } from '../constants/publicHttpCache';
 
 const router = Router();
 
+router.use((_req, res, next) => {
+  setPrivateNoStore(res);
+  next();
+});
 router.use(protect);
 
 router.get('/', getCart);

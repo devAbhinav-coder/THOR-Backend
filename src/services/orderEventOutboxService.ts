@@ -138,7 +138,7 @@ export async function dispatchOutboxById(outboxId: string): Promise<boolean> {
   }
 }
 
-/** Poll pending/failed outbox rows — run from background job */
+/** Poll pending/failed outbox rows - run from background job */
 export async function processPendingOutboxBatch(limit = 25): Promise<number> {
   const now = new Date();
   const pending = await OrderEventOutbox.find({

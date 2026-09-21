@@ -4,10 +4,10 @@ Deploy **two processes** in production for best reliability: **API** (`RUN_MODE=
 
 ## Process layout
 
-| Process | Command | Purpose |
-|---------|---------|---------|
-| API | `npm run start` with `RUN_MODE=api` | HTTP only — no background jobs |
-| Worker | `npm run worker` with `RUN_MODE=worker` | Cron jobs, BullMQ consumers, outbox pollers |
+| Process | Command                                 | Purpose                                     |
+| ------- | --------------------------------------- | ------------------------------------------- |
+| API     | `npm run start` with `RUN_MODE=api`     | HTTP only - no background jobs              |
+| Worker  | `npm run worker` with `RUN_MODE=worker` | Cron jobs, BullMQ consumers, outbox pollers |
 
 Frontend: `npm run build && npm run start` (Next.js) or your host’s equivalent.
 
@@ -84,7 +84,7 @@ REENGAGE_JOB_ENABLED=false
 IMAGE_OPTIMIZE_JOB_ENABLED=false
 ```
 
-Job health: admin only — `GET /api/admin/jobs/health` (requires admin JWT).
+Job health: admin only - `GET /api/admin/jobs/health` (requires admin JWT).
 
 DLQ replay: admin UI `/admin/system/outbox` or `GET/POST /api/admin/outbox/:type/...`.
 
@@ -119,12 +119,12 @@ NEXT_PUBLIC_TURNSTILE_SITE_KEY=...
 
 ## Health checks
 
-- `GET /api/health` — MongoDB + Redis (both required in production when Redis is enabled)
-- `GET /api/admin/jobs/health` — background job metadata (admin auth)
+- `GET /api/health` - MongoDB + Redis (both required in production when Redis is enabled)
+- `GET /api/admin/jobs/health` - background job metadata (admin auth)
 
 ## WAF / edge rules (admin surface)
 
-Prefer writes at `/api/admin/writes/*` (admin JWT + 2FA). Legacy write paths still work — protect both:
+Prefer writes at `/api/admin/writes/*` (admin JWT + 2FA). Legacy write paths still work - protect both:
 
 - `POST|PATCH|DELETE /api/admin/writes/*`
 - `POST|PATCH|DELETE /api/products/*`

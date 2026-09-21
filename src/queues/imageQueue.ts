@@ -46,7 +46,7 @@ export async function enqueueImageDelete(publicIds: string[]): Promise<void> {
   if (!publicIds.length) return;
   try {
     if (!imageQueue) {
-      // Redis unavailable — delete in background without blocking the request
+      // Redis unavailable - delete in background without blocking the request
       deleteMultipleImages(publicIds).catch((err) =>
         logger.error(
           `Inline Cloudinary delete failed: ${(err as Error).message}`,
@@ -56,7 +56,7 @@ export async function enqueueImageDelete(publicIds: string[]): Promise<void> {
     }
     await imageQueue.add("image-delete", { publicIds }, defaultOpts);
   } catch (err) {
-    // Queue unavailable — fall back to background deletion
+    // Queue unavailable - fall back to background deletion
     logger.warn(
       `Image queue unavailable, falling back to inline delete: ${(err as Error).message}`,
     );

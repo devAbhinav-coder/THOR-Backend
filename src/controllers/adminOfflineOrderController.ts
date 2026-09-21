@@ -36,6 +36,8 @@ import {
   removeOfflineCustomerByEmail,
   upsertOfflineCustomerRecord,
 } from "../services/offlineCustomerService";
+import { isCustomerDeliverableEmail } from "../types/utils/customerEmail";
+import { posLeadEmailForPhone } from "../types/utils/indianPhone";
 function normalizeInPhone(raw: string): string {
   const d = raw.replace(/\D/g, "");
   if (d.length === 12 && d.startsWith("91")) return d.slice(2);
@@ -160,7 +162,10 @@ export const createOfflineOrder = catchAsync(
     const phone10 = phone ? normalizeInPhone(String(phone)) : "";
     if (phone && !/^[6-9]\d{9}$/.test(phone10)) {
       return next(
-        new AppError("If provided, phone must be a valid 10-digit Indian mobile number.", 400),
+        new AppError(
+          "If provided, phone must be a valid 10-digit Indian mobile number.",
+          400,
+        ),
       );
     }
 
@@ -339,7 +344,10 @@ export const createOfflineOrder = catchAsync(
         );
       }
 
-      const costAtSale = resolveUnitCostAtSale(line.unitCost, variant.costPrice);
+      const costAtSale = resolveUnitCostAtSale(
+        line.unitCost,
+        variant.costPrice,
+      );
 
       orderItems.push({
         product: pid,
@@ -368,7 +376,7 @@ export const createOfflineOrder = catchAsync(
       0,
       paymentMethod,
     );
-    /** In-person handover: no courier — no shipping line on the order. */
+    /** In-person handover: no courier - no shipping line on the order. */
     if (fulfillment === "offline_handover") {
       shippingCharge = 0;
       total = Math.round((subtotal + tax + codFee) * 100) / 100;
@@ -386,8 +394,9 @@ export const createOfflineOrder = catchAsync(
     }));
 
     const hasEmail = Boolean(email && email.trim() !== "");
-    const emailNorm = hasEmail
-      ? String(email).trim().toLowerCase()
+    const emailNorm =
+      hasEmail ?
+        String(email).trim().toLowerCase()
       : `guest_${Date.now()}_${Math.floor(Math.random() * 1000)}@offline.local`;
 
     let user = await User.findOne({ email: emailNorm });
@@ -446,7 +455,7 @@ export const createOfflineOrder = catchAsync(
           phone: phone10 || "0000000000",
           label: "Customer",
           street:
-            "In-person fulfilment — goods handed over at point of sale (no courier dispatch for this order).",
+            "In-person fulfilment - goods handed over at point of sale (no courier dispatch for this order).",
           city: "Fulfilled in person",
           state: "India",
           pincode: "110001",
@@ -545,7 +554,9 @@ export const createOfflineOrder = catchAsync(
           referenceType: "order",
           actor: adminId,
           note: `${channelLabel} order ${order.orderNumber}`,
-        }).catch((err) => console.error("Stock ledger fail (admin sale):", err));
+        }).catch((err) =>
+          console.error("Stock ledger fail (admin sale):", err),
+        );
       }
 
       await writeAdminAudit(
@@ -572,7 +583,7 @@ export const createOfflineOrder = catchAsync(
         console.error("Offline order customer notifications failed:", err);
       });
 
-      /* Admin alerts below — customer pack above handles PDF, WhatsApp, review */
+      /* Admin alerts below - customer pack above handles PDF, WhatsApp, review */
       const adminTemplate = emailTemplates.adminNewOrder(
         order.orderNumber,
         order.total,
@@ -600,9 +611,13 @@ export const createOfflineOrder = catchAsync(
         offlineCopy.type,
       ).catch(() => {});
 
-      if (isOfflineMarketingLead && hasEmail && phone10) {
+      if (isOfflineMarketingLead && phone10) {
+        const leadEmail =
+          hasEmail && isCustomerDeliverableEmail(emailNorm) ?
+            emailNorm
+          : posLeadEmailForPhone(phone10);
         await upsertOfflineCustomerRecord({
-          email: emailNorm,
+          email: leadEmail,
           phone: phone10,
           name: customerName.trim().slice(0, 50),
         });
@@ -684,5 +699,5 @@ export const listB2bOrdersPendingTaxInvoice = catchAsync(
   },
 );
 
-/** B2B wholesale sale from admin — same handler as offline; schema forces orderSource=b2b. */
+/** B2B wholesale sale from admin - same handler as offline; schema forces orderSource=b2b. */
 export const createB2bOrder = createOfflineOrder;

@@ -56,6 +56,7 @@ export const env = {
   jwt: {
     secret: process.env.JWT_SECRET || '',
     expiresIn: process.env.JWT_EXPIRES_IN || '15m',
+    adminExpiresIn: process.env.JWT_ADMIN_EXPIRES_IN || '5m',
     refreshSecret: process.env.JWT_REFRESH_SECRET || '',
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d',
   },

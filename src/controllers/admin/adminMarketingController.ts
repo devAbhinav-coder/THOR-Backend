@@ -121,7 +121,7 @@ export const sendCustomMarketingEmail = catchAsync(
       if (activeChannels.includes("in_app")) notifBits.push("in-app");
       if (activeChannels.includes("push")) notifBits.push("browser push");
       parts.push(
-        `${result.notificationsQueued} account(s) — ${notifBits.join(" + ")}`,
+        `${result.notificationsQueued} account(s) - ${notifBits.join(" + ")}`,
       );
     }
     if (result.whatsAppQueued > 0) {

@@ -26,7 +26,7 @@ export const createCoupon = catchAsync(async (_req: Request, res: Response) => {
 
   const coupon = await couponAdminService.createCoupon(body);
 
-  // Never email-blast code-only / influencer coupons — that would defeat privacy.
+  // Never email-blast code-only / influencer coupons - that would defeat privacy.
   const isPublicOffer = coupon.showOnStorefront !== false;
   const wantsAnnouncement =
     body.sendAnnouncement === true || body.sendAnnouncement === "true";
@@ -63,9 +63,8 @@ export const createCoupon = catchAsync(async (_req: Request, res: Response) => {
     showOnStorefront: isPublicOffer,
   });
   if (isPublicOffer) {
-    const { notifyWhatsAppCatalogAlert } = await import(
-      "../services/whatsappNotifyService"
-    );
+    const { notifyWhatsAppCatalogAlert } =
+      await import("../services/whatsappNotifyService");
     notifyWhatsAppCatalogAlert({
       kind: "coupon",
       title: coupon.code,
@@ -131,16 +130,14 @@ export const validateCoupon = catchAsync(
 
     let lines;
     if (Array.isArray(items) && items.length > 0) {
-      const { buildCouponLinesFromProductIds } = await import(
-        "../services/coupon/couponLineScopeService"
-      );
+      const { buildCouponLinesFromProductIds } =
+        await import("../services/coupon/couponLineScopeService");
       lines = await buildCouponLinesFromProductIds(items);
     } else {
       try {
         const { cartService } = await import("../services/cartService");
-        const { buildCouponLinesFromCartItems } = await import(
-          "../services/coupon/couponLineScopeService"
-        );
+        const { buildCouponLinesFromCartItems } =
+          await import("../services/coupon/couponLineScopeService");
         const cart = await cartService.getCart(String(req.user!._id));
         if (cart.items?.length) {
           lines = await buildCouponLinesFromCartItems(
@@ -185,9 +182,8 @@ export const getEligibleCoupons = catchAsync(
       try {
         const parsed = JSON.parse(itemsRaw) as unknown;
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const { buildCouponLinesFromProductIds } = await import(
-            "../services/coupon/couponLineScopeService"
-          );
+          const { buildCouponLinesFromProductIds } =
+            await import("../services/coupon/couponLineScopeService");
           const entries = parsed
             .map((row) => {
               const r = row as {
@@ -219,9 +215,8 @@ export const getEligibleCoupons = catchAsync(
     if (!lines) {
       try {
         const { cartService } = await import("../services/cartService");
-        const { buildCouponLinesFromCartItems } = await import(
-          "../services/coupon/couponLineScopeService"
-        );
+        const { buildCouponLinesFromCartItems } =
+          await import("../services/coupon/couponLineScopeService");
         const cart = await cartService.getCart(String(req.user!._id));
         if (cart.items?.length) {
           lines = await buildCouponLinesFromCartItems(
@@ -246,7 +241,9 @@ export const getEligibleCoupons = catchAsync(
   },
 );
 
-export const getPublicCoupons = catchAsync(async (_req: Request, res: Response) => {
-  const coupons = await couponValidationService.listPublicCoupons();
-  sendSuccess(res, { coupons });
-});
+export const getPublicCoupons = catchAsync(
+  async (_req: Request, res: Response) => {
+    const coupons = await couponValidationService.listPublicCoupons();
+    sendSuccess(res, { coupons });
+  },
+);

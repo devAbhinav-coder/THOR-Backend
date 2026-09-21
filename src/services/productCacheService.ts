@@ -26,7 +26,7 @@ export async function getProductCacheVersion(): Promise<number> {
   return memoryVersion;
 }
 
-/** Bump namespace — avoids Redis KEYS / wildcard deletes. */
+/** Bump namespace - avoids Redis KEYS / wildcard deletes. */
 export async function bumpProductCacheVersion(): Promise<number> {
   const current = await getProductCacheVersion();
   const next = current + 1;
@@ -92,7 +92,7 @@ export async function invalidatePdpBySlug(slug: string): Promise<void> {
   }
 }
 
-/** After inventory mutation — refresh PDP only for that product. */
+/** After inventory mutation - refresh PDP only for that product. */
 export async function invalidatePdpForProductId(
   productId: mongoose.Types.ObjectId | string,
 ): Promise<void> {
@@ -118,7 +118,7 @@ export function schedulePdpInvalidationForProductId(
 }
 
 /**
- * Full catalog invalidation — product create/update/delete, category changes.
+ * Full catalog invalidation - product create/update/delete, category changes.
  * Bumps version so listings, filters, search, and random pools refresh.
  */
 export async function invalidateProductCaches(opts?: {

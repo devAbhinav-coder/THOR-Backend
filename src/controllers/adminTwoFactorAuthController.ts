@@ -35,16 +35,24 @@ export const verifyAdminTwoFactorLogin = catchAsync(
       return next(new AppError("Invalid admin session.", 401));
     }
     if (!user.adminTwoFactorEnabled) {
-      return next(new AppError("Two-factor authentication is not enabled.", 400));
+      return next(
+        new AppError("Two-factor authentication is not enabled.", 400),
+      );
     }
 
     try {
       await verifyAdminSecondFactor(userId, code.trim());
     } catch (e) {
-      await writeAdminAudit(req, "auth.admin_2fa.failed", {
+      await writeAdminAudit(
+        req,
+        "auth.admin_2fa.failed",
+        {
+          userId,
+          email: user.email,
+        },
         userId,
-        email: user.email,
-      }, userId, userId);
+        userId,
+      );
       if (e instanceof AppError) return next(e);
       return next(new AppError("Invalid authenticator or backup code.", 401));
     }
@@ -67,7 +75,7 @@ export const verifyAdminTwoFactorLogin = catchAsync(
   },
 );
 
-/** After password check — admin with 2FA enabled gets a pending token instead of cookies. */
+/** After password check - admin with 2FA enabled gets a pending token instead of cookies. */
 export async function respondAdminLoginOrTwoFactor(
   req: Request,
   res: Response,

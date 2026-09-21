@@ -1,13 +1,13 @@
-import mongoose, { Schema } from 'mongoose';
-import { IBlog } from '../types';
+import mongoose, { Schema } from "mongoose";
+import { IBlog } from "../types";
 
 const blogSchema = new Schema<IBlog>(
   {
     title: {
       type: String,
-      required: [true, 'Blog title is required'],
+      required: [true, "Blog title is required"],
       trim: true,
-      maxlength: [150, 'Title cannot exceed 150 characters'],
+      maxlength: [150, "Title cannot exceed 150 characters"],
     },
     slug: {
       type: String,
@@ -16,7 +16,7 @@ const blogSchema = new Schema<IBlog>(
       lowercase: true,
       trim: true,
     },
-    /** Previous slug — used for 301 redirects when slug is edited. */
+    /** Previous slug - used for 301 redirects when slug is edited. */
     oldSlug: {
       type: String,
       lowercase: true,
@@ -25,7 +25,7 @@ const blogSchema = new Schema<IBlog>(
     },
     content: {
       type: String,
-      required: [true, 'Blog content is required'],
+      required: [true, "Blog content is required"],
     },
     images: [
       {
@@ -34,25 +34,25 @@ const blogSchema = new Schema<IBlog>(
         caption: { type: String, trim: true },
         layout: {
           type: String,
-          enum: ['hero', 'wide', 'portrait', 'square', 'inline', 'split'],
-          default: 'inline',
+          enum: ["hero", "wide", "portrait", "square", "inline", "split"],
+          default: "inline",
         },
         placement: {
           type: String,
-          enum: ['cover', 'article', 'gallery'],
-          default: 'article',
+          enum: ["cover", "article", "gallery"],
+          default: "article",
         },
       },
     ],
     author: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: "User",
       required: true,
     },
     likes: [
       {
         type: Schema.Types.ObjectId,
-        ref: 'User',
+        ref: "User",
       },
     ],
     isPublished: {
@@ -66,17 +66,17 @@ const blogSchema = new Schema<IBlog>(
     excerpt: {
       type: String,
       trim: true,
-      maxlength: [220, 'Excerpt cannot exceed 220 characters'],
+      maxlength: [220, "Excerpt cannot exceed 220 characters"],
     },
     seoTitle: {
       type: String,
       trim: true,
-      maxlength: [70, 'SEO title cannot exceed 70 characters'],
+      maxlength: [70, "SEO title cannot exceed 70 characters"],
     },
     seoDescription: {
       type: String,
       trim: true,
-      maxlength: [170, 'SEO description cannot exceed 170 characters'],
+      maxlength: [170, "SEO description cannot exceed 170 characters"],
     },
     keywords: {
       type: [String],
@@ -89,17 +89,17 @@ const blogSchema = new Schema<IBlog>(
     category: {
       type: String,
       trim: true,
-      default: 'saree-styling',
+      default: "saree-styling",
     },
     articleTemplate: {
       type: String,
-      enum: ['classic', 'magazine', 'minimal', 'lookbook'],
-      default: 'classic',
+      enum: ["classic", "magazine", "minimal", "lookbook"],
+      default: "classic",
     },
     relatedProductIds: [
       {
         type: Schema.Types.ObjectId,
-        ref: 'Product',
+        ref: "Product",
       },
     ],
     readingTimeMin: {
@@ -133,7 +133,7 @@ const blogSchema = new Schema<IBlog>(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 // Indexing for faster searches
@@ -144,7 +144,7 @@ blogSchema.index({ isPublished: 1, scheduledPublishAt: 1 });
 blogSchema.index({ viewCount: -1 });
 blogSchema.index({ oldSlug: 1 }, { sparse: true });
 // Text index for full-text search on title and content (avoids full collection regex scans)
-blogSchema.index({ title: 'text', content: 'text', excerpt: 'text' });
+blogSchema.index({ title: "text", content: "text", excerpt: "text" });
 
-const Blog = mongoose.model<IBlog>('Blog', blogSchema);
+const Blog = mongoose.model<IBlog>("Blog", blogSchema);
 export default Blog;

@@ -9,9 +9,13 @@ export type BlogLlmOptions = {
   maxPromptChars?: number;
 };
 
-export type BlogLlmResult = { text: string; model: string; truncated?: boolean };
+export type BlogLlmResult = {
+  text: string;
+  model: string;
+  truncated?: boolean;
+};
 
-/** Blog drafts — Gemini by default when GEMINI_API_KEY is set; Groq fallback. */
+/** Blog drafts - Gemini by default when GEMINI_API_KEY is set; Groq fallback. */
 export async function blogChatCompletion(
   userPrompt: string,
   options?: BlogLlmOptions,

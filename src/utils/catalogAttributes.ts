@@ -1,4 +1,4 @@
-/** Shared catalog attribute helpers — colors/fabrics for filters + save. */
+/** Shared catalog attribute helpers - colors/fabrics for filters + save. */
 
 export function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -36,9 +36,7 @@ export function scoreCatalogLabel(label: string): number {
 }
 
 export function pickCanonicalLabel(candidates: string[]): string {
-  const cleaned = candidates
-    .map((c) => String(c || "").trim())
-    .filter(Boolean);
+  const cleaned = candidates.map((c) => String(c || "").trim()).filter(Boolean);
   if (!cleaned.length) return "";
 
   // Prefer a spaced form when any candidate has spaces (Off White > Offwhite).

@@ -19,7 +19,18 @@ import {
   type CartPromotionDto,
 } from './cartDto';
 import { recordCartMetric } from './cartMetricsService';
-import { CART_QUERY_MAX_MS } from './cartConstants';
+import {
+  CART_CACHE_HARD_TTL_SEC,
+  CART_CACHE_TTL_SEC,
+  CART_QUERY_MAX_MS,
+} from './cartConstants';
+import { cachedFetch } from '../cache/cachedFetch';
+import {
+  getCacheEnvelope,
+  isEnvelopeFresh,
+  isEnvelopeStaleButValid,
+} from '../cache/cacheEnvelope';
+import { cartCacheKey } from './cartCacheService';
 import type { ICartItem } from '../../types';
 
 async function hydrateTotals(
@@ -181,6 +192,15 @@ async function hydrateTotals(
   return hydrated;
 }
 
+async function loadCartDtoFromDb(userId: string): Promise<CartDto> {
+  const cart = await Cart.findOne({ user: userId })
+    .lean<Record<string, unknown>>()
+    .maxTimeMS(CART_QUERY_MAX_MS);
+  const dto = await hydrateTotals(cart ?? {}, userId);
+  recordCartMetric('cart.fetch', { userId });
+  return dto;
+}
+
 export const cartHydrationService = {
   async hydrateFromDocument(
     cart: Record<string, unknown> | null,
@@ -190,24 +210,28 @@ export const cartHydrationService = {
   },
 
   async getCartDto(userId: string, options?: { skipCache?: boolean }): Promise<CartDto> {
-    if (!options?.skipCache) {
-      const cached = await cartCacheService.get(userId);
-      if (cached) {
-        recordCartMetric('cart.fetch.cache_hit', { userId });
-      } else {
-        recordCartMetric('cart.fetch.cache_miss', { userId });
-      }
-    } else {
+    if (options?.skipCache) {
       recordCartMetric('cart.fetch.cache_miss', { userId });
+      return loadCartDtoFromDb(userId);
     }
 
-    const cart = await Cart.findOne({ user: userId })
-      .lean<Record<string, unknown>>()
-      .maxTimeMS(CART_QUERY_MAX_MS);
-    const dto = await hydrateTotals(cart ?? {}, userId);
-    await cartCacheService.set(userId, dto, dto.version);
-    recordCartMetric('cart.fetch', { userId });
-    return dto;
+    const key = cartCacheKey(userId);
+    const envelope = await getCacheEnvelope<CartDto>(key);
+    if (
+      envelope &&
+      (isEnvelopeFresh(envelope) || isEnvelopeStaleButValid(envelope))
+    ) {
+      recordCartMetric('cart.fetch.cache_hit', { userId });
+    }
+    return cachedFetch({
+      key,
+      softTtlSec: CART_CACHE_TTL_SEC,
+      hardTtlSec: CART_CACHE_HARD_TTL_SEC,
+      fetchFresh: () => {
+        recordCartMetric('cart.fetch.cache_miss', { userId });
+        return loadCartDtoFromDb(userId);
+      },
+    });
   },
 
   async invalidateAndRefresh(userId: string): Promise<CartDto> {

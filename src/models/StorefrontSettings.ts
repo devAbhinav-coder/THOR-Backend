@@ -1,4 +1,4 @@
-import mongoose, { Schema } from 'mongoose';
+import mongoose, { Schema } from "mongoose";
 
 const heroSlideSchema = new Schema(
   {
@@ -14,7 +14,7 @@ const heroSlideSchema = new Schema(
     secondaryCtaLink: { type: String, trim: true, maxlength: 240 },
     isActive: { type: Boolean, default: true },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const linkSchema = new Schema(
@@ -22,7 +22,7 @@ const linkSchema = new Schema(
     label: { type: String, required: true, trim: true, maxlength: 60 },
     href: { type: String, required: true, trim: true, maxlength: 240 },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const promoBannerSchema = new Schema(
@@ -38,7 +38,7 @@ const promoBannerSchema = new Schema(
     secondaryButtonLink: { type: String, trim: true, maxlength: 240 },
     perks: [{ type: String, trim: true, maxlength: 120 }],
   },
-  { _id: false }
+  { _id: false },
 );
 
 const shopBannerSchema = new Schema(
@@ -53,7 +53,7 @@ const shopBannerSchema = new Schema(
     rightImagePublicId: { type: String, trim: true },
     isActive: { type: Boolean, default: true },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const footerSchema = new Schema(
@@ -69,23 +69,38 @@ const footerSchema = new Schema(
     quickLinks: [linkSchema],
     categoryLimit: { type: Number, default: 5, min: 1, max: 20 },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const blogBannerSchema = new Schema(
   {
-    eyebrow: { type: String, trim: true, maxlength: 80, default: 'Journal & Stories' },
-    title: { type: String, trim: true, maxlength: 140, default: 'Discover the Art of Ethnic' },
+    eyebrow: {
+      type: String,
+      trim: true,
+      maxlength: 80,
+      default: "Journal & Stories",
+    },
+    title: {
+      type: String,
+      trim: true,
+      maxlength: 140,
+      default: "Discover the Art of Ethnic",
+    },
     description: { type: String, trim: true, maxlength: 400 },
     mainImage: { type: String, trim: true },
     mainImagePublicId: { type: String, trim: true },
     sideImage: { type: String, trim: true },
     sideImagePublicId: { type: String, trim: true },
-    buttonText: { type: String, trim: true, maxlength: 40, default: 'Visit Our Blog' },
-    buttonLink: { type: String, trim: true, maxlength: 240, default: '/blog' },
+    buttonText: {
+      type: String,
+      trim: true,
+      maxlength: 40,
+      default: "Visit Our Blog",
+    },
+    buttonLink: { type: String, trim: true, maxlength: 240, default: "/blog" },
     isActive: { type: Boolean, default: true },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const giftingHeroBannerSchema = new Schema(
@@ -98,7 +113,7 @@ const giftingHeroBannerSchema = new Schema(
     ctaLink: { type: String, trim: true, maxlength: 240 },
     isActive: { type: Boolean, default: true },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const giftingSecondaryBannerSchema = new Schema(
@@ -111,23 +126,33 @@ const giftingSecondaryBannerSchema = new Schema(
     ctaLink: { type: String, trim: true, maxlength: 240 },
     isActive: { type: Boolean, default: true },
   },
-  { _id: false }
+  { _id: false },
 );
 
-/** Home page — above “Why Choose Us”; three pastel cards + dual CTAs (shop vs gifting). */
+/** Home page - above “Why Choose Us”; three pastel cards + dual CTAs (shop vs gifting). */
 const homeGiftShowcaseCardSchema = new Schema(
   {
     title: { type: String, trim: true, maxlength: 80 },
     description: { type: String, trim: true, maxlength: 320 },
     image: { type: String, trim: true },
     imagePublicId: { type: String, trim: true },
-    shopButtonText: { type: String, trim: true, maxlength: 36, default: 'Shop products' },
-    shopButtonLink: { type: String, trim: true, maxlength: 240, default: '/shop' },
+    shopButtonText: {
+      type: String,
+      trim: true,
+      maxlength: 36,
+      default: "Shop products",
+    },
+    shopButtonLink: {
+      type: String,
+      trim: true,
+      maxlength: 240,
+      default: "/shop",
+    },
     /** Primary CTA: gifting filters, direct product path, custom URL, or coming soon (no link). */
     shopLinkMode: {
       type: String,
-      enum: ['gifting', 'product', 'coming_soon', 'custom'],
-      default: 'custom',
+      enum: ["gifting", "product", "coming_soon", "custom"],
+      default: "custom",
     },
     /** Matches gifting page ?occasion= and API giftOccasion (gift category name). */
     giftingOccasion: { type: String, trim: true, maxlength: 80 },
@@ -137,15 +162,25 @@ const homeGiftShowcaseCardSchema = new Schema(
     giftingSearch: { type: String, trim: true, maxlength: 120 },
     /** Internal path when shopLinkMode is product, e.g. /shop/my-slug */
     directProductPath: { type: String, trim: true, maxlength: 280 },
-    giftButtonText: { type: String, trim: true, maxlength: 36, default: 'Gifting' },
-    giftButtonLink: { type: String, trim: true, maxlength: 240, default: '/gifting' },
+    giftButtonText: {
+      type: String,
+      trim: true,
+      maxlength: 36,
+      default: "Gifting",
+    },
+    giftButtonLink: {
+      type: String,
+      trim: true,
+      maxlength: 240,
+      default: "/gifting",
+    },
     accent: {
       type: String,
-      enum: ['rose', 'amber', 'sage'],
-      default: 'rose',
+      enum: ["rose", "amber", "sage"],
+      default: "rose",
     },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const homeEditorialGalleryTileSchema = new Schema(
@@ -187,10 +222,13 @@ const homeGiftShowcaseSchema = new Schema(
     socialHandle: { type: String, trim: true, maxlength: 80 },
     cards: {
       type: [homeGiftShowcaseCardSchema],
-      validate: [(arr: unknown[]) => !Array.isArray(arr) || arr.length <= 3, 'Max 3 cards'],
+      validate: [
+        (arr: unknown[]) => !Array.isArray(arr) || arr.length <= 3,
+        "Max 3 cards",
+      ],
     },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const homeMiddleBannerSchema = new Schema(
@@ -201,27 +239,41 @@ const homeMiddleBannerSchema = new Schema(
     subtitle: { type: String, trim: true, maxlength: 120 },
     linkText: { type: String, trim: true, maxlength: 60 },
     linkUrl: { type: String, trim: true },
-    textAlignment: { type: String, enum: ['left', 'center', 'right'], default: 'center' },
-    textColor: { type: String, enum: ['light', 'dark'], default: 'light' },
+    textAlignment: {
+      type: String,
+      enum: ["left", "center", "right"],
+      default: "center",
+    },
+    textColor: { type: String, enum: ["light", "dark"], default: "light" },
     isActive: { type: Boolean, default: true },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const homeExploreHouseSchema = new Schema(
   {
     saleImage: { type: String, trim: true },
     saleImagePublicId: { type: String, trim: true },
-    saleName: { type: String, trim: true, maxlength: 48, default: 'Sale' },
-    saleSubtitle: { type: String, trim: true, maxlength: 48, default: 'ON OFFER' },
+    saleName: { type: String, trim: true, maxlength: 48, default: "Sale" },
+    saleSubtitle: {
+      type: String,
+      trim: true,
+      maxlength: 48,
+      default: "ON OFFER",
+    },
     giftingImage: { type: String, trim: true },
     giftingImagePublicId: { type: String, trim: true },
-    giftingName: { type: String, trim: true, maxlength: 48, default: 'Gifting' },
+    giftingName: {
+      type: String,
+      trim: true,
+      maxlength: 48,
+      default: "Gifting",
+    },
     giftingSubtitle: {
       type: String,
       trim: true,
       maxlength: 48,
-      default: 'THE COLLECTION',
+      default: "THE COLLECTION",
     },
   },
   { _id: false },
@@ -235,28 +287,28 @@ const homePremiumShowcaseSchema = new Schema(
       type: String,
       trim: true,
       maxlength: 60,
-      default: 'The Rani Edit',
+      default: "The Rani Edit",
     },
     heading: {
       type: String,
       trim: true,
       maxlength: 120,
-      default: 'The Premium Collection',
+      default: "The Premium Collection",
     },
     text: {
       type: String,
       trim: true,
       maxlength: 500,
       default:
-        'Exceptional handwoven sarees — rare silks, masterful zari, and over 200 hours of loom work in every piece. Curated for the discerning few.',
+        "Exceptional handwoven sarees - rare silks, masterful zari, and over 200 hours of loom work in every piece. Curated for the discerning few.",
     },
     linkText: {
       type: String,
       trim: true,
       maxlength: 60,
-      default: 'Explore Premium',
+      default: "Explore Premium",
     },
-    linkUrl: { type: String, trim: true, default: '/premium' },
+    linkUrl: { type: String, trim: true, default: "/premium" },
     isActive: { type: Boolean, default: true },
   },
   { _id: false },
@@ -264,7 +316,11 @@ const homePremiumShowcaseSchema = new Schema(
 
 const premiumAudienceBannerSchema = new Schema(
   {
-    audience: { type: String, enum: ['all', 'women', 'men', 'kids', 'couple'], required: true },
+    audience: {
+      type: String,
+      enum: ["all", "women", "men", "kids", "couple"],
+      required: true,
+    },
     image: { type: String, trim: true },
     imagePublicId: { type: String, trim: true },
     title: { type: String, trim: true, maxlength: 120 },
@@ -278,36 +334,83 @@ const premiumEditorialSchema = new Schema(
   {
     image: { type: String, trim: true },
     imagePublicId: { type: String, trim: true },
-    preHeading: { type: String, trim: true, maxlength: 60, default: 'The Rani Edit' },
-    heading: { type: String, trim: true, maxlength: 120, default: 'CRAFTED FOR THE EXTRAORDINARY' },
-    text: { type: String, trim: true, maxlength: 500, default: 'Every piece in the Premium Edit is a testament to time. It takes our master weavers over 200 hours to bring these designs to life. We embrace the perfect imperfections of handloom, creating garments that are not just worn, but inherited.' },
-    linkText: { type: String, trim: true, maxlength: 60, default: 'View Collection' }
+    preHeading: {
+      type: String,
+      trim: true,
+      maxlength: 60,
+      default: "The Rani Edit",
+    },
+    heading: {
+      type: String,
+      trim: true,
+      maxlength: 120,
+      default: "CRAFTED FOR THE EXTRAORDINARY",
+    },
+    text: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default:
+        "Every piece in the Premium Edit is a testament to time. It takes our master weavers over 200 hours to bring these designs to life. We embrace the perfect imperfections of handloom, creating garments that are not just worn, but inherited.",
+    },
+    linkText: {
+      type: String,
+      trim: true,
+      maxlength: 60,
+      default: "View Collection",
+    },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const premiumStorySchema = new Schema(
   {
     image: { type: String, trim: true },
     imagePublicId: { type: String, trim: true },
-    heading: { type: String, trim: true, maxlength: 120, default: 'MORE THAN A SAREE' },
-    text: { type: String, trim: true, maxlength: 500, default: 'The Premium Collection transcends fashion. It is an archive of technique, an homage to the hands that weave magic into threads. Each drape is a narrative of heritage, reimagined for the modern silhouette.' }
+    heading: {
+      type: String,
+      trim: true,
+      maxlength: 120,
+      default: "MORE THAN A SAREE",
+    },
+    text: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default:
+        "The Premium Collection transcends fashion. It is an archive of technique, an homage to the hands that weave magic into threads. Each drape is a narrative of heritage, reimagined for the modern silhouette.",
+    },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const premiumFinalCtaSchema = new Schema(
   {
-    heading: { type: String, trim: true, maxlength: 120, default: 'DISCOVER THE RANI PREMIUM EDIT' },
-    text: { type: String, trim: true, maxlength: 500, default: 'Exceptional pieces, thoughtfully curated for your legacy.' },
-    linkText: { type: String, trim: true, maxlength: 60, default: 'Explore Collection' }
+    heading: {
+      type: String,
+      trim: true,
+      maxlength: 120,
+      default: "DISCOVER THE RANI PREMIUM EDIT",
+    },
+    text: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: "Exceptional pieces, thoughtfully curated for your legacy.",
+    },
+    linkText: {
+      type: String,
+      trim: true,
+      maxlength: 60,
+      default: "Explore Collection",
+    },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const storefrontSettingsSchema = new Schema(
   {
-    key: { type: String, unique: true, default: 'default' },
+    key: { type: String, unique: true, default: "default" },
     announcementMessages: [{ type: String, trim: true, maxlength: 180 }],
     heroSlides: [heroSlideSchema],
     shopBanner: shopBannerSchema,
@@ -326,7 +429,7 @@ const storefrontSettingsSchema = new Schema(
     premiumStory: { type: premiumStorySchema, default: {} },
     premiumFinalCta: { type: premiumFinalCtaSchema, default: {} },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-export default mongoose.model('StorefrontSettings', storefrontSettingsSchema);
+export default mongoose.model("StorefrontSettings", storefrontSettingsSchema);

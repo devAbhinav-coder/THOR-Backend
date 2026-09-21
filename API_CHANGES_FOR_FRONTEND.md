@@ -347,16 +347,16 @@ REDIS_PORT=6379
 
 ### Job health
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/api/admin/jobs/health` | Admin | Job last-run stats (use this endpoint; public `/api/health/jobs` removed) |
+| Method | Path                     | Auth  | Description                                                               |
+| ------ | ------------------------ | ----- | ------------------------------------------------------------------------- |
+| GET    | `/api/admin/jobs/health` | Admin | Job last-run stats (use this endpoint; public `/api/health/jobs` removed) |
 
 ### Outbox dead letter (admin)
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/admin/outbox/:type/dead-letter?limit=` | List DLQ rows |
-| POST | `/api/admin/outbox/:type/:id/replay` | Re-queue entry |
+| Method | Path                                         | Description    |
+| ------ | -------------------------------------------- | -------------- |
+| GET    | `/api/admin/outbox/:type/dead-letter?limit=` | List DLQ rows  |
+| POST   | `/api/admin/outbox/:type/:id/replay`         | Re-queue entry |
 
 Types: `order`, `cart`, `inventory`, `coupon`, `gifting`, `push`, `blog_publish`.
 
@@ -368,11 +368,11 @@ Admin UI: `/admin/system/jobs`, `/admin/system/outbox`.
 
 `GET /api/admin/analytics` includes:
 
-- `dailyMetrics[]` — per-day revenue, orders, siteVisits, couponDiscount, refundedAmount, `fromSnapshot`
-- `snapshotOverview.totals` — 30-day rollup from `AnalyticsDailySnapshot`
+- `dailyMetrics[]` - per-day revenue, orders, siteVisits, couponDiscount, refundedAmount, `fromSnapshot`
+- `snapshotOverview.totals` - 30-day rollup from `AnalyticsDailySnapshot`
 
 ---
 
-**Last Updated**: Aug 2026 — job health UI, DLQ replay, dailyMetrics chart, WhatsApp Cloud API, `/api/admin/writes/*`.
+**Last Updated**: Aug 2026 - job health UI, DLQ replay, dailyMetrics chart, WhatsApp Cloud API, `/api/admin/writes/*`.
 
 **Backend Status**: Run `npm run typecheck` (backend) before deploy.

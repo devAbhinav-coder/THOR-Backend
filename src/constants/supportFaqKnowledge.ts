@@ -14,7 +14,7 @@ export const SUPPORT_FAQ_ENTRIES = [
   {
     id: "bridal",
     q: "Do you offer bridal and occasion collections?",
-    a: "Yes — we curate premium sarees and occasion styles, including bridal-ready options for weddings and festive events.",
+    a: "Yes - we curate premium sarees and occasion styles, including bridal-ready options for weddings and festive events.",
   },
   {
     id: "gifting",
@@ -54,7 +54,7 @@ export const SUPPORT_FAQ_ENTRIES = [
   {
     id: "cancel",
     q: "Can I cancel my order?",
-    a: "You can cancel while the order is pending or confirmed (before dispatch). Once shipped, cancellation via the site may not be available — contact support.",
+    a: "You can cancel while the order is pending or confirmed (before dispatch). Once shipped, cancellation via the site may not be available - contact support.",
   },
   {
     id: "returns_window",
@@ -64,7 +64,7 @@ export const SUPPORT_FAQ_ENTRIES = [
   {
     id: "refund_shipping",
     q: "Are shipping or COD fees refunded on returns?",
-    a: "No — shipping charges and any COD handling fee are not refunded on approved returns. Refunds cover eligible product value only.",
+    a: "No - shipping charges and any COD handling fee are not refunded on approved returns. Refunds cover eligible product value only.",
   },
   {
     id: "payment_failed",

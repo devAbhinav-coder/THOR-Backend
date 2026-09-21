@@ -1,8 +1,13 @@
 import mongoose from "mongoose";
 import Product from "../models/Product";
-import { excludeOfflineManualProductFilter, resolveProductListBaseFilter } from "../constants/offlineOrder";
+import {
+  excludeOfflineManualProductFilter,
+  resolveProductListBaseFilter,
+} from "../constants/offlineOrder";
 import { LISTING_PROJECTION } from "../constants/productListing";
 import { getCache, setCache } from "./cacheService";
+import { cachedFetch } from "./cache/cachedFetch";
+import crypto from "crypto";
 import { getCachedProductCount } from "./productCountService";
 import { getProductCacheVersion } from "./productCacheService";
 import { normalizeSearchQuery } from "./productQueryParser";
@@ -19,7 +24,10 @@ import {
 import { env } from "../config/env";
 import logger from "../types/utils/logger";
 import { buildShopCollectionFilter } from "./shopCollectionFilterService";
-import { mergeOnSaleFilter, mergeHasOfferFilter } from "../constants/onSaleFilter";
+import {
+  mergeOnSaleFilter,
+  mergeHasOfferFilter,
+} from "../constants/onSaleFilter";
 import { getActiveSaleCampaigns } from "./sale/saleCacheService";
 import { couponValidationService } from "./coupon/couponValidationService";
 import { colorFlexibleRegex } from "../utils/catalogAttributes";
@@ -30,8 +38,10 @@ import { colorFlexibleRegex } from "../utils/catalogAttributes";
  */
 export class AdvancedSearchService {
   private static instance: AdvancedSearchService;
-  private readonly SEARCH_CACHE_TTL = 60; // 1 minute cache for search results
-  private readonly AUTocomplete_CACHE_TTL = 30; // 30 seconds cache for autocomplete
+  private readonly SEARCH_CACHE_TTL = 60;
+  private readonly SEARCH_CACHE_HARD_TTL = 180;
+  private readonly AUTocomplete_CACHE_TTL = 30;
+  private readonly AUTocomplete_CACHE_HARD_TTL = 90;
 
   // Indian fashion keywords for similarity matching (102+ keywords)
   private readonly INDIAN_FASHION_KEYWORDS = [
@@ -405,14 +415,13 @@ export class AdvancedSearchService {
     }
 
     if (intentHints?.colors?.length) {
-      const productText = [product.name, product.description, ...product.tags].join(" ").toLowerCase();
+      const productText = [product.name, product.description, ...product.tags]
+        .join(" ")
+        .toLowerCase();
       const productName = product.name.toLowerCase();
       for (const color of intentHints.colors) {
         const needle = color.toLowerCase();
-        if (
-          productText.includes(needle) ||
-          productName.includes(needle)
-        ) {
+        if (productText.includes(needle) || productName.includes(needle)) {
           score += 20;
         }
       }
@@ -605,9 +614,11 @@ export class AdvancedSearchService {
     // Only use residualQuery (strip category words) when there are EXPLICIT categories/colors/fabrics
     // For intent-only categories, we keep the full query so regex can match subcategories like 'Banarasi Saree'
     const textSearchQuery =
-      effectiveColors.length > 0 ||
-      effectiveCategories.length > 0 ||
-      effectiveFabrics.length > 0 ?
+      (
+        effectiveColors.length > 0 ||
+        effectiveCategories.length > 0 ||
+        effectiveFabrics.length > 0
+      ) ?
         merged.residualQuery
       : effectiveQuery;
     const effectiveMinPrice = merged.minPrice;
@@ -620,9 +631,9 @@ export class AdvancedSearchService {
       ...merged.subcategories,
       ...intentSubcategories,
     ].filter(Boolean);
-    const subcategoryBoost = allSubsForBoost.length > 0 ? ` ${allSubsForBoost.join(" ")}` : "";
-    const tagBoost =
-      merged.tags.length > 0 ? ` ${merged.tags.join(" ")}` : "";
+    const subcategoryBoost =
+      allSubsForBoost.length > 0 ? ` ${allSubsForBoost.join(" ")}` : "";
+    const tagBoost = merged.tags.length > 0 ? ` ${merged.tags.join(" ")}` : "";
     const searchText =
       `${textSearchQuery}${colorBoost}${subcategoryBoost}${tagBoost}`.trim();
 
@@ -651,109 +662,111 @@ export class AdvancedSearchService {
       adminScope,
     });
 
-    // Try cache first
-    if (useCache) {
-      const cached = await getCache<{
-        products: Array<Record<string, unknown>>;
-        total: number;
-        page: number;
-        limit: number;
-        totalPages: number;
-        searchMethod: "advanced" | "basic";
-        searchIntent?: ParsedSearchIntent;
-      }>(cacheKey);
-
-      if (cached) {
-        return {
-          ...cached,
-          cached: true,
-          searchIntent: hasQuery ? intent : cached.searchIntent,
-        };
-      }
-    }
-
-    let searchMethod: "advanced" | "basic" = "basic";
-    let result: {
+    type SearchCachePayload = {
       products: Array<Record<string, unknown>>;
       total: number;
       page: number;
       limit: number;
       totalPages: number;
+      searchMethod: "advanced" | "basic";
+      searchIntent?: ParsedSearchIntent;
     };
 
-    if (hasQuery) {
-      searchMethod = "advanced";
-      result = await this.advancedSearch({
-        query: searchText,
-        filters,
-        sortBy,
-        sortOrder,
-        page,
-        limit,
-        categories: effectiveCategories,
-        intentCategories,
-        subcategories: effectiveSubcategories,
-        intentSubcategories,
-        occasions,
-        colors: effectiveColors,
-        fabrics: effectiveFabrics,
-        minPrice: effectiveMinPrice,
-        maxPrice: effectiveMaxPrice,
-        minRating,
-        isFeatured,
-        onSale,
-        hasOffer,
-        isActive,
-        isPremium,
-        adminScope,
-      });
-    } else {
-      result = await this.basicSearch({
-        filters,
-        sortBy,
-        sortOrder,
-        page,
-        limit,
-        categories: effectiveCategories,
-        subcategories: effectiveSubcategories,
-        occasions,
-        colors: effectiveColors,
-        fabrics: effectiveFabrics,
-        minPrice: effectiveMinPrice,
-        maxPrice: effectiveMaxPrice,
-        minRating,
-        isFeatured,
-        onSale,
-        hasOffer,
-        isActive,
-        isPremium,
-        adminScope,
-      });
-    }
+    const runSearch = async (): Promise<SearchCachePayload> => {
+      let searchMethod: "advanced" | "basic" = "basic";
+      let result: {
+        products: Array<Record<string, unknown>>;
+        total: number;
+        page: number;
+        limit: number;
+        totalPages: number;
+      };
 
-    const response = {
-      ...result,
-      searchMethod,
-      cached: false,
-      searchIntent: hasQuery ? intent : undefined,
+      if (hasQuery) {
+        searchMethod = "advanced";
+        result = await this.advancedSearch({
+          query: searchText,
+          filters,
+          sortBy,
+          sortOrder,
+          page,
+          limit,
+          categories: effectiveCategories,
+          intentCategories,
+          subcategories: effectiveSubcategories,
+          intentSubcategories,
+          occasions,
+          colors: effectiveColors,
+          fabrics: effectiveFabrics,
+          minPrice: effectiveMinPrice,
+          maxPrice: effectiveMaxPrice,
+          minRating,
+          isFeatured,
+          onSale,
+          hasOffer,
+          isActive,
+          isPremium,
+          adminScope,
+        });
+      } else {
+        result = await this.basicSearch({
+          filters,
+          sortBy,
+          sortOrder,
+          page,
+          limit,
+          categories: effectiveCategories,
+          subcategories: effectiveSubcategories,
+          occasions,
+          colors: effectiveColors,
+          fabrics: effectiveFabrics,
+          minPrice: effectiveMinPrice,
+          maxPrice: effectiveMaxPrice,
+          minRating,
+          isFeatured,
+          onSale,
+          hasOffer,
+          isActive,
+          isPremium,
+          adminScope,
+        });
+      }
+
+      return {
+        ...result,
+        searchMethod,
+        searchIntent: hasQuery ? intent : undefined,
+      };
     };
+
+    const envelopeKey = `${cacheKey}:env`;
 
     if (useCache) {
-      setCache(cacheKey, response, this.SEARCH_CACHE_TTL).catch(() => {});
+      const payload = await cachedFetch({
+        key: envelopeKey,
+        softTtlSec: this.SEARCH_CACHE_TTL,
+        hardTtlSec: this.SEARCH_CACHE_HARD_TTL,
+        fetchFresh: runSearch,
+      });
+      return {
+        ...payload,
+        cached: true,
+        searchIntent: hasQuery ? intent : payload.searchIntent,
+      };
     }
 
-    return response;
+    const fresh = await runSearch();
+    return { ...fresh, cached: false };
   }
 
-  private buildColorVariantFilter(colors: string[]): Record<string, unknown> | null {
+  private buildColorVariantFilter(
+    colors: string[],
+  ): Record<string, unknown> | null {
     if (!colors.length) return null;
     return {
       $or: colors.flatMap((color) => {
         const re = colorFlexibleRegex(color);
-        return [
-          { "variants.color": re },
-          { "images.color": re },
-        ];
+        return [{ "variants.color": re }, { "images.color": re }];
       }),
     };
   }
@@ -790,10 +803,10 @@ export class AdvancedSearchService {
     page?: number;
     limit?: number;
     categories?: string[];
-    /** Intent-parsed categories (from text search). Soft boost only — NOT hard MongoDB filters. */
+    /** Intent-parsed categories (from text search). Soft boost only - NOT hard MongoDB filters. */
     intentCategories?: string[];
     subcategories?: string[];
-    /** Intent-parsed subcategories (from PHRASE_HINTS). Soft boost only — NOT hard MongoDB filters. */
+    /** Intent-parsed subcategories (from PHRASE_HINTS). Soft boost only - NOT hard MongoDB filters. */
     intentSubcategories?: string[];
     occasions?: string[];
     colors?: string[];
@@ -973,7 +986,8 @@ export class AdvancedSearchService {
         {
           colors: colors.length > 0 ? colors : undefined,
           categories: categories.length > 0 ? categories : undefined,
-          intentCategories: intentCategories.length > 0 ? intentCategories : undefined,
+          intentCategories:
+            intentCategories.length > 0 ? intentCategories : undefined,
         },
       );
 
@@ -1234,9 +1248,9 @@ export class AdvancedSearchService {
       safeQuery.trim();
 
     const v = await getProductCacheVersion();
-    const cacheKey = `cache:v${v}:autocomplete:${require("crypto").createHash("md5").update(safeQuery).digest("hex")}`;
+    const cacheKey = `cache:v${v}:autocomplete:env:${crypto.createHash("md5").update(safeQuery).digest("hex")}`;
 
-    const cached = await getCache<{
+    type AutocompletePayload = {
       suggestions: Array<{
         id: string;
         name: string;
@@ -1248,167 +1262,190 @@ export class AdvancedSearchService {
       }>;
       intent: ParsedSearchIntent;
       querySuggestions: string[];
-      collectionSuggestions: Array<{ name: string; url: string; image?: string }>;
-    }>(cacheKey);
-
-    if (cached) {
-      return cached;
-    }
-
-    const expandedQueries = this.expandSearchQuery(searchText);
-    const regexPatterns = expandedQueries.map(
-      (q) => new RegExp(escapeRegExp(q), "i"),
-    );
-
-    const conditions = regexPatterns.map((pattern) =>
-      this.buildFieldRegexMatch(pattern),
-    );
-
-    const wordConditions = searchText
-      .split(/\s+/)
-      .filter((w) => w.length >= 2)
-      .map((word) => {
-        const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        return this.buildFieldRegexMatch(new RegExp(escaped, "i"));
-      });
-
-    const andClauses: Record<string, unknown>[] = [
-      {
-        isActive: true,
-        isPremium: { $ne: true },
-        ...excludeOfflineManualProductFilter(),
-        category: { $nin: ["Gifting", "Premium"] },
-      },
-    ];
-
-    const collectionFilter = await buildShopCollectionFilter(
-      merged.categories,
-      merged.subcategories,
-    );
-    if (collectionFilter) {
-      andClauses.push(collectionFilter);
-    }
-
-    const colorFilter = this.buildColorFilter(merged.colors);
-    if (colorFilter) {
-      andClauses.push(colorFilter);
-    }
-
-    const colorVariantFilter = this.buildColorVariantFilter(merged.colors);
-    if (colorVariantFilter) {
-      andClauses.push(colorVariantFilter);
-    }
-
-    if (merged.maxPrice !== undefined || merged.minPrice !== undefined) {
-      const priceFilter: Record<string, number> = {};
-      if (merged.minPrice !== undefined) priceFilter.$gte = merged.minPrice;
-      if (merged.maxPrice !== undefined) priceFilter.$lte = merged.maxPrice;
-      andClauses.push({ price: priceFilter });
-    }
-
-    const searchOr = [...conditions, ...wordConditions];
-    if (searchText.trim() && searchOr.length > 0) {
-      andClauses.push({ $or: searchOr });
-    }
-
-    const matchFilter =
-      andClauses.length === 1 ? andClauses[0]! : { $and: andClauses };
-
-    const products = await Product.find(matchFilter)
-      .sort({ isFeatured: -1, viewCount: -1 })
-      .limit(limit * 2) // Get more to filter by relevance
-      .select("name slug images price category subcategory description tags fabric shortDescription")
-      .lean<
-        Array<{
-          _id: string;
-          name: string;
-          slug: string;
-          images: Array<{ url: string }>;
-          price: number;
-          category: string;
-          subcategory?: string;
-          description: string;
-          shortDescription?: string;
-          tags: string[];
-          fabric: string;
-        }>
-      >()
-      .maxTimeMS(3000);
-
-    // Calculate relevance scores
-    const scoredProducts = products.map((product) => {
-      const relevance = this.calculateKeywordSimilarity(
-        searchText,
-        {
-          name: product.name,
-          description: product.description,
-          shortDescription: product.shortDescription,
-          tags: product.tags,
-          category: product.category,
-          subcategory: product.subcategory,
-          fabric: product.fabric,
-        },
-        {
-          colors: merged.colors.length > 0 ? merged.colors : undefined,
-          categories: merged.categories.length > 0 ? merged.categories : undefined,
-        },
-      );
-
-      return {
-        id: product._id.toString(),
-        name: product.name,
-        slug: product.slug,
-        image: product.images.length > 0 ? product.images[0].url : "",
-        price: product.price,
-        category: product.category,
-        relevance,
-      };
-    });
-
-    // Sort by relevance and take top results
-    const topResults = scoredProducts
-      .sort((a, b) => b.relevance - a.relevance)
-      .slice(0, limit);
-
-    const querySuggestions = this.buildQuerySuggestions(
-      safeQuery,
-      searchText,
-      intent,
-    );
-
-    // Fetch collection suggestions
-    const collectionSuggestions: Array<{ name: string; url: string; image?: string }> = [];
-    const catQuery = new RegExp(escapeRegExp(safeQuery), "i");
-    
-    // Check categories
-    const matchedCategories = await mongoose.model("Category").find({ name: catQuery, isActive: true }).limit(2).lean() as any[];
-    for (const cat of matchedCategories) {
-      collectionSuggestions.push({
-        name: cat.name,
-        url: `/shop/collections/${cat.slug}`,
-        image: cat.image,
-      });
-    }
-
-    // Check subcategories
-    const matchedSubcategories = await mongoose.model("SubCategory").find({ name: catQuery, isActive: true }).limit(3).lean() as any[];
-    for (const sub of matchedSubcategories) {
-      collectionSuggestions.push({
-        name: sub.name,
-        url: `/shop/collections/${sub.categorySlug}/${sub.slug}`,
-      });
-    }
-
-    const payload = {
-      suggestions: topResults,
-      intent,
-      querySuggestions,
-      collectionSuggestions,
+      collectionSuggestions: Array<{
+        name: string;
+        url: string;
+        image?: string;
+      }>;
     };
 
-    setCache(cacheKey, payload, this.AUTocomplete_CACHE_TTL).catch(() => {});
+    const fetchAutocomplete = async (): Promise<AutocompletePayload> => {
+      const expandedQueries = this.expandSearchQuery(searchText);
+      const regexPatterns = expandedQueries.map(
+        (q) => new RegExp(escapeRegExp(q), "i"),
+      );
 
-    return payload;
+      const conditions = regexPatterns.map((pattern) =>
+        this.buildFieldRegexMatch(pattern),
+      );
+
+      const wordConditions = searchText
+        .split(/\s+/)
+        .filter((w) => w.length >= 2)
+        .map((word) => {
+          const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          return this.buildFieldRegexMatch(new RegExp(escaped, "i"));
+        });
+
+      const andClauses: Record<string, unknown>[] = [
+        {
+          isActive: true,
+          isPremium: { $ne: true },
+          ...excludeOfflineManualProductFilter(),
+          category: { $nin: ["Gifting", "Premium"] },
+        },
+      ];
+
+      const collectionFilter = await buildShopCollectionFilter(
+        merged.categories,
+        merged.subcategories,
+      );
+      if (collectionFilter) {
+        andClauses.push(collectionFilter);
+      }
+
+      const colorFilter = this.buildColorFilter(merged.colors);
+      if (colorFilter) {
+        andClauses.push(colorFilter);
+      }
+
+      const colorVariantFilter = this.buildColorVariantFilter(merged.colors);
+      if (colorVariantFilter) {
+        andClauses.push(colorVariantFilter);
+      }
+
+      if (merged.maxPrice !== undefined || merged.minPrice !== undefined) {
+        const priceFilter: Record<string, number> = {};
+        if (merged.minPrice !== undefined) priceFilter.$gte = merged.minPrice;
+        if (merged.maxPrice !== undefined) priceFilter.$lte = merged.maxPrice;
+        andClauses.push({ price: priceFilter });
+      }
+
+      const searchOr = [...conditions, ...wordConditions];
+      if (searchText.trim() && searchOr.length > 0) {
+        andClauses.push({ $or: searchOr });
+      }
+
+      const matchFilter =
+        andClauses.length === 1 ? andClauses[0]! : { $and: andClauses };
+
+      const products = await Product.find(matchFilter)
+        .sort({ isFeatured: -1, viewCount: -1 })
+        .limit(limit * 2)
+        .select(
+          "name slug images price category subcategory description tags fabric shortDescription",
+        )
+        .lean<
+          Array<{
+            _id: string;
+            name: string;
+            slug: string;
+            images: Array<{ url: string }>;
+            price: number;
+            category: string;
+            subcategory?: string;
+            description: string;
+            shortDescription?: string;
+            tags: string[];
+            fabric: string;
+          }>
+        >()
+        .maxTimeMS(3000);
+
+      const scoredProducts = products.map((product) => {
+        const relevance = this.calculateKeywordSimilarity(
+          searchText,
+          {
+            name: product.name,
+            description: product.description,
+            shortDescription: product.shortDescription,
+            tags: product.tags,
+            category: product.category,
+            subcategory: product.subcategory,
+            fabric: product.fabric,
+          },
+          {
+            colors: merged.colors.length > 0 ? merged.colors : undefined,
+            categories:
+              merged.categories.length > 0 ? merged.categories : undefined,
+          },
+        );
+
+        return {
+          id: product._id.toString(),
+          name: product.name,
+          slug: product.slug,
+          image: product.images.length > 0 ? product.images[0].url : "",
+          price: product.price,
+          category: product.category,
+          relevance,
+        };
+      });
+
+      const topResults = scoredProducts
+        .sort((a, b) => b.relevance - a.relevance)
+        .slice(0, limit);
+
+      const querySuggestions = this.buildQuerySuggestions(
+        safeQuery,
+        searchText,
+        intent,
+      );
+
+      const collectionSuggestions: Array<{
+        name: string;
+        url: string;
+        image?: string;
+      }> = [];
+      const catQuery = new RegExp(escapeRegExp(safeQuery), "i");
+
+      const matchedCategories = (await mongoose
+        .model("Category")
+        .find({ name: catQuery, isActive: true })
+        .limit(2)
+        .lean()) as unknown as Array<{
+        name: string;
+        slug: string;
+        image?: string;
+      }>;
+      for (const cat of matchedCategories) {
+        collectionSuggestions.push({
+          name: cat.name,
+          url: `/shop/collections/${cat.slug}`,
+          image: cat.image,
+        });
+      }
+
+      const matchedSubcategories = (await mongoose
+        .model("SubCategory")
+        .find({ name: catQuery, isActive: true })
+        .limit(3)
+        .lean()) as unknown as Array<{
+        name: string;
+        slug: string;
+        categorySlug: string;
+      }>;
+      for (const sub of matchedSubcategories) {
+        collectionSuggestions.push({
+          name: sub.name,
+          url: `/shop/collections/${sub.categorySlug}/${sub.slug}`,
+        });
+      }
+
+      return {
+        suggestions: topResults,
+        intent,
+        querySuggestions,
+        collectionSuggestions,
+      };
+    };
+
+    return cachedFetch({
+      key: cacheKey,
+      softTtlSec: this.AUTocomplete_CACHE_TTL,
+      hardTtlSec: this.AUTocomplete_CACHE_HARD_TTL,
+      fetchFresh: fetchAutocomplete,
+    });
   }
 
   /**
@@ -1472,7 +1509,8 @@ export class AdvancedSearchService {
 
     if (
       intent.displayLabel &&
-      intent.displayLabel.trim().toLowerCase() !== safeQuery.trim().toLowerCase()
+      intent.displayLabel.trim().toLowerCase() !==
+        safeQuery.trim().toLowerCase()
     ) {
       suggestions.push(
         intent.displayLabel

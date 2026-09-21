@@ -8,6 +8,19 @@ import catchAsync from "../../types/utils/catchAsync";
 import { sendPaginated, sendSuccess } from "../../types/utils/response";
 import { writeAdminAudit } from "../../services/adminAuditService";
 import { AuthRequest } from "../../types";
+import {
+  adminCustomerDirectoryFilter,
+  isWebsiteCustomerAccountExpr,
+} from "../../constants/websiteUserAnalytics";
+import { isCustomerDeliverableEmail } from "../../types/utils/customerEmail";
+import {
+  formatIndianMobileDisplay,
+  normalizeIndianMobile10,
+} from "../../types/utils/indianPhone";
+import {
+  normalizeAdminPermissions,
+  type AdminAccessArea,
+} from "../../constants/adminAccess";
 
 // ─── Directory ────────────────────────────────────────────────────────────────
 
@@ -19,21 +32,51 @@ export const getAllUsers = catchAsync(async (req: Request, res: Response) => {
     .trim()
     .toLowerCase();
 
-  const filter: Record<string, unknown> =
+  const search = String(req.query.search || "")
+    .trim()
+    .slice(0, 120);
+
+  let filter: Record<string, unknown> =
     roleQuery === "admin" ? { role: "admin" }
+    : roleQuery === "team" ? { role: { $in: ["admin", "staff"] } }
     : roleQuery === "all" ? {}
-    : { role: "user" };
+    : adminCustomerDirectoryFilter();
+
+  if (search) {
+    const re = {
+      $regex: search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      $options: "i",
+    };
+    filter = {
+      $and: [filter, { $or: [{ name: re }, { email: re }, { phone: re }] }],
+    };
+  }
 
   const [users, total] = await Promise.all([
     User.find(filter)
       .sort("-createdAt")
       .skip(skip)
       .limit(limit)
-      .select("name email phone avatar role isActive createdAt adminNote"),
+      .select(
+        "name email phone avatar role adminPermissions isActive createdAt adminNote offlineLead",
+      ),
     User.countDocuments(filter),
   ]);
 
-  sendPaginated(res, { users }, { page, limit, total });
+  const directoryUsers = users.map((doc) => {
+    const row = doc.toObject();
+    const phone10 = normalizeIndianMobile10(row.phone);
+    return {
+      ...row,
+      phone: phone10 ?? row.phone,
+      displayPhone: formatIndianMobileDisplay(row.phone),
+      displayEmail:
+        isCustomerDeliverableEmail(row.email) ? String(row.email).trim() : null,
+      isPosGuest: row.offlineLead === true,
+    };
+  });
+
+  sendPaginated(res, { users: directoryUsers }, { page, limit, total });
 });
 
 /** Accurate active / inactive counts via a single aggregation (avoids 6 countDocuments). */
@@ -50,11 +93,13 @@ export const getUserDirectoryStats = catchAsync(
       {
         $group: {
           _id: null,
-          totalUsers: { $sum: { $cond: [{ $eq: ["$role", "user"] }, 1, 0] } },
+          totalUsers: {
+            $sum: { $cond: [isWebsiteCustomerAccountExpr(), 1, 0] },
+          },
           activeUsers: {
             $sum: {
               $cond: [
-                { $and: [{ $eq: ["$role", "user"] }, "$isActive"] },
+                { $and: [isWebsiteCustomerAccountExpr(), "$isActive"] },
                 1,
                 0,
               ],
@@ -63,17 +108,31 @@ export const getUserDirectoryStats = catchAsync(
           inactiveUsers: {
             $sum: {
               $cond: [
-                { $and: [{ $eq: ["$role", "user"] }, { $not: "$isActive" }] },
+                {
+                  $and: [
+                    isWebsiteCustomerAccountExpr(),
+                    { $not: "$isActive" },
+                  ],
+                },
                 1,
                 0,
               ],
             },
           },
-          totalAdmins: { $sum: { $cond: [{ $eq: ["$role", "admin"] }, 1, 0] } },
+          totalAdmins: {
+            $sum: {
+              $cond: [{ $in: ["$role", ["admin", "staff"]] }, 1, 0],
+            },
+          },
           activeAdmins: {
             $sum: {
               $cond: [
-                { $and: [{ $eq: ["$role", "admin"] }, "$isActive"] },
+                {
+                  $and: [
+                    { $in: ["$role", ["admin", "staff"]] },
+                    "$isActive",
+                  ],
+                },
                 1,
                 0,
               ],
@@ -82,7 +141,12 @@ export const getUserDirectoryStats = catchAsync(
           inactiveAdmins: {
             $sum: {
               $cond: [
-                { $and: [{ $eq: ["$role", "admin"] }, { $not: "$isActive" }] },
+                {
+                  $and: [
+                    { $in: ["$role", ["admin", "staff"]] },
+                    { $not: "$isActive" },
+                  ],
+                },
                 1,
                 0,
               ],
@@ -129,7 +193,18 @@ export const getOfflineCustomers = catchAsync(
       OfflineCustomer.countDocuments({}),
     ]);
 
-    sendPaginated(res, { offlineCustomers }, { page, limit, total });
+    const leads = offlineCustomers.map((row) => {
+      const phone10 = normalizeIndianMobile10(row.phone);
+      return {
+        ...row,
+        phone: phone10 ?? row.phone,
+        displayPhone: formatIndianMobileDisplay(row.phone),
+        displayEmail:
+          isCustomerDeliverableEmail(row.email) ? row.email.trim() : null,
+      };
+    });
+
+    sendPaginated(res, { offlineCustomers: leads }, { page, limit, total });
   },
 );
 
@@ -151,6 +226,9 @@ export const toggleUserStatus = catchAsync(
 
     user.isActive = !user.isActive;
     await user.save();
+    const { bumpUserTokenEpoch } =
+      await import("../../services/auth/authTokenEpochService");
+    await bumpUserTokenEpoch(String(user._id));
     await writeAdminAudit(
       req,
       "user.status.toggled",
@@ -164,7 +242,10 @@ export const toggleUserStatus = catchAsync(
 
 export const updateUserRole = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
-    const { role } = req.body as { role?: "user" | "admin" };
+    const { role, adminPermissions: rawPermissions } = req.body as {
+      role?: "user" | "admin" | "staff";
+      adminPermissions?: string[];
+    };
     if (!Types.ObjectId.isValid(req.params.id))
       return next(new AppError("Invalid user id.", 400));
     if (!role) return next(new AppError("Role is required.", 400));
@@ -178,23 +259,59 @@ export const updateUserRole = catchAsync(
 
     const user = await User.findById(req.params.id);
     if (!user) return next(new AppError("User not found.", 404));
-    if (user.role === role)
-      return next(new AppError(`User is already ${role}.`, 400));
+
+    let nextPermissions: AdminAccessArea[] = [];
+    if (role === "staff") {
+      nextPermissions = normalizeAdminPermissions(rawPermissions);
+      if (nextPermissions.length === 0) {
+        return next(
+          new AppError(
+            "Pick at least one admin area for a team member.",
+            400,
+          ),
+        );
+      }
+    }
+
+    const sameRole = user.role === role;
+    const samePerms =
+      role === "staff" &&
+      JSON.stringify(normalizeAdminPermissions(user.adminPermissions)) ===
+        JSON.stringify(nextPermissions);
+    if (sameRole && (role !== "staff" || samePerms)) {
+      return next(new AppError(`User already has this access.`, 400));
+    }
 
     const previousRole = user.role;
+    const previousPermissions = normalizeAdminPermissions(user.adminPermissions);
     user.role = role;
+    user.adminPermissions = role === "staff" ? nextPermissions : [];
     await user.save();
+    const { bumpUserTokenEpoch } =
+      await import("../../services/auth/authTokenEpochService");
+    await bumpUserTokenEpoch(String(user._id));
     await writeAdminAudit(
       req,
       "user.role.updated",
-      { previousRole, newRole: role },
+      {
+        previousRole,
+        newRole: role,
+        previousPermissions,
+        newPermissions: user.adminPermissions,
+      },
       String(user._id),
     );
 
     sendSuccess(
       res,
-      { user: { _id: String(user._id), role: user.role } },
-      "User role updated.",
+      {
+        user: {
+          _id: String(user._id),
+          role: user.role,
+          adminPermissions: user.adminPermissions,
+        },
+      },
+      "User access updated.",
     );
   },
 );
@@ -237,7 +354,7 @@ export const getUserInsights = catchAsync(
     );
     if (!user) return next(new AppError("User not found.", 404));
 
-    // Use aggregation for accurate lifetime metrics — never limit to 20 orders
+    // Use aggregation for accurate lifetime metrics - never limit to 20 orders
     const [metricsAgg, recentOrders] = await Promise.all([
       Order.aggregate<{
         orderCount: number;

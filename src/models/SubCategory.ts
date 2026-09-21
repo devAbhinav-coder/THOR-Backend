@@ -1,5 +1,5 @@
-import mongoose, { Document, Schema, Types } from 'mongoose';
-import slugify from 'slugify';
+import mongoose, { Document, Schema, Types } from "mongoose";
+import slugify from "slugify";
 
 export interface ISubCategory extends Document {
   name: string;
@@ -22,7 +22,7 @@ export interface ISubCategory extends Document {
   isActive: boolean;
   /** Admin-controlled display order within parent category (lower = first) */
   sortOrder: number;
-  /** Cached product count — maintained by migration + aggregation; not authoritative */
+  /** Cached product count - maintained by migration + aggregation; not authoritative */
   productCount: number;
   /** Migration: set to true after old Category doc is soft-deleted */
   _migratedFromCategoryId?: Types.ObjectId;
@@ -34,9 +34,9 @@ const subCategorySchema = new Schema<ISubCategory>(
   {
     name: {
       type: String,
-      required: [true, 'SubCategory name is required'],
+      required: [true, "SubCategory name is required"],
       trim: true,
-      maxlength: [80, 'SubCategory name cannot exceed 80 characters'],
+      maxlength: [80, "SubCategory name cannot exceed 80 characters"],
     },
     slug: {
       type: String,
@@ -46,13 +46,13 @@ const subCategorySchema = new Schema<ISubCategory>(
     },
     categoryId: {
       type: Schema.Types.ObjectId,
-      ref: 'Category',
-      required: [true, 'categoryId is required'],
+      ref: "Category",
+      required: [true, "categoryId is required"],
       index: true,
     },
     categorySlug: {
       type: String,
-      required: [true, 'categorySlug is required'],
+      required: [true, "categorySlug is required"],
       lowercase: true,
       trim: true,
     },
@@ -66,7 +66,7 @@ const subCategorySchema = new Schema<ISubCategory>(
     isActive: { type: Boolean, default: true },
     sortOrder: { type: Number, default: 0 },
     productCount: { type: Number, default: 0 },
-    _migratedFromCategoryId: { type: Schema.Types.ObjectId, ref: 'Category' },
+    _migratedFromCategoryId: { type: Schema.Types.ObjectId, ref: "Category" },
   },
   { timestamps: true },
 );
@@ -86,13 +86,13 @@ subCategorySchema.index({ categorySlug: 1, isActive: 1 });
 
 // ─── Hooks ───────────────────────────────────────────────────────────────────
 
-subCategorySchema.pre('save', async function (next) {
-  if (this.isModified('name') || this.isNew) {
+subCategorySchema.pre("save", async function (next) {
+  if (this.isModified("name") || this.isNew) {
     const baseSlug = slugify(this.name, { lower: true, strict: true });
 
     // Prefer clean slug; append categorySlug prefix only on collision
     const exists = await mongoose
-      .model<ISubCategory>('SubCategory')
+      .model<ISubCategory>("SubCategory")
       .exists({ slug: baseSlug, _id: { $ne: this._id } });
 
     if (exists) {
@@ -105,4 +105,4 @@ subCategorySchema.pre('save', async function (next) {
   next();
 });
 
-export default mongoose.model<ISubCategory>('SubCategory', subCategorySchema);
+export default mongoose.model<ISubCategory>("SubCategory", subCategorySchema);

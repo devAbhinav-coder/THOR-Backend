@@ -1,5 +1,5 @@
 /**
- * Backward-compatible barrel — controllers and legacy imports use `../services/cartService`.
+ * Backward-compatible barrel - controllers and legacy imports use `../services/cartService`.
  */
 export {
   cartService,
@@ -8,4 +8,4 @@ export {
   cartRevalidationService,
   cartSyncService,
   cartAnalyticsService,
-} from './cart/cartService';
+} from "./cart/cartService";

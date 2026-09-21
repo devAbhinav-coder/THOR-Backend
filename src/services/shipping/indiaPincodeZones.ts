@@ -164,43 +164,49 @@ const PREFIX2_STATE: Record<string, string> = {
   "85": "Bihar",
 };
 
-const PREFIX3_OVERRIDE: Record<string, { state: string; zone?: DeliveryZone }> = {
-  "121": { state: "Haryana", zone: "ncr" }, // Faridabad
-  "122": { state: "Haryana", zone: "ncr" }, // Gurugram
-  "140": { state: "Punjab" },
-  "160": { state: "Chandigarh" },
-  "194": { state: "Ladakh", zone: "jk" },
-  "201": { state: "Uttar Pradesh", zone: "ncr" }, // Noida / Ghaziabad
-  "203": { state: "Uttar Pradesh" },
-  "244": { state: "Uttarakhand" },
-  "246": { state: "Uttarakhand" },
-  "247": { state: "Uttarakhand" },
-  "248": { state: "Uttarakhand" },
-  "249": { state: "Uttarakhand" },
-  "263": { state: "Uttarakhand" },
-  "396": { state: "Dadra and Nagar Haveli and Daman and Diu" },
-  "403": { state: "Goa" },
-  "605": { state: "Puducherry" },
-  "607": { state: "Puducherry" },
-  "609": { state: "Puducherry" },
-  "737": { state: "Sikkim" },
-  "744": { state: "Andaman and Nicobar Islands", zone: "island" },
-  "792": { state: "Arunachal Pradesh", zone: "northeast" },
-  "793": { state: "Meghalaya", zone: "northeast" },
-  "794": { state: "Meghalaya", zone: "northeast" },
-  "795": { state: "Manipur", zone: "northeast" },
-  "796": { state: "Mizoram", zone: "northeast" },
-  "797": { state: "Nagaland", zone: "northeast" },
-  "798": { state: "Nagaland", zone: "northeast" },
-  "799": { state: "Tripura", zone: "northeast" },
-};
+const PREFIX3_OVERRIDE: Record<string, { state: string; zone?: DeliveryZone }> =
+  {
+    "121": { state: "Haryana", zone: "ncr" }, // Faridabad
+    "122": { state: "Haryana", zone: "ncr" }, // Gurugram
+    "140": { state: "Punjab" },
+    "160": { state: "Chandigarh" },
+    "194": { state: "Ladakh", zone: "jk" },
+    "201": { state: "Uttar Pradesh", zone: "ncr" }, // Noida / Ghaziabad
+    "203": { state: "Uttar Pradesh" },
+    "244": { state: "Uttarakhand" },
+    "246": { state: "Uttarakhand" },
+    "247": { state: "Uttarakhand" },
+    "248": { state: "Uttarakhand" },
+    "249": { state: "Uttarakhand" },
+    "263": { state: "Uttarakhand" },
+    "396": { state: "Dadra and Nagar Haveli and Daman and Diu" },
+    "403": { state: "Goa" },
+    "605": { state: "Puducherry" },
+    "607": { state: "Puducherry" },
+    "609": { state: "Puducherry" },
+    "737": { state: "Sikkim" },
+    "744": { state: "Andaman and Nicobar Islands", zone: "island" },
+    "792": { state: "Arunachal Pradesh", zone: "northeast" },
+    "793": { state: "Meghalaya", zone: "northeast" },
+    "794": { state: "Meghalaya", zone: "northeast" },
+    "795": { state: "Manipur", zone: "northeast" },
+    "796": { state: "Mizoram", zone: "northeast" },
+    "797": { state: "Nagaland", zone: "northeast" },
+    "798": { state: "Nagaland", zone: "northeast" },
+    "799": { state: "Tripura", zone: "northeast" },
+  };
 
 function zoneForState(state: string, pin: string): DeliveryZone {
   const p3 = pin.slice(0, 3);
   const override = PREFIX3_OVERRIDE[p3];
   if (override?.zone) return override.zone;
 
-  if (pin.startsWith("11") || pin.startsWith("201") || pin.startsWith("121") || pin.startsWith("122")) {
+  if (
+    pin.startsWith("11") ||
+    pin.startsWith("201") ||
+    pin.startsWith("121") ||
+    pin.startsWith("122")
+  ) {
     return "ncr";
   }
 
@@ -287,7 +293,7 @@ export function resolvePincodeGeo(pin: string): PincodeGeo {
   const pincode = pin.replace(/\D/g, "").slice(0, 6);
   const p3 = pincode.slice(0, 3);
   const p2 = pincode.slice(0, 2);
-  /** Kavaratti / Minicoy — do not treat all 682xxx (Kochi) as island. */
+  /** Kavaratti / Minicoy - do not treat all 682xxx (Kochi) as island. */
   if (pincode.startsWith("68255")) {
     const transit = ZONE_TRANSIT.island;
     return {

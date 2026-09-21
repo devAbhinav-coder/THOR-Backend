@@ -2,7 +2,9 @@ import { Request, Response } from "express";
 import catchAsync from "../types/utils/catchAsync";
 import StorefrontSettings from "../models/StorefrontSettings";
 import { deleteMultipleImages } from "../services/cloudinary";
-import { deleteCache, getCache, setCache } from "../services/cacheService";
+import { deleteCache } from "../services/cacheService";
+import { cachedFetch } from "../services/cache/cachedFetch";
+import { setPublicCatalogCacheHeaders } from "../constants/publicHttpCache";
 import { storefrontRepository } from "../repositories/storefrontRepository";
 import { safeJsonParse } from "../types/utils/safeJson";
 import {
@@ -75,7 +77,8 @@ const FALLBACK_SETTINGS = {
     tiles: [],
   },
   homeMiddleBanner: {
-    image: "https://images.unsplash.com/photo-1544441893-675973e31985?w=1600&q=80&auto=format&fit=crop",
+    image:
+      "https://images.unsplash.com/photo-1544441893-675973e31985?w=1600&q=80&auto=format&fit=crop",
     title: "Timeless Craftsmanship",
     subtitle: "A modern homage to our cultural legacy.",
     linkText: "Discover the Story",
@@ -86,7 +89,7 @@ const FALLBACK_SETTINGS = {
     image: "",
     preHeading: "The Rani Edit",
     heading: "The Premium Collection",
-    text: "Exceptional handwoven sarees — rare silks, masterful zari, and over 200 hours of loom work in every piece. Curated for the discerning few.",
+    text: "Exceptional handwoven sarees - rare silks, masterful zari, and over 200 hours of loom work in every piece. Curated for the discerning few.",
     linkText: "Explore Premium",
     linkUrl: "/premium",
     isActive: true,
@@ -128,13 +131,13 @@ const FALLBACK_SETTINGS = {
     headlineLine1: "Our Gifting",
     headlineLine2: "Collections",
     description:
-      "Also explore handmade gifts, corporate gifting, and curated hampers — perfect alongside our saree, salwar suit, and corset collections.",
+      "Also explore handmade gifts, corporate gifting, and curated hampers - perfect alongside our saree, salwar suit, and corset collections.",
     socialHandle: "@thehouseofraniofficial",
     cards: [
       {
         title: "Handmade Gifts",
         description:
-          "Artisan handmade gifts and pen presents with personal detail — perfect for birthdays, weddings, and thank-yous.",
+          "Artisan handmade gifts and pen presents with personal detail - perfect for birthdays, weddings, and thank-yous.",
         image:
           "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=800&q=80",
         shopButtonText: "Browse gifts",
@@ -148,7 +151,7 @@ const FALLBACK_SETTINGS = {
       {
         title: "Corporate Gifts",
         description:
-          "Premium branded and bulk-friendly options for teams, clients, and events — easy to coordinate.",
+          "Premium branded and bulk-friendly options for teams, clients, and events - easy to coordinate.",
         image:
           "https://images.unsplash.com/photo-1524758631624-e2822e304c36?w=800&q=80",
         shopButtonText: "Browse gifts",
@@ -177,7 +180,7 @@ const FALLBACK_SETTINGS = {
   },
   footer: {
     description:
-      "Your destination for exquisite Indian ethnic wear. Curated sarees, salwar suits, and corsets — crafted with love and tradition.",
+      "Your destination for exquisite Indian ethnic wear. Curated sarees, salwar suits, and corsets - crafted with love and tradition.",
     contactAddress: "123 Silk Road, Textile Market, Surat, Gujarat 395003",
     contactPhone: "+91 98765 43210",
     contactEmail: "hello@houseofrani.in",
@@ -235,6 +238,10 @@ function sanitizeFooterDescription(desc: string): string {
   return desc;
 }
 
+const STOREFRONT_SETTINGS_CACHE_KEY = "cache:storefront:settings:env:default";
+const STOREFRONT_SETTINGS_SOFT_TTL_SEC = 120;
+const STOREFRONT_SETTINGS_HARD_TTL_SEC = 360;
+
 /** Persist one-time SEO copy fix for live DB (non-blocking). */
 function persistHomeSeoSanitizeIfNeeded(raw: Record<string, unknown>) {
   const giftDesc = String(
@@ -257,25 +264,21 @@ function persistHomeSeoSanitizeIfNeeded(raw: Record<string, unknown>) {
     $set["footer.description"] = FALLBACK_SETTINGS.footer.description;
   }
   void StorefrontSettings.updateOne({}, { $set }).catch(() => {});
-  void deleteCache("cache:storefront:settings:default").catch(() => {});
+  void deleteCache(STOREFRONT_SETTINGS_CACHE_KEY).catch(() => {});
 }
 
-const getSettingsDoc = async () => {
-  const cacheKey = "cache:storefront:settings:default";
-  const cached = await getCache<typeof FALLBACK_SETTINGS>(cacheKey);
-  if (cached) {
-    const giftDesc = String(cached.homeGiftShowcase?.description || "");
-    const footerDesc = String(cached.footer?.description || "");
-    if (
-      giftDesc.includes(LEGACY_HOME_GIFT_SNIPPET) ||
-      footerDesc.includes(LEGACY_HOME_GIFT_SNIPPET)
-    ) {
-      void deleteCache(cacheKey).catch(() => {});
-    } else {
-      return cached;
-    }
-  }
+function hasLegacyHomeGiftSnippet(payload: typeof FALLBACK_SETTINGS): boolean {
+  const giftDesc = String(payload.homeGiftShowcase?.description || "");
+  const footerDesc = String(payload.footer?.description || "");
+  return (
+    giftDesc.includes(LEGACY_HOME_GIFT_SNIPPET) ||
+    footerDesc.includes(LEGACY_HOME_GIFT_SNIPPET)
+  );
+}
 
+async function buildStorefrontSettingsPayload(): Promise<
+  typeof FALLBACK_SETTINGS
+> {
   const settings = await storefrontRepository.getDefaultSettingsLean();
   if (!settings) return FALLBACK_SETTINGS;
   persistHomeSeoSanitizeIfNeeded(
@@ -328,6 +331,10 @@ const getSettingsDoc = async () => {
     premiumEditorial: settings.premiumEditorial || undefined,
     premiumStory: settings.premiumStory || undefined,
     premiumFinalCta: settings.premiumFinalCta || undefined,
+    updatedAt:
+      settings.updatedAt ?
+        new Date(settings.updatedAt).toISOString()
+      : undefined,
   };
   const giftShowcase = payload.homeGiftShowcase as {
     description?: string;
@@ -342,16 +349,54 @@ const getSettingsDoc = async () => {
   footerBlock.description = sanitizeFooterDescription(
     String(footerBlock.description || FALLBACK_SETTINGS.footer.description),
   );
-  await setCache(cacheKey, payload, 120);
+  return payload as typeof FALLBACK_SETTINGS;
+}
+
+const getSettingsDoc = async () => {
+  const payload = await cachedFetch({
+    key: STOREFRONT_SETTINGS_CACHE_KEY,
+    softTtlSec: STOREFRONT_SETTINGS_SOFT_TTL_SEC,
+    hardTtlSec: STOREFRONT_SETTINGS_HARD_TTL_SEC,
+    fetchFresh: buildStorefrontSettingsPayload,
+  });
+
+  if (hasLegacyHomeGiftSnippet(payload)) {
+    void deleteCache(STOREFRONT_SETTINGS_CACHE_KEY).catch(() => {});
+    return buildStorefrontSettingsPayload();
+  }
+
   return payload;
 };
 
+function stripRetiredGiftingStorefrontBlocks<T extends Record<string, unknown>>(
+  settings: T,
+): T {
+  const {
+    giftingHeroBanners: _a,
+    giftingSecondaryBanners: _b,
+    homeGiftShowcase: _c,
+    ...rest
+  } = settings;
+  return rest as T;
+}
+
 export const getStorefrontSettings = catchAsync(
   async (_req: Request, res: Response) => {
-    const settings = await getSettingsDoc();
+    setPublicCatalogCacheHeaders(res, {
+      maxAgeSec: STOREFRONT_SETTINGS_SOFT_TTL_SEC,
+      staleWhileRevalidateSec: STOREFRONT_SETTINGS_HARD_TTL_SEC,
+    });
+    const settings = stripRetiredGiftingStorefrontBlocks(
+      (await getSettingsDoc()) as Record<string, unknown>,
+    );
     sendSuccess(res, { settings });
   },
 );
+
+/** Shared cached settings doc - home bundle + other SSR aggregators. */
+export async function loadCachedStorefrontSettings() {
+  return getSettingsDoc();
+}
 
 export const getAdminStorefrontSettings = catchAsync(
   async (_req: Request, res: Response) => {
@@ -385,7 +430,10 @@ export const updateStorefrontSettings = catchAsync(
           homePremiumShowcase?: { url: string; publicId: string };
           homeExploreHouseSale?: { url: string; publicId: string };
           homeExploreHouseGifting?: { url: string; publicId: string };
-          premiumAudienceImage: Record<string, { url: string; publicId: string }>;
+          premiumAudienceImage: Record<
+            string,
+            { url: string; publicId: string }
+          >;
           premiumEditorial?: { url: string; publicId: string };
           premiumStory?: { url: string; publicId: string };
         };
@@ -397,8 +445,7 @@ export const updateStorefrontSettings = catchAsync(
     }).lean();
 
     const prevHeroSlides = previous?.heroSlides as
-      | Array<{ image?: string; imagePublicId?: string }>
-      | undefined;
+      Array<{ image?: string; imagePublicId?: string }> | undefined;
 
     const nextHeroSlides = mergeHeroSlides(
       payload.heroSlides as Record<string, unknown>[] | undefined,
@@ -407,8 +454,7 @@ export const updateStorefrontSettings = catchAsync(
     );
 
     const prevShop = previous?.shopBanner as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     const nextShopBanner = mergeShopBanner(
       { ...(payload.shopBanner || {}) },
       uploaded,
@@ -416,8 +462,7 @@ export const updateStorefrontSettings = catchAsync(
     );
 
     const prevPromo = previous?.promoBanner as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     const nextPromo = mergePromoBanner(
       { ...(payload.promoBanner || {}) },
       uploaded?.promo,
@@ -425,8 +470,7 @@ export const updateStorefrontSettings = catchAsync(
     );
 
     const prevBlog = previous?.blogBanner as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     const nextBlogBanner = mergeBlogBanner(
       { ...(payload.blogBanner || {}) },
       uploaded ?
@@ -438,16 +482,16 @@ export const updateStorefrontSettings = catchAsync(
       prevBlog,
     );
 
-    const prevHomeMiddleBanner = previous?.homeMiddleBanner as Record<string, unknown> | undefined;
+    const prevHomeMiddleBanner = previous?.homeMiddleBanner as
+      Record<string, unknown> | undefined;
     const nextHomeMiddleBanner = mergeHomeMiddleBanner(
       { ...(payload.homeMiddleBanner || {}) },
       uploaded?.homeMiddleBanner,
-      prevHomeMiddleBanner
+      prevHomeMiddleBanner,
     );
 
     const prevHomePremiumShowcase = previous?.homePremiumShowcase as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     const nextHomePremiumShowcase = mergeHomePremiumShowcase(
       { ...(payload.homePremiumShowcase || {}) },
       uploaded?.homePremiumShowcase,
@@ -455,8 +499,7 @@ export const updateStorefrontSettings = catchAsync(
     );
 
     const prevHomeExploreHouse = previous?.homeExploreHouse as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     const nextHomeExploreHouse = mergeHomeExploreHouse(
       { ...(payload.homeExploreHouse || {}) },
       uploaded ?
@@ -469,29 +512,31 @@ export const updateStorefrontSettings = catchAsync(
     );
 
     const prevPremiumAudience = previous?.premiumAudienceBanners as
-      | Array<{ image?: string; imagePublicId?: string }>
-      | undefined;
+      Array<{ image?: string; imagePublicId?: string }> | undefined;
     const nextPremiumAudience = mergePremiumAudienceBanners(
       payload.premiumAudienceBanners as Record<string, unknown>[] | undefined,
       uploaded,
       prevPremiumAudience,
     );
 
-    const prevPremiumEditorial = previous?.premiumEditorial as Record<string, unknown> | undefined;
+    const prevPremiumEditorial = previous?.premiumEditorial as
+      Record<string, unknown> | undefined;
     const nextPremiumEditorial = mergePremiumEditorial(
       { ...(payload.premiumEditorial || {}) },
       uploaded?.premiumEditorial,
       prevPremiumEditorial,
     );
 
-    const prevPremiumStory = previous?.premiumStory as Record<string, unknown> | undefined;
+    const prevPremiumStory = previous?.premiumStory as
+      Record<string, unknown> | undefined;
     const nextPremiumStory = mergePremiumStory(
       { ...(payload.premiumStory || {}) },
       uploaded?.premiumStory,
       prevPremiumStory,
     );
 
-    const nextPremiumFinalCta = payload.premiumFinalCta || previous?.premiumFinalCta || {};
+    const nextPremiumFinalCta =
+      payload.premiumFinalCta || previous?.premiumFinalCta || {};
 
     const prevGiftingHero = previous?.giftingHeroBanners as
       | Array<{ backgroundImage?: string; backgroundImagePublicId?: string }>
@@ -503,8 +548,7 @@ export const updateStorefrontSettings = catchAsync(
     );
 
     const prevGiftingSecondary = previous?.giftingSecondaryBanners as
-      | Array<{ image?: string; imagePublicId?: string }>
-      | undefined;
+      Array<{ image?: string; imagePublicId?: string }> | undefined;
     const nextGiftingSecondary = mergeGiftingSecondaryBanners(
       payload.giftingSecondaryBanners as Record<string, unknown>[] | undefined,
       uploaded,
@@ -535,8 +579,10 @@ export const updateStorefrontSettings = catchAsync(
       cards: nextGiftCards,
     };
 
-    const editorialPayload = (payload.homeEditorialGallery ||
-      {}) as Record<string, unknown>;
+    const editorialPayload = (payload.homeEditorialGallery || {}) as Record<
+      string,
+      unknown
+    >;
     const editorialTilesIn =
       Array.isArray(editorialPayload.tiles) ?
         (editorialPayload.tiles as Record<string, unknown>[])
@@ -635,7 +681,10 @@ export const updateStorefrontSettings = catchAsync(
       }
     }
     for (const banner of nextPremiumAudience) {
-      if (typeof banner.imagePublicId === "string" && banner.imagePublicId.trim()) {
+      if (
+        typeof banner.imagePublicId === "string" &&
+        banner.imagePublicId.trim()
+      ) {
         usedPublicIds.add(banner.imagePublicId);
       }
     }
@@ -652,7 +701,9 @@ export const updateStorefrontSettings = catchAsync(
         usedPublicIds.add(card.imagePublicId);
       }
     }
-    for (const tile of nextEditorialTiles as Array<{ imagePublicId?: string }>) {
+    for (const tile of nextEditorialTiles as Array<{
+      imagePublicId?: string;
+    }>) {
       if (typeof tile.imagePublicId === "string" && tile.imagePublicId.trim()) {
         usedPublicIds.add(tile.imagePublicId);
       }
@@ -696,11 +747,20 @@ export const updateStorefrontSettings = catchAsync(
       if (maybeBlog.sideImagePublicId)
         oldPublicIds.push(maybeBlog.sideImagePublicId);
     }
-    if (previous?.homeMiddleBanner && typeof previous.homeMiddleBanner === "object") {
-      const maybeHomeMiddle = previous.homeMiddleBanner as { imagePublicId?: string };
-      if (maybeHomeMiddle.imagePublicId) oldPublicIds.push(maybeHomeMiddle.imagePublicId);
+    if (
+      previous?.homeMiddleBanner &&
+      typeof previous.homeMiddleBanner === "object"
+    ) {
+      const maybeHomeMiddle = previous.homeMiddleBanner as {
+        imagePublicId?: string;
+      };
+      if (maybeHomeMiddle.imagePublicId)
+        oldPublicIds.push(maybeHomeMiddle.imagePublicId);
     }
-    if (previous?.homePremiumShowcase && typeof previous.homePremiumShowcase === "object") {
+    if (
+      previous?.homePremiumShowcase &&
+      typeof previous.homePremiumShowcase === "object"
+    ) {
       const maybePremiumHome = previous.homePremiumShowcase as {
         imagePublicId?: string;
       };
@@ -708,7 +768,10 @@ export const updateStorefrontSettings = catchAsync(
         oldPublicIds.push(maybePremiumHome.imagePublicId);
       }
     }
-    if (previous?.homeExploreHouse && typeof previous.homeExploreHouse === "object") {
+    if (
+      previous?.homeExploreHouse &&
+      typeof previous.homeExploreHouse === "object"
+    ) {
       const maybeExplore = previous.homeExploreHouse as {
         saleImagePublicId?: string;
         giftingImagePublicId?: string;
@@ -736,28 +799,31 @@ export const updateStorefrontSettings = catchAsync(
       }
     }
     if (previous?.premiumAudienceBanners?.length) {
-      for (const banner of previous.premiumAudienceBanners as Array<{ imagePublicId?: string }>) {
+      for (const banner of previous.premiumAudienceBanners as Array<{
+        imagePublicId?: string;
+      }>) {
         if (banner.imagePublicId) oldPublicIds.push(banner.imagePublicId);
       }
     }
     const prevGift = previous?.homeGiftShowcase as
-      | { cards?: Array<{ imagePublicId?: string }> }
-      | undefined;
+      { cards?: Array<{ imagePublicId?: string }> } | undefined;
     if (prevGift?.cards?.length) {
       for (const card of prevGift.cards) {
         if (card.imagePublicId) oldPublicIds.push(card.imagePublicId);
       }
     }
     const prevEditorial = previous?.homeEditorialGallery as
-      | { tiles?: Array<{ imagePublicId?: string }> }
-      | undefined;
+      { tiles?: Array<{ imagePublicId?: string }> } | undefined;
     if (prevEditorial?.tiles?.length) {
       for (const tile of prevEditorial.tiles) {
         if (tile.imagePublicId) oldPublicIds.push(tile.imagePublicId);
       }
     }
 
-    if (previous?.premiumEditorial && typeof previous.premiumEditorial === "object") {
+    if (
+      previous?.premiumEditorial &&
+      typeof previous.premiumEditorial === "object"
+    ) {
       const p = previous.premiumEditorial as { imagePublicId?: string };
       if (p.imagePublicId) oldPublicIds.push(p.imagePublicId);
     }
@@ -802,6 +868,7 @@ export const updateStorefrontSettings = catchAsync(
     );
 
     sendSuccess(res, { settings: updated }, "Storefront settings updated");
-    await deleteCache("cache:storefront:settings:default");
+    await deleteCache(STOREFRONT_SETTINGS_CACHE_KEY);
+    await deleteCache("cache:storefront:home-bundle:v1");
   },
 );

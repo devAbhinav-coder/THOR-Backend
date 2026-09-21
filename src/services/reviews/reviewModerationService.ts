@@ -18,7 +18,7 @@ export type ModerationScanResult = {
 };
 
 /**
- * Lightweight heuristic moderation — extensible for AI providers later.
+ * Lightweight heuristic moderation - extensible for AI providers later.
  */
 export function scanReviewContent(
   title: string | undefined,
@@ -86,7 +86,7 @@ export function applyModerationToReview(
   return result;
 }
 
-/** Queue hook for future workers — logs structured moderation job metadata. */
+/** Queue hook for future workers - logs structured moderation job metadata. */
 export function enqueueModerationReview(
   reviewId: string,
   productId: string,

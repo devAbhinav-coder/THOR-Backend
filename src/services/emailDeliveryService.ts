@@ -20,7 +20,7 @@ function getResend(): Resend | null {
 }
 
 /**
- * "From" for Resend — must be a domain verified in Resend (not @gmail.com).
+ * "From" for Resend - must be a domain verified in Resend (not @gmail.com).
  */
 export function getResendFromAddress(): string {
   const explicit =
@@ -29,7 +29,11 @@ export function getResendFromAddress(): string {
   if (explicit) return explicit;
 
   const mailFrom = process.env.MAIL_FROM?.trim();
-  if (mailFrom && !/@gmail\.com>/i.test(mailFrom) && !/@gmail\.com$/i.test(mailFrom.split("<").pop() || "")) {
+  if (
+    mailFrom &&
+    !/@gmail\.com>/i.test(mailFrom) &&
+    !/@gmail\.com$/i.test(mailFrom.split("<").pop() || "")
+  ) {
     return mailFrom;
   }
 

@@ -47,12 +47,15 @@ export async function buildBlogCalendarContext(input?: {
   const coveredTopics = publishedBlogs.map((b) => b.title);
   const plannedTopics = existingPlans.map((p) => p.topic);
   const gapCategories = BLOG_CATEGORIES.filter(
-    (cat) => !publishedBlogs.some((b) => (b as { category?: string }).category === cat),
+    (cat) =>
+      !publishedBlogs.some(
+        (b) => (b as { category?: string }).category === cat,
+      ),
   );
 
   return {
     brand: "The House of Rani",
-    market: "India — women ethnic wear, sarees, bridal, gifting",
+    market: "India - women ethnic wear, sarees, bridal, gifting",
     season: getSeasonLabel(now),
     planningHorizonWeeks: weeks,
     focusHint: input?.focus?.trim() || null,
@@ -60,7 +63,7 @@ export async function buildBlogCalendarContext(input?: {
     trendSeeds: getMonthlyTrendSeeds(now),
     upcomingFestivals: getUpcomingFestivals(weeks * 7 + 14, now),
     googleTrendsNote:
-      "Use trendSeeds as India search-intent proxy (festivals + seasonal). Official Google Trends API is alpha — these are curated ethnic-wear signals.",
+      "Use trendSeeds as India search-intent proxy (festivals + seasonal). Official Google Trends API is alpha - these are curated ethnic-wear signals.",
     existingPublishedTopics: coveredTopics.slice(0, 15),
     alreadyPlannedTopics: plannedTopics,
     categoryGaps: gapCategories,

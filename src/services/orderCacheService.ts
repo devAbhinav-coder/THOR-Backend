@@ -10,7 +10,7 @@ function userListVersionKey(userId: string): string {
 }
 
 function orderDetailKey(orderId: string, userId: string): string {
-  return `cache:order:${orderId}:${userId}`;
+  return `cache:order:${orderId}:${userId}:env`;
 }
 
 export async function getUserOrdersCacheVersion(
@@ -22,7 +22,7 @@ export async function getUserOrdersCacheVersion(
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Bump list cache generation — avoids Redis KEYS wildcard scans */
+/** Bump list cache generation - avoids Redis KEYS wildcard scans */
 export async function bumpUserOrdersCacheVersion(
   userId: string,
 ): Promise<number> {

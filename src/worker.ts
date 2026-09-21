@@ -1,6 +1,6 @@
 import "dotenv/config";
 
-/** Worker entry always runs jobs — override .env RUN_MODE=api from the API terminal. */
+/** Worker entry always runs jobs - override .env RUN_MODE=api from the API terminal. */
 process.env.RUN_MODE = "worker";
 process.env.QUEUE_WORKERS_ENABLED = "true";
 

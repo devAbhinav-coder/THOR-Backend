@@ -1,4 +1,5 @@
 import { redisConnection, redisEnabled } from "../config/redis";
+import { scanRedisKeys } from "../services/cacheService";
 import logger from "../types/utils/logger";
 
 export type JobHealthEntry = {
@@ -84,7 +85,7 @@ export async function getAllJobHealth(): Promise<Record<string, JobHealthEntry>>
 
   if (redisEnabled) {
     try {
-      const keys = await redisConnection.keys("jobs:health:*");
+      const keys = await scanRedisKeys("jobs:health:*");
       for (const key of keys) {
         const raw = await redisConnection.get(key);
         if (!raw) continue;

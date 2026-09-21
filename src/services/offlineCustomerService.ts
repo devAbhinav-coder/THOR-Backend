@@ -1,4 +1,5 @@
 import OfflineCustomer from "../models/OfflineCustomer";
+import { normalizeIndianMobile10 } from "../types/utils/indianPhone";
 
 /** Upsert the POS marketing row for this email (deduped by unique email). */
 export async function upsertOfflineCustomerRecord(params: {
@@ -8,8 +9,8 @@ export async function upsertOfflineCustomerRecord(params: {
 }): Promise<void> {
   const email = params.email.trim().toLowerCase();
   const name = params.name.trim().slice(0, 80);
-  const phone = params.phone.replace(/\D/g, "").slice(-10);
-  if (!email || !/^[6-9]\d{9}$/.test(phone)) return;
+  const phone = normalizeIndianMobile10(params.phone);
+  if (!email || !phone) return;
 
   await OfflineCustomer.findOneAndUpdate(
     { email },

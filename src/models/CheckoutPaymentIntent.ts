@@ -7,7 +7,7 @@ export type CheckoutIntentStockLine = {
   quantity: number;
 };
 
-/** Matches `buildOrderItemsFromProducts` output — persisted on the intent for post-pay Order.create. */
+/** Matches `buildOrderItemsFromProducts` output - persisted on the intent for post-pay Order.create. */
 export type CheckoutIntentSnapshotItem = {
   product: Types.ObjectId;
   name: string;
@@ -24,7 +24,7 @@ export type CheckoutIntentSnapshotItem = {
   customFieldAnswers?: { label: string; value: string }[];
 };
 
-/** Snapshot persisted until Razorpay payment succeeds — no Order row until then. */
+/** Snapshot persisted until Razorpay payment succeeds - no Order row until then. */
 export type CheckoutIntentSnapshot = {
   shippingAddress: Record<string, unknown>;
   items: CheckoutIntentSnapshotItem[];
@@ -114,9 +114,14 @@ const snapshotItemSchema = new Schema(
 
 const checkoutPaymentIntentSchema = new Schema<ICheckoutPaymentIntent>(
   {
-    user: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    user: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
     razorpayOrderId: { type: String, required: true, unique: true },
-    /** TTL index — MongoDB auto-deletes expired intents. */
+    /** TTL index - MongoDB auto-deletes expired intents. */
     expiresAt: { type: Date, required: true },
     consumedAt: { type: Date },
     createdOrderId: { type: Schema.Types.ObjectId, ref: "Order" },
@@ -134,7 +139,7 @@ const checkoutPaymentIntentSchema = new Schema<ICheckoutPaymentIntent>(
           saleDiscount: { type: Number, default: 0 },
           promotionDiscount: { type: Number, default: 0 },
           couponDiscount: { type: Number, default: 0 },
-          promotion: { type: Schema.Types.ObjectId, ref: 'Promotion' },
+          promotion: { type: Schema.Types.ObjectId, ref: "Promotion" },
           shopSessionKey: { type: String, trim: true, maxlength: 128 },
           shippingCharge: { type: Number, default: 0 },
           codFee: { type: Number, default: 0 },

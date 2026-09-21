@@ -460,7 +460,7 @@ export async function verifyOtp(params: {
     };
   }
 
-  /** Single-winner consume — prevents duplicate sessions on concurrent verify. */
+  /** Single-winner consume - prevents duplicate sessions on concurrent verify. */
   const consumed = await AuthOtp.findOneAndUpdate(
     {
       _id: doc._id,

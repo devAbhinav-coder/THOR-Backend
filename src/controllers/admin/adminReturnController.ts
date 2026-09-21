@@ -69,7 +69,7 @@ export const getReturns = catchAsync(
 
 export const getReturnsInsights = catchAsync(
   async (_req: Request, res: Response) => {
-    // Cache the 5 parallel aggregations — they're expensive and don't need real-time accuracy
+    // Cache the 5 parallel aggregations - they're expensive and don't need real-time accuracy
     const cached = await getCache<Record<string, unknown>>(
       RETURNS_INSIGHTS_CACHE_KEY,
     );
@@ -196,7 +196,7 @@ export const getReturnsInsights = catchAsync(
         }[]
       ).map((c) => ({
         userId: String(c.userId ?? ""),
-        name: c.name || "—",
+        name: c.name || "-",
         email: c.email || "",
         returnCount: c.returnCount,
       })),
@@ -268,7 +268,7 @@ export const resolveReturnController = catchAsync(
     }
 
     notifyAdmins(
-      `Return ${newStatus} — ${order.orderNumber}`,
+      `Return ${newStatus} - ${order.orderNumber}`,
       `You have ${newStatus} the return request from ${user?.name || "a customer"}.`,
       `/admin/orders/${order._id}`,
       "order",

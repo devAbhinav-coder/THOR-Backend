@@ -1,11 +1,11 @@
 import connectDB from "../config/db";
 import logger from "../types/utils/logger";
-import {
-  closeAllRedisConnections,
-  isRedisOperational,
-} from "../config/redis";
+import { closeAllRedisConnections, isRedisOperational } from "../config/redis";
 import mongoose from "mongoose";
-import { shouldRunBackgroundJobs, shouldRunQueueWorkers } from "../config/runMode";
+import {
+  shouldRunBackgroundJobs,
+  shouldRunQueueWorkers,
+} from "../config/runMode";
 import {
   ensureRedisReady,
   assertWorkerInfrastructure,
@@ -219,19 +219,19 @@ export async function stopAllBackgroundWork(): Promise<void> {
   started = false;
 }
 
-/** Standalone worker entry — DB + jobs only, no HTTP. */
+/** Standalone worker entry - DB + jobs only, no HTTP. */
 export async function bootstrapWorkerProcess(): Promise<void> {
   await ensureRedisReady();
   await connectDB();
   await assertWorkerInfrastructure();
 
   if (process.env.NODE_ENV === "production" && !isRedisOperational()) {
-    throw new Error("Redis ping failed — worker cannot start without Redis");
+    throw new Error("Redis ping failed - worker cannot start without Redis");
   }
 
   startAllBackgroundWork();
 
-  // Periodic Redis heartbeat — reconnect after transient outages.
+  // Periodic Redis heartbeat - reconnect after transient outages.
   const heartbeatMs = Number(process.env.REDIS_HEARTBEAT_MS || 60_000);
   if (heartbeatMs > 0 && isRedisOperational()) {
     setInterval(() => {
@@ -247,7 +247,7 @@ export async function bootstrapWorkerProcess(): Promise<void> {
 }
 
 export async function shutdownWorkerProcess(signal: string): Promise<void> {
-  logger.info(`${signal} received — shutting down worker...`);
+  logger.info(`${signal} received - shutting down worker...`);
   try {
     await stopAllBackgroundWork();
     await mongoose.connection.close();

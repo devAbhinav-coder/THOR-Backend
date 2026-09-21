@@ -153,7 +153,7 @@ export const reportReview = catchAsync(
   },
 );
 
-/** Public share-link — no login. Pending until admin approves → then on PDP. */
+/** Public share-link - no login. Pending until admin approves → then on PDP. */
 export const submitPublicReview = catchAsync(
   async (req: AuthRequest, res: Response) => {
     const body = req.body as {
@@ -180,20 +180,20 @@ export const submitPublicReview = catchAsync(
       isAnonymous: body.isAnonymous === true || body.isAnonymous === "true",
       alsoAsStory: body.alsoAsStory === true || body.alsoAsStory === "true",
       images:
-        uploadedImages && uploadedImages.length > 0
-          ? uploadedImages.map((img) => ({
-              url: img.url,
-              publicId: img.publicId,
-            }))
-          : undefined,
+        uploadedImages && uploadedImages.length > 0 ?
+          uploadedImages.map((img) => ({
+            url: img.url,
+            publicId: img.publicId,
+          }))
+        : undefined,
     });
 
     sendSuccess(
       res,
       result,
-      result.testimonialId
-        ? "Thank you! Product review and story submitted for approval."
-        : "Thank you! Your product review was submitted and will appear after approval.",
+      result.testimonialId ?
+        "Thank you! Product review and story submitted for approval."
+      : "Thank you! Your product review was submitted and will appear after approval.",
       201,
     );
   },

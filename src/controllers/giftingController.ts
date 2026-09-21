@@ -6,6 +6,7 @@ import {
   discoverGiftableProducts,
   getGiftCategories,
 } from "../services/gifting/giftingProductDiscoveryService";
+import { setPublicCatalogCacheHeaders } from "../constants/publicHttpCache";
 import {
   getGiftingRequestById,
   listGiftingRequestsAdmin,
@@ -20,6 +21,10 @@ import {
 /** GET /gifting/products */
 export const getGiftableProducts = catchAsync(
   async (req: Request, res: Response) => {
+    setPublicCatalogCacheHeaders(res, {
+      maxAgeSec: 120,
+      staleWhileRevalidateSec: 360,
+    });
     const result = await discoverGiftableProducts(
       req.query as Record<string, string>,
     );

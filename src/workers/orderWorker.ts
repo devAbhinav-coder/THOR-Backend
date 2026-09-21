@@ -86,7 +86,9 @@ export const startOrderWorker = () => {
               await sendPurchaseEvent(
                 {
                   ...order,
-                  email: payload.userEmail || (order as { user?: { email?: string } }).user?.email,
+                  email:
+                    payload.userEmail ||
+                    (order as { user?: { email?: string } }).user?.email,
                 } as any,
                 payload.ip,
                 payload.userAgent,
@@ -147,7 +149,9 @@ export const startOrderWorker = () => {
             await sendPurchaseEvent(
               {
                 ...order,
-                email: payload.userEmail || (order as { user?: { email?: string } }).user?.email,
+                email:
+                  payload.userEmail ||
+                  (order as { user?: { email?: string } }).user?.email,
               } as any,
               payload.ip,
               payload.userAgent,
@@ -202,9 +206,8 @@ export const startOrderWorker = () => {
             `/admin/orders/${payload.orderId}`,
             "alert",
           );
-          const { notifyWhatsAppOrderCancelled } = await import(
-            "../services/whatsappNotifyService"
-          );
+          const { notifyWhatsAppOrderCancelled } =
+            await import("../services/whatsappNotifyService");
           void notifyWhatsAppOrderCancelled({
             userId: payload.userId,
             orderId: payload.orderId,
@@ -238,7 +241,7 @@ export const startOrderWorker = () => {
           );
           await notifyAdminsEmail(adminTemplate.subject, adminTemplate.html);
           await notifyAdmins(
-            `Return Requested — ${payload.orderNumber}`,
+            `Return Requested - ${payload.orderNumber}`,
             `${payload.userName || "Customer"} has requested a return. Reason: ${payload.returnReason}`,
             `/admin/orders/${payload.orderId}`,
             "alert",

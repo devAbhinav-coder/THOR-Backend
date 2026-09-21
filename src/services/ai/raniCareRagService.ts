@@ -1,5 +1,5 @@
 /**
- * Rani Care RAG retrieval — pulls real store data from MongoDB so the customer
+ * Rani Care RAG retrieval - pulls real store data from MongoDB so the customer
  * assistant can answer naturally (products, prices, the shopper's own orders).
  * No external embedding API: product re-ranking uses the local feature-hash
  * vectors already stored on Product.contentEmbedding.
@@ -47,23 +47,48 @@ export type RaniCatalogSummary = {
   priceRange: { min: number | null; max: number | null };
 };
 
-const CARD_SELECT = "name slug price comparePrice category fabric images ratings totalStock";
+const CARD_SELECT =
+  "name slug price comparePrice category fabric images ratings totalStock";
 const STOREFRONT_FILTER = {
   isActive: true,
   category: { $ne: "Gifting" },
   tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
 } as const;
 
-const PRODUCT_TYPE_ALIASES: Array<{ re: RegExp; pattern: string; label: string }> = [
-  { re: /\b(saree|sari|sarees|saris)\b/i, pattern: "saree|sari", label: "saree" },
-  { re: /\b(salwar suit|salwar|suits?)\b/i, pattern: "salwar|suit", label: "salwar suit" },
-  { re: /\b(kurta|kurti|kurtas|kurtis)\b/i, pattern: "kurta|kurti", label: "kurta/kurti" },
-  { re: /\b(lehenga|lehnga|lehengas)\b/i, pattern: "lehenga|lehnga", label: "lehenga" },
+const PRODUCT_TYPE_ALIASES: Array<{
+  re: RegExp;
+  pattern: string;
+  label: string;
+}> = [
+  {
+    re: /\b(saree|sari|sarees|saris)\b/i,
+    pattern: "saree|sari",
+    label: "saree",
+  },
+  {
+    re: /\b(salwar suit|salwar|suits?)\b/i,
+    pattern: "salwar|suit",
+    label: "salwar suit",
+  },
+  {
+    re: /\b(kurta|kurti|kurtas|kurtis)\b/i,
+    pattern: "kurta|kurti",
+    label: "kurta/kurti",
+  },
+  {
+    re: /\b(lehenga|lehnga|lehengas)\b/i,
+    pattern: "lehenga|lehnga",
+    label: "lehenga",
+  },
   { re: /\b(dupatta|dupattas)\b/i, pattern: "dupatta", label: "dupatta" },
   { re: /\b(blouse|blouses)\b/i, pattern: "blouse", label: "blouse" },
   { re: /\b(gown|gowns)\b/i, pattern: "gown", label: "gown" },
   { re: /\b(dress|dresses)\b/i, pattern: "dress", label: "dress" },
-  { re: /\b(gift|gifting|hamper|hampers)\b/i, pattern: "gift|hamper", label: "gift" },
+  {
+    re: /\b(gift|gifting|hamper|hampers)\b/i,
+    pattern: "gift|hamper",
+    label: "gift",
+  },
 ];
 
 export type CatalogQuestionKind =
@@ -125,9 +150,7 @@ export function looksLikeShopping(message: string): boolean {
   );
 }
 
-let catalogCache:
-  | { expiresAt: number; value: RaniCatalogSummary }
-  | undefined;
+let catalogCache: { expiresAt: number; value: RaniCatalogSummary } | undefined;
 
 /** Authoritative storefront catalog facts. Never derive these from the LLM. */
 export async function retrieveCatalogSummary(): Promise<RaniCatalogSummary> {
@@ -143,7 +166,10 @@ export async function retrieveCatalogSummary(): Promise<RaniCatalogSummary> {
         { $group: { _id: "$category", count: { $sum: 1 } } },
         { $sort: { count: -1, _id: 1 } },
       ]),
-      Product.aggregate<{ _id: { name: string; category: string }; count: number }>([
+      Product.aggregate<{
+        _id: { name: string; category: string };
+        count: number;
+      }>([
         { $match: STOREFRONT_FILTER },
         { $match: { subcategory: { $type: "string", $ne: "" } } },
         {
@@ -197,10 +223,7 @@ export async function retrieveCatalogSummary(): Promise<RaniCatalogSummary> {
       ]),
     ]);
 
-  const byCategory = new Map<
-    string,
-    Array<{ name: string; count: number }>
-  >();
+  const byCategory = new Map<string, Array<{ name: string; count: number }>>();
   for (const row of categoryFabrics) {
     const list = byCategory.get(row._id.category) || [];
     list.push({ name: row._id.fabric, count: row.count });
@@ -255,25 +278,47 @@ function normalizeBudgetTypos(t: string): string {
 }
 
 /** Extract a { min, max } budget from natural language (English + Hinglish). */
-export function parsePriceRange(message: string): { min?: number; max?: number } {
+export function parsePriceRange(message: string): {
+  min?: number;
+  max?: number;
+} {
   const t = normalizeBudgetTypos(message.toLowerCase());
   const num = "([\\d,]+(?:\\.\\d+)?k?)";
 
   // between X and Y / X to Y / X-Y
   let m =
-    t.match(new RegExp(`between\\s*(?:rs\\.?|₹)?\\s*${num}\\s*(?:and|to|-|–)\\s*(?:rs\\.?|₹)?\\s*${num}`)) ||
-    t.match(new RegExp(`(?:rs\\.?|₹)\\s*${num}\\s*(?:to|-|–)\\s*(?:rs\\.?|₹)?\\s*${num}`)) ||
-    t.match(new RegExp(`${num}\\s*(?:to|-|–)\\s*${num}\\s*(?:rs|rupees|₹|ka|budget)`));
+    t.match(
+      new RegExp(
+        `between\\s*(?:rs\\.?|₹)?\\s*${num}\\s*(?:and|to|-|–)\\s*(?:rs\\.?|₹)?\\s*${num}`,
+      ),
+    ) ||
+    t.match(
+      new RegExp(
+        `(?:rs\\.?|₹)\\s*${num}\\s*(?:to|-|–)\\s*(?:rs\\.?|₹)?\\s*${num}`,
+      ),
+    ) ||
+    t.match(
+      new RegExp(`${num}\\s*(?:to|-|–)\\s*${num}\\s*(?:rs|rupees|₹|ka|budget)`),
+    );
   if (m) {
     const a = parseMoney(m[1]);
     const b = parseMoney(m[2]);
-    if (a != null && b != null) return { min: Math.min(a, b), max: Math.max(a, b) };
+    if (a != null && b != null)
+      return { min: Math.min(a, b), max: Math.max(a, b) };
   }
 
   // max: under / below / less than / upto / within / se kam / se neeche / tak
   m =
-    t.match(new RegExp(`(?:under|below|less than|upto|up to|within|max|maximum|budget of|budget)\\s*(?:rs\\.?|₹)?\\s*${num}`)) ||
-    t.match(new RegExp(`(?:rs\\.?|₹)?\\s*${num}\\s*(?:se kam|se neeche|ke andar|ke neeche|tak|ke under)`));
+    t.match(
+      new RegExp(
+        `(?:under|below|less than|upto|up to|within|max|maximum|budget of|budget)\\s*(?:rs\\.?|₹)?\\s*${num}`,
+      ),
+    ) ||
+    t.match(
+      new RegExp(
+        `(?:rs\\.?|₹)?\\s*${num}\\s*(?:se kam|se neeche|ke andar|ke neeche|tak|ke under)`,
+      ),
+    );
   if (m) {
     const v = parseMoney(m[1]);
     if (v != null) return { max: v };
@@ -281,8 +326,16 @@ export function parsePriceRange(message: string): { min?: number; max?: number }
 
   // min: above / over / more than / se zyada / se upar
   m =
-    t.match(new RegExp(`(?:above|over|more than|greater than|minimum|min|starting)\\s*(?:rs\\.?|₹)?\\s*${num}`)) ||
-    t.match(new RegExp(`(?:rs\\.?|₹)?\\s*${num}\\s*(?:se zyada|se upar|se jyada|se oopar|and above|\\+)`));
+    t.match(
+      new RegExp(
+        `(?:above|over|more than|greater than|minimum|min|starting)\\s*(?:rs\\.?|₹)?\\s*${num}`,
+      ),
+    ) ||
+    t.match(
+      new RegExp(
+        `(?:rs\\.?|₹)?\\s*${num}\\s*(?:se zyada|se upar|se jyada|se oopar|and above|\\+)`,
+      ),
+    );
   if (m) {
     const v = parseMoney(m[1]);
     if (v != null) return { min: v };
@@ -294,8 +347,14 @@ export function parsePriceRange(message: string): { min?: number; max?: number }
 /** Remove budget phrasing so the leftover text is a clean product query. */
 function stripPriceWords(message: string): string {
   return message
-    .replace(/\b(under|unr|undr|uder|below|belw|less than|upto|up to|within|above|abve|over|more than|between|and above|max|maximum|minimum|budget of|budget|starting|best)\b/gi, " ")
-    .replace(/\b(se kam|se neeche|se zyada|se upar|se jyada|ke andar|ke neeche|ke under|tak)\b/gi, " ")
+    .replace(
+      /\b(under|unr|undr|uder|below|belw|less than|upto|up to|within|above|abve|over|more than|between|and above|max|maximum|minimum|budget of|budget|starting|best)\b/gi,
+      " ",
+    )
+    .replace(
+      /\b(se kam|se neeche|se zyada|se upar|se jyada|ke andar|ke neeche|ke under|tak)\b/gi,
+      " ",
+    )
     .replace(/(?:rs\.?|₹)\s*[\d,]+k?/gi, " ")
     .replace(/\b[\d,]+k?\b/g, " ")
     .replace(/\b(rupees|rupee|price|budget|ka|ke|ki|mein|me)\b/gi, " ")
@@ -306,30 +365,34 @@ function stripPriceWords(message: string): string {
 
 function toCard(p: Record<string, unknown>): RaniProductCard {
   const images = p.images as Array<{ url?: string }> | undefined;
-  const image = Array.isArray(images) && images[0]?.url ? images[0].url : undefined;
+  const image =
+    Array.isArray(images) && images[0]?.url ? images[0].url : undefined;
   const ratings = p.ratings as { average?: number } | undefined;
   return {
     name: String(p.name || ""),
     slug: String(p.slug || ""),
     priceInr: Number(p.price || 0),
     comparePriceInr:
-      typeof p.comparePrice === "number" && p.comparePrice > Number(p.price || 0)
-        ? p.comparePrice
-        : undefined,
+      (
+        typeof p.comparePrice === "number" &&
+        p.comparePrice > Number(p.price || 0)
+      ) ?
+        p.comparePrice
+      : undefined,
     image,
     category: p.category ? String(p.category) : undefined,
     fabric: p.fabric ? String(p.fabric) : undefined,
     inStock: Number(p.totalStock || 0) > 0,
     rating:
-      ratings?.average && ratings.average > 0
-        ? Math.round(ratings.average * 10) / 10
-        : undefined,
+      ratings?.average && ratings.average > 0 ?
+        Math.round(ratings.average * 10) / 10
+      : undefined,
   };
 }
 
-function productTypeHint(message: string):
-  | { pattern: string; label: string }
-  | undefined {
+function productTypeHint(
+  message: string,
+): { pattern: string; label: string } | undefined {
   return PRODUCT_TYPE_ALIASES.find((x) => x.re.test(message));
 }
 
@@ -445,11 +508,7 @@ export async function retrieveProductsForQuery(
 
   // 3) Best-seller fill is safe only inside an explicit verified scope.
   // A query such as "corset hai?" must stay empty rather than return sarees.
-  if (
-    results.length < limit &&
-    hasVerifiedScope &&
-    kind === "recommendation"
-  ) {
+  if (results.length < limit && hasVerifiedScope && kind === "recommendation") {
     const fillers = await Product.find(baseFilter)
       .select(CARD_SELECT)
       .sort("-soldCount -ratings.average -createdAt")
@@ -481,7 +540,8 @@ export async function retrieveUserOrders(
     .lean();
 
   return (orders as Array<Record<string, unknown>>).map((o) => {
-    const items = (o.items as Array<{ name?: string; quantity?: number }>) || [];
+    const items =
+      (o.items as Array<{ name?: string; quantity?: number }>) || [];
     return {
       orderNumber: String(o.orderNumber || ""),
       status: String(o.status || ""),

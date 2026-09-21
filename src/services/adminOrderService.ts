@@ -39,7 +39,7 @@ export const ALLOWED_STATUS_TRANSITIONS: Record<
 
 /**
  * Restock only when inventory was actually held (`inventoryReserved === true`).
- * Never use payment-method heuristics — unpaid / non-reserved cancels must not inflate stock.
+ * Never use payment-method heuristics - unpaid / non-reserved cancels must not inflate stock.
  */
 function shouldRestockOnCancel(order: {
   inventoryReserved?: boolean;
@@ -153,18 +153,18 @@ export interface CustomerCancelOrderResult {
  * Customer-initiated order cancellation.
  *
  * Safety guarantees:
- * 1. Atomic status claim via findOneAndUpdate — prevents double-cancellation race.
- * 2. Mongo transaction wraps stock restore + order save — no partial state on failure.
- * 3. Idempotent — returns existing cancelled order if already cancelled (safe for retries).
- * 4. Parallel stock restore — all variants incremented concurrently inside the transaction.
- * 5. inventoryReserved flag drives restock decision — cleaner than payment-method heuristics.
+ * 1. Atomic status claim via findOneAndUpdate - prevents double-cancellation race.
+ * 2. Mongo transaction wraps stock restore + order save - no partial state on failure.
+ * 3. Idempotent - returns existing cancelled order if already cancelled (safe for retries).
+ * 4. Parallel stock restore - all variants incremented concurrently inside the transaction.
+ * 5. inventoryReserved flag drives restock decision - cleaner than payment-method heuristics.
  */
 export async function customerCancelOrder(
   orderId: string,
   userId: string,
   reason: string,
 ): Promise<CustomerCancelOrderResult> {
-  // ── Step 1: Idempotency check — return immediately if already cancelled ───
+  // ── Step 1: Idempotency check - return immediately if already cancelled ───
   const existing = await Order.findOne({ _id: orderId, user: userId })
     .select(
       "status paymentMethod paymentStatus inventoryReserved orderNumber items total",
@@ -174,7 +174,7 @@ export async function customerCancelOrder(
   if (!existing) throw new AppError("Order not found.", 404);
 
   if (existing.status === "cancelled") {
-    // Safe to return — idempotent for frontend retries
+    // Safe to return - idempotent for frontend retries
     const doc = await Order.findById(orderId).lean();
     return { order: doc as InstanceType<typeof Order>, alreadyCancelled: true };
   }
@@ -183,7 +183,7 @@ export async function customerCancelOrder(
     throw new AppError("Order cannot be cancelled at this stage.", 400);
   }
 
-  // ── Step 2: Atomic status claim — prevents double-cancellation race ───────
+  // ── Step 2: Atomic status claim - prevents double-cancellation race ───────
   // findOneAndUpdate with status filter is atomic; only one concurrent request wins.
   const claimed = await Order.findOneAndUpdate(
     {
@@ -209,7 +209,7 @@ export async function customerCancelOrder(
   );
 
   if (!claimed) {
-    // Another request already changed the status — re-read and return
+    // Another request already changed the status - re-read and return
     const concurrent = await Order.findById(orderId).lean();
     if (concurrent?.status === "cancelled") {
       return {
@@ -280,7 +280,7 @@ export async function processRefund(
   const { refundMethod, amount: amt, notes } = input;
   const actorId = (req as AuthRequest).user?._id;
 
-  // ── Pre-flight validation (outside transaction — read-only) ───────────────
+  // ── Pre-flight validation (outside transaction - read-only) ───────────────
   const orderCheck = await Order.findById(orderId);
   if (!orderCheck) throw new AppError("Order not found.", 404);
   if (orderCheck.status === "refunded")
@@ -302,7 +302,7 @@ export async function processRefund(
     );
   }
 
-  // ── Gateway refund (outside transaction — external API call) ─────────────
+  // ── Gateway refund (outside transaction - external API call) ─────────────
   let methodToUse = refundMethod || "cash";
   let gatewayRefundId: string | undefined;
 
@@ -339,10 +339,7 @@ export async function processRefund(
     const previousStatus = order.status;
 
     type RefundMethod =
-      | "razorpay_auto"
-      | "cash"
-      | "bank_transfer"
-      | "upi_manual";
+      "razorpay_auto" | "cash" | "bank_transfer" | "upi_manual";
     order.refundData = {
       amount: amt,
       method: methodToUse as RefundMethod,
@@ -371,10 +368,7 @@ export async function processRefund(
 
     // Restore stock only if order wasn't already cancelled (cancel already restocked)
     // and inventory was actually held for this order.
-    if (
-      previousStatus !== "cancelled" &&
-      shouldRestockOnCancel(order)
-    ) {
+    if (previousStatus !== "cancelled" && shouldRestockOnCancel(order)) {
       await claimAndRestoreOrderStock(
         order,
         actorId,
@@ -389,7 +383,7 @@ export async function processRefund(
       await order.save();
     }
 
-    // Audit log (non-critical — outside transaction scope is fine)
+    // Audit log (non-critical - outside transaction scope is fine)
     await writeAdminAudit(
       req,
       "order.refunded",

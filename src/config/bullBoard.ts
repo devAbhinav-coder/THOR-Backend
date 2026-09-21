@@ -15,7 +15,7 @@ export async function setupBullBoard(app: Express): Promise<void> {
     return;
   }
   if (!isRedisOperational()) {
-    logger.warn("Bull Board skipped — Redis not configured");
+    logger.warn("Bull Board skipped - Redis not configured");
     return;
   }
 
@@ -36,7 +36,7 @@ export async function setupBullBoard(app: Express): Promise<void> {
   ].filter((q): q is NonNullable<typeof q> => q !== null);
 
   if (list.length === 0) {
-    logger.warn("Bull Board skipped — no queues available");
+    logger.warn("Bull Board skipped - no queues available");
     return;
   }
 

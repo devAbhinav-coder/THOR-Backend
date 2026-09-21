@@ -105,8 +105,9 @@ export async function runAbandonedCartRecoveryJob(): Promise<number> {
     })
     .filter((id): id is string => Boolean(id));
 
-  const recentRecoveryUsers = eligibleUserIds.length
-    ? await CartRecoveryLog.find({
+  const recentRecoveryUsers =
+    eligibleUserIds.length ?
+      await CartRecoveryLog.find({
         user: { $in: eligibleUserIds },
         sentAt: { $gte: cooldownSince },
       })
@@ -139,12 +140,17 @@ export async function runAbandonedCartRecoveryJob(): Promise<number> {
         cartTotal,
         itemCount,
       );
-      await enqueueEmail({ to: user.email!, subject: tpl.subject, html: tpl.html });
+      await enqueueEmail({
+        to: user.email!,
+        subject: tpl.subject,
+        html: tpl.html,
+      });
     } else if (!emailSkipped) {
       emailSkipped = true;
       logger.warn({
         msg: "abandoned_cart_email_skipped",
-        reason: "No SMTP_HOST or RESEND_API_KEY — configure email for recovery emails",
+        reason:
+          "No SMTP_HOST or RESEND_API_KEY - configure email for recovery emails",
       });
     }
 
@@ -159,9 +165,8 @@ export async function runAbandonedCartRecoveryJob(): Promise<number> {
       { category: "promotion", skipPreferenceCheck: false },
     ).catch(() => {});
 
-    const { notifyWhatsAppAbandonedCart } = await import(
-      "../whatsappNotifyService"
-    );
+    const { notifyWhatsAppAbandonedCart } =
+      await import("../whatsappNotifyService");
     void notifyWhatsAppAbandonedCart({
       userId,
       itemCount,
@@ -200,11 +205,8 @@ export async function runUnpaidOrderAutoCancelJob(): Promise<number> {
     .limit(batch)
     .maxTimeMS(PAYMENT_QUERY_MAX_MS);
 
-  await advanceJobBatchCursor(
-    "unpaid-order-auto-cancel",
-    stale,
-    batch,
-    (row) => String((row as { _id: unknown })._id),
+  await advanceJobBatchCursor("unpaid-order-auto-cancel", stale, batch, (row) =>
+    String((row as { _id: unknown })._id),
   );
 
   let cancelled = 0;
@@ -348,11 +350,8 @@ export async function runReviewInviteJob(): Promise<number> {
     .lean()
     .maxTimeMS(8000);
 
-  await advanceJobBatchCursor(
-    "review-invite",
-    orders,
-    batch,
-    (row) => String((row as { _id: unknown })._id),
+  await advanceJobBatchCursor("review-invite", orders, batch, (row) =>
+    String((row as { _id: unknown })._id),
   );
 
   const skipIds: string[] = [];
@@ -453,7 +452,12 @@ export async function runOutboxDeadLetterHandlerJob(): Promise<number> {
   const handlers: Array<{
     type: string;
     findStuck: () => Promise<
-      Array<{ _id: unknown; dedupeKey?: string; attempts?: number; lastError?: string }>
+      Array<{
+        _id: unknown;
+        dedupeKey?: string;
+        attempts?: number;
+        lastError?: string;
+      }>
     >;
     markDead: (ids: unknown[]) => Promise<unknown>;
   }> = [
@@ -607,7 +611,7 @@ export async function runOutboxDeadLetterHandlerJob(): Promise<number> {
         "alert",
       );
       await notifyAdminsEmail(
-        "Outbox dead-letter alert — The House of Rani",
+        "Outbox dead-letter alert - The House of Rani",
         `<p>${total} outbox message(s) were stuck after ${minAttempts}+ failures and moved to <b>dead_letter</b>.</p><p>Types: ${summary.join(", ")}</p>`,
       );
     }

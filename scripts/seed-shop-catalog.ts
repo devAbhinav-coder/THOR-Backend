@@ -62,21 +62,20 @@ function pickImage(index: number) {
   };
 }
 
-function buildProductDoc(
-  index: number,
-  category: string,
-  fabric: string,
-) {
+function buildProductDoc(index: number, category: string, fabric: string) {
   const adj = ADJECTIVES[index % ADJECTIVES.length];
   const color = COLOR_NAMES[index % COLOR_NAMES.length];
-  const name = `${adj} ${fabric} ${category.replace(/sarees?/i, "").trim()} Saree — ${color}`.replace(
-    /\s+/g,
-    " ",
-  );
+  const name =
+    `${adj} ${fabric} ${category.replace(/sarees?/i, "").trim()} Saree - ${color}`.replace(
+      /\s+/g,
+      " ",
+    );
   const basePrice = 899 + (index % 12) * 750 + (index % 3) * 111;
   const price = Math.min(9999, Math.max(499, basePrice));
   const comparePrice =
-    index % 4 === 0 ? Math.min(12999, price + 1200 + (index % 5) * 200) : undefined;
+    index % 4 === 0 ?
+      Math.min(12999, price + 1200 + (index % 5) * 200)
+    : undefined;
   const ratingAverage = 3.5 + (index % 3) * 0.5;
   const ratingCount = index % 6 === 0 ? 0 : 4 + (index % 18);
   const stock = 8 + (index % 20);
@@ -86,7 +85,7 @@ function buildProductDoc(
     name,
     slug,
     description: `<p>Elegant ${fabric.toLowerCase()} ${category.toLowerCase()} crafted for celebrations and everyday grace. Soft drape, rich texture, and a refined finish make this a versatile addition to your wardrobe.</p>`,
-    shortDescription: `${adj} ${fabric} saree in ${color.toLowerCase()} — premium ethnic wear from The House of Rani.`,
+    shortDescription: `${adj} ${fabric} saree in ${color.toLowerCase()} - premium ethnic wear from The House of Rani.`,
     price,
     comparePrice,
     category,
@@ -167,7 +166,9 @@ async function main() {
     throw new Error("No shop categories available for seeding.");
   }
 
-  const removed = await deleteShopProducts(freshShop ? "fresh-shop" : "seed-only");
+  const removed = await deleteShopProducts(
+    freshShop ? "fresh-shop" : "seed-only",
+  );
   console.log(`Removed ${removed} existing product(s).`);
 
   const docs = Array.from({ length: SHOP_CATALOG_TARGET_COUNT }, (_, i) => {

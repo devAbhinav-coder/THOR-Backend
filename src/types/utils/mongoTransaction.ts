@@ -1,19 +1,19 @@
-import mongoose, { ClientSession } from 'mongoose';
-import AppError from './AppError';
-import logger from './logger';
-import { getRequestContext } from './requestContext';
+import mongoose, { ClientSession } from "mongoose";
+import AppError from "./AppError";
+import logger from "./logger";
+import { getRequestContext } from "./requestContext";
 
 export function isTransactionUnsupportedError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : '';
+  const msg = err instanceof Error ? err.message : "";
   return (
-    msg.includes('Transaction numbers are only allowed') ||
-    msg.includes('not a repl set') ||
-    msg.includes('replica set')
+    msg.includes("Transaction numbers are only allowed") ||
+    msg.includes("not a repl set") ||
+    msg.includes("replica set")
   );
 }
 
 function isProduction(): boolean {
-  return process.env.NODE_ENV === 'production';
+  return process.env.NODE_ENV === "production";
 }
 
 /** Apply a Mongo session to a query when present (standalone dev runs without sessions). */
@@ -24,7 +24,9 @@ export function withQuerySession<T extends { session(s: ClientSession): T }>(
   return session ? query.session(session) : query;
 }
 
-export function sessionOpts(session: ClientSession | null): { session?: ClientSession } {
+export function sessionOpts(session: ClientSession | null): {
+  session?: ClientSession;
+} {
   return session ? { session } : {};
 }
 
@@ -42,9 +44,9 @@ export async function assertMongoTransactionsSupported(): Promise<void> {
   } catch (err: unknown) {
     if (isTransactionUnsupportedError(err)) {
       throw new Error(
-        'MongoDB transactions are required in production (replica set / Atlas). ' +
-          'Standalone mongod cannot safely commit checkout or payment. ' +
-          'Configure a replica set and restart.',
+        "MongoDB transactions are required in production (replica set / Atlas). " +
+          "Standalone mongod cannot safely commit checkout or payment. " +
+          "Configure a replica set and restart.",
       );
     }
     throw err;
@@ -56,11 +58,11 @@ export async function assertMongoTransactionsSupported(): Promise<void> {
 /**
  * Run `fn` inside a Mongo transaction when a replica set is available.
  * Dev: on standalone mongod, runs `fn(null)` without a transaction.
- * Production: never degrades — throws if transactions are unsupported.
+ * Production: never degrades - throws if transactions are unsupported.
  */
 export async function withOptionalTransaction<T>(
   fn: (session: ClientSession | null) => Promise<T>,
-  label = 'withOptionalTransaction',
+  label = "withOptionalTransaction",
 ): Promise<T> {
   let session: ClientSession | null = null;
   try {
@@ -74,26 +76,26 @@ export async function withOptionalTransaction<T>(
     if (isTransactionUnsupportedError(err)) {
       if (isProduction()) {
         logger.error({
-          msg: 'mongo_transaction_unsupported_production',
+          msg: "mongo_transaction_unsupported_production",
           label,
           requestId: getRequestContext()?.requestId,
         });
         throw new AppError(
-          'Checkout temporarily unavailable (database transaction support required).',
+          "Checkout temporarily unavailable (database transaction support required).",
           503,
         );
       }
       logger.warn({
-        msg: 'mongo_transaction_unsupported',
+        msg: "mongo_transaction_unsupported",
         label,
         requestId: getRequestContext()?.requestId,
       });
       return fn(null);
     }
-    const message = err instanceof Error ? err.message : 'transaction failed';
+    const message = err instanceof Error ? err.message : "transaction failed";
     const ctx = getRequestContext();
     logger.error({
-      msg: 'mongo_transaction_failed',
+      msg: "mongo_transaction_failed",
       label,
       requestId: ctx?.requestId,
       error: message,
@@ -117,10 +119,10 @@ export async function runInTransaction<T>(
     });
     return result;
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'transaction failed';
+    const message = err instanceof Error ? err.message : "transaction failed";
     const ctx = getRequestContext();
     logger.error({
-      msg: 'mongo_transaction_failed',
+      msg: "mongo_transaction_failed",
       label,
       requestId: ctx?.requestId,
       error: message,

@@ -7,10 +7,7 @@ export interface VariantLike {
 }
 
 /** Stock-weighted average cost across variants with cost > 0 and stock > 0. */
-export function computeAvgCost(
-  variants: VariantLike[],
-  fallback = 0,
-): number {
+export function computeAvgCost(variants: VariantLike[], fallback = 0): number {
   let costWeightedSum = 0;
   let costWeightUnits = 0;
 
@@ -65,7 +62,7 @@ export function computeTurnover(
   totalStock: number,
 ): number | null {
   if (totalStock > 0) return soldCount / totalStock;
-  if (soldCount > 0) return null; // sold out — no meaningful ratio
+  if (soldCount > 0) return null; // sold out - no meaningful ratio
   return 0;
 }
 
@@ -131,9 +128,7 @@ export function computeCatalogProfitFromVariants(
   grossCostOfSales = roundMoney(grossCostOfSales);
   const grossProfit = roundMoney(grossRevenue - grossCostOfSales);
   const marginPercent =
-    grossRevenue > 0 ?
-      Math.round((grossProfit / grossRevenue) * 100)
-    : null;
+    grossRevenue > 0 ? Math.round((grossProfit / grossRevenue) * 100) : null;
 
   return {
     grossRevenue,

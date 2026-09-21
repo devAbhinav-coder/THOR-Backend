@@ -199,7 +199,10 @@ export async function buildRichStoreSnapshot(
       stock: r.currentStock,
       soldCount: r.unitsSoldInPeriod,
       suggestedReorderQty: r.suggestedReorderQty,
-      reason: r.currentStock === 0 ? "Out of stock + velocity" : "Low stock + reorder qty",
+      reason:
+        r.currentStock === 0 ?
+          "Out of stock + velocity"
+        : "Low stock + reorder qty",
     })),
     ...oos
       .filter((p) => (p.soldCount ?? 0) >= 2)
@@ -221,7 +224,7 @@ export async function buildRichStoreSnapshot(
   return {
     generatedAtIst: `${ist.year}-${String(ist.month + 1).padStart(2, "0")}-${String(ist.day).padStart(2, "0")}`,
     capabilities: [
-      "Yesterday / today / this month — total + online + offline/POS + payment method (IST)",
+      "Yesterday / today / this month - total + online + offline/POS + payment method (IST)",
       "Actual money: gross profit, operating costs, estimated net MTD",
       "Operating expenses by category (packing, ads, shipping, rent…)",
       "Top sellers, views, stock, returns",
@@ -230,14 +233,14 @@ export async function buildRichStoreSnapshot(
     dataGuide: {
       timezone: "Asia/Kolkata (IST)",
       ordersInclude:
-        'All paid + refunded orders — website checkout AND offline/POS (offlineMeta). Not "online only".',
-      today: "timePeriods.today — total + online + offline + paymentBreakdown",
-      yesterday: "timePeriods.yesterday — same structure",
-      thisMonth: "timePeriods.thisMonth — month-to-date with channel split",
-      lifetime: "timePeriods.lifetime + channelMix.lifetime — all-time",
+        'All paid + refunded orders - website checkout AND offline/POS (offlineMeta). Not "online only".',
+      today: "timePeriods.today - total + online + offline + paymentBreakdown",
+      yesterday: "timePeriods.yesterday - same structure",
+      thisMonth: "timePeriods.thisMonth - month-to-date with channel split",
+      lifetime: "timePeriods.lifetime + channelMix.lifetime - all-time",
       forbidden: "NEVER compute yesterday as lifetime minus month",
       profit:
-        "profitSummary — catalog gross profit; estimatedNetMtd subtracts operating costs",
+        "profitSummary - catalog gross profit; estimatedNetMtd subtracts operating costs",
       payments: "paymentBreakdown: razorpay, cod, offline_upi, offline_cash",
     },
     timePeriods: {

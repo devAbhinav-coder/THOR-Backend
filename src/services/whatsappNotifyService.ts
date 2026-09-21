@@ -5,7 +5,11 @@ import {
   whatsappEnabled,
   whatsappMarketingEnabled,
 } from "../config/whatsapp";
-import { enqueueWhatsApp, enqueueWhatsAppHandoverPack, enqueueWhatsAppDeliveredPack } from "../queues/whatsappQueue";
+import {
+  enqueueWhatsApp,
+  enqueueWhatsAppHandoverPack,
+  enqueueWhatsAppDeliveredPack,
+} from "../queues/whatsappQueue";
 import type { WhatsAppMessageCategory } from "../models/WhatsAppMessageLog";
 import logger from "../types/utils/logger";
 
@@ -20,7 +24,9 @@ type PhoneUser = {
   name?: string;
 };
 
-export function resolveUserWhatsApp(user: PhoneUser | null | undefined): string | null {
+export function resolveUserWhatsApp(
+  user: PhoneUser | null | undefined,
+): string | null {
   if (!user) return null;
   return (
     toWhatsAppMsisdn(user.phone) ||
@@ -28,7 +34,9 @@ export function resolveUserWhatsApp(user: PhoneUser | null | undefined): string 
   );
 }
 
-async function loadUserPhone(userId: string): Promise<{ to: string; name: string } | null> {
+async function loadUserPhone(
+  userId: string,
+): Promise<{ to: string; name: string } | null> {
   if (!whatsappEnabled() || !userId) return null;
   const user = await User.findById(userId)
     .select("name phone addresses.phone isActive")
@@ -80,7 +88,8 @@ export async function notifyWhatsAppOrderShipped(opts: {
   const dest = await loadUserPhone(opts.userId);
   const tpl = whatsappConfig.templates.shipped;
   if (!dest || !tpl) return;
-  const track = [opts.carrier, opts.awb].filter(Boolean).join(" ") || "on the way";
+  const track =
+    [opts.carrier, opts.awb].filter(Boolean).join(" ") || "on the way";
   await sendTemplate({
     to: dest.to,
     template: tpl,
@@ -98,7 +107,7 @@ function orderStatusWhatsAppDetail(
 ): string {
   switch (status) {
     case "confirmed":
-      return `Order ${orderNumber} is confirmed — thank you for choosing The House of Rani!`;
+      return `Order ${orderNumber} is confirmed - thank you for choosing The House of Rani!`;
     case "processing":
       return `We're preparing order ${orderNumber} with care. We'll message you when it ships.`;
     case "pending":
@@ -110,7 +119,7 @@ function orderStatusWhatsAppDetail(
     case "shipped": {
       const track = [opts?.carrier, opts?.awb].filter(Boolean).join(" ");
       return track ?
-          `Order ${orderNumber} has shipped — ${track}`
+          `Order ${orderNumber} has shipped - ${track}`
         : `Order ${orderNumber} is on the way!`;
     }
     default:
@@ -118,7 +127,7 @@ function orderStatusWhatsAppDetail(
   }
 }
 
-/** Admin status change — confirmed (COD accepted), processing, refunded, etc. */
+/** Admin status change - confirmed (COD accepted), processing, refunded, etc. */
 export async function notifyWhatsAppOrderStatusChange(opts: {
   userId: string;
   orderId: string;
@@ -186,9 +195,10 @@ export async function notifyWhatsAppOrderCancelled(opts: {
     whatsappConfig.templates.orderConfirm;
   if (!dest || !tpl) return;
 
-  const orderUrl = opts.orderId ?
-    `${frontendUrl}/dashboard/orders/${encodeURIComponent(opts.orderId)}`
-  : `${frontendUrl}/dashboard/orders`;
+  const orderUrl =
+    opts.orderId ?
+      `${frontendUrl}/dashboard/orders/${encodeURIComponent(opts.orderId)}`
+    : `${frontendUrl}/dashboard/orders`;
 
   await sendTemplate({
     to: dest.to,
@@ -278,7 +288,11 @@ export async function notifyWhatsAppAbandonedCart(opts: {
   await sendTemplate({
     to: dest.to,
     template: tpl,
-    bodyParams: [dest.name, String(opts.itemCount), `₹${opts.total.toFixed(0)}`],
+    bodyParams: [
+      dest.name,
+      String(opts.itemCount),
+      `₹${opts.total.toFixed(0)}`,
+    ],
     category: "abandoned_cart",
     userId: opts.userId,
   });
@@ -303,7 +317,11 @@ export async function notifyWhatsAppReviewInvite(opts: {
   await sendTemplate({
     to,
     template: tpl,
-    bodyParams: [opts.name.split(/\s+/)[0] || "there", opts.orderNumber, opts.inviteUrl],
+    bodyParams: [
+      opts.name.split(/\s+/)[0] || "there",
+      opts.orderNumber,
+      opts.inviteUrl,
+    ],
     category: "review_invite",
     userId: opts.userId,
     orderId: opts.orderId,
@@ -312,12 +330,7 @@ export async function notifyWhatsAppReviewInvite(opts: {
 }
 
 export type CatalogAlertKind =
-  | "product"
-  | "category"
-  | "subcategory"
-  | "coupon"
-  | "promotion"
-  | "sale";
+  "product" | "category" | "subcategory" | "coupon" | "promotion" | "sale";
 
 const catalogCopy: Record<CatalogAlertKind, (title: string) => string> = {
   product: (t) => `New arrival: ${t}`,
@@ -330,7 +343,7 @@ const catalogCopy: Record<CatalogAlertKind, (title: string) => string> = {
 
 /**
  * Marketing broadcast to opted-in customers with a phone number.
- * Never blocks the admin request — failures are logged only.
+ * Never blocks the admin request - failures are logged only.
  */
 export function notifyWhatsAppCatalogAlert(opts: {
   kind: CatalogAlertKind;
@@ -358,7 +371,8 @@ export async function broadcastMarketingWhatsApp(opts: {
   if (!tpl) return 0;
 
   const url = `${frontendUrl}${opts.ctaLink.startsWith("/") ? opts.ctaLink : `/${opts.ctaLink}`}`;
-  const headline = `${opts.subject.trim()}: ${opts.messagePlain.slice(0, 120)}`.slice(0, 200);
+  const headline =
+    `${opts.subject.trim()}: ${opts.messagePlain.slice(0, 120)}`.slice(0, 200);
 
   const cursor = User.find({
     ...opts.audienceFilter,
@@ -387,7 +401,11 @@ export async function broadcastMarketingWhatsApp(opts: {
     });
     sent += 1;
   }
-  logger.info({ msg: "whatsapp_marketing_enqueued", sent, subject: opts.subject });
+  logger.info({
+    msg: "whatsapp_marketing_enqueued",
+    sent,
+    subject: opts.subject,
+  });
   return sent;
 }
 
@@ -400,7 +418,10 @@ async function broadcastCatalogAlert(
     isActive: true,
     role: "user",
     whatsappMarketingOptIn: { $ne: false },
-    $or: [{ phone: { $exists: true, $nin: [null, ""] } }, { "addresses.0.phone": { $exists: true } }],
+    $or: [
+      { phone: { $exists: true, $nin: [null, ""] } },
+      { "addresses.0.phone": { $exists: true } },
+    ],
   })
     .select("name phone addresses.phone")
     .lean<PhoneUser[]>()

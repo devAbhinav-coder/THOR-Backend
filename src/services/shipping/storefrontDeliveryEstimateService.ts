@@ -2,16 +2,10 @@ import {
   delhiveryIsConfigured,
   delhiveryOriginPincode,
 } from "../../config/delhivery";
-import {
-  checkPincodeServiceability,
-  fetchTatHint,
-} from "../delhiveryService";
+import { checkPincodeServiceability, fetchTatHint } from "../delhiveryService";
 import { getLearnedTransitDays } from "./deliveryTatLearningService";
 import { lookupIndiaPostPincode } from "./indiaPostPincodeLookup";
-import {
-  normalizeStateName,
-  resolvePincodeGeo,
-} from "./indiaPincodeZones";
+import { normalizeStateName, resolvePincodeGeo } from "./indiaPincodeZones";
 
 const CACHE_TTL_MS = 2 * 60 * 60 * 1000;
 const CUTOFF_HOUR_IST = 14;
@@ -77,8 +71,7 @@ function toIsoDate(d: Date): string {
 
 function dispatchSla(): { min: number; max: number } {
   const now = istNow();
-  const afterCutoff =
-    now.getDay() === 0 || now.getHours() >= CUTOFF_HOUR_IST;
+  const afterCutoff = now.getDay() === 0 || now.getHours() >= CUTOFF_HOUR_IST;
   const days = afterCutoff ? 2 : 1;
   return { min: days, max: days };
 }
@@ -229,7 +222,7 @@ export async function getStorefrontDeliveryEstimate(
       serviceable = false;
       unserviceableMessage =
         delhiveryResult.remark ?
-          `Delivery unavailable — ${delhiveryResult.remark}`
+          `Delivery unavailable - ${delhiveryResult.remark}`
         : "Sorry, we cannot deliver to this pincode yet.";
     }
   }
@@ -303,10 +296,8 @@ export async function getStorefrontDeliveryEstimate(
     zone: geo.zone,
     zoneLabel: geo.zoneLabel,
     message:
-      source === "zone" ?
-        `${geo.zoneLabel} corridor from our Noida warehouse`
-      : source === "learned" ?
-        "Based on recent deliveries to your area"
+      source === "zone" ? `${geo.zoneLabel} corridor from our Noida warehouse`
+      : source === "learned" ? "Based on recent deliveries to your area"
       : undefined,
   });
 

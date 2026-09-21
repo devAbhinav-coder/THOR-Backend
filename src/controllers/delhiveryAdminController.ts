@@ -77,7 +77,7 @@ export const checkOrderPinServiceability = catchAsync(
   },
 );
 
-/** Check any 6-digit PIN against Delhivery network (admin tool — support / pre-check). */
+/** Check any 6-digit PIN against Delhivery network (admin tool - support / pre-check). */
 export const checkDelhiveryServiceabilityByPin = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const pin = String(req.query.pin || "").trim();
@@ -237,7 +237,7 @@ export const estimateDelhiveryForOrder = catchAsync(
 
     sendSuccess(res, {
       boxCount: boxes,
-      /** Dead weight per box (g) — same as manifest when you create shipment */
+      /** Dead weight per box (g) - same as manifest when you create shipment */
       perBoxDeadWeightGm: perBoxDead,
       /** cgm we computed and sent as the `cgm` query param (chargeable per box) */
       cgmRequested: cgm,
@@ -309,7 +309,7 @@ export const createDelhiveryShipmentForOrder = catchAsync(
     if (boxes > 1 && order.paymentMethod === "cod") {
       return next(
         new AppError(
-          "Multi-box (MPS) with COD is not supported in automation — use one box or enter tracking manually.",
+          "Multi-box (MPS) with COD is not supported in automation - use one box or enter tracking manually.",
           400,
         ),
       );
@@ -532,8 +532,7 @@ export const createDelhiveryShipmentForOrder = catchAsync(
       "name email",
     );
     const user = populated?.user as unknown as
-      | { name?: string; email?: string; _id?: string }
-      | undefined;
+      { name?: string; email?: string; _id?: string } | undefined;
     if (populated && user?._id) {
       if (user.email && isCustomerDeliverableEmail(user.email)) {
         const tpl = emailTemplates.orderStatusUpdate(
@@ -553,9 +552,8 @@ export const createDelhiveryShipmentForOrder = catchAsync(
         });
       }
 
-      const { notifyWhatsAppOrderStatusChange } = await import(
-        "../services/whatsappNotifyService"
-      );
+      const { notifyWhatsAppOrderStatusChange } =
+        await import("../services/whatsappNotifyService");
       void notifyWhatsAppOrderStatusChange({
         userId: String(user._id),
         orderId: String(populated._id),
@@ -697,7 +695,7 @@ export const getDelhiveryPackingSlip = catchAsync(
   },
 );
 
-/** Delhivery packing slip with pdf=false — raw JSON for custom HTML / Code 128 layouts. */
+/** Delhivery packing slip with pdf=false - raw JSON for custom HTML / Code 128 layouts. */
 export const getDelhiveryPackingSlipJson = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     if (!delhiveryIsConfigured()) {
@@ -766,7 +764,7 @@ export const getDelhiveryPackingSlipJson = catchAsync(
   },
 );
 
-/** Stream PDF through our API — correct file on download/print; avoids wrong link from JSON. */
+/** Stream PDF through our API - correct file on download/print; avoids wrong link from JSON. */
 export const downloadDelhiveryPackingSlipFile = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     if (!delhiveryIsConfigured()) {

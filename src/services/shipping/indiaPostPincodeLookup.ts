@@ -15,7 +15,7 @@ function titleCaseCity(value: string): string {
 }
 
 /**
- * India Post public PIN lookup — fills city/district when Delhivery omits it.
+ * India Post public PIN lookup - fills city/district when Delhivery omits it.
  */
 export async function lookupIndiaPostPincode(
   pin: string,
@@ -30,10 +30,10 @@ export async function lookupIndiaPostPincode(
   const timer = setTimeout(() => ctrl.abort(), 2500);
 
   try {
-    const res = await fetch(
-      `https://api.postalpincode.in/pincode/${pincode}`,
-      { signal: ctrl.signal, headers: { Accept: "application/json" } },
-    );
+    const res = await fetch(`https://api.postalpincode.in/pincode/${pincode}`, {
+      signal: ctrl.signal,
+      headers: { Accept: "application/json" },
+    });
     const json: unknown = await res.json();
     const row = Array.isArray(json) ? json[0] : json;
     if (!row || typeof row !== "object") return {};
@@ -46,8 +46,7 @@ export async function lookupIndiaPostPincode(
       typeof office.District === "string" ? office.District.trim() : "";
     const division =
       typeof office.Division === "string" ? office.Division.trim() : "";
-    const block =
-      typeof office.Block === "string" ? office.Block.trim() : "";
+    const block = typeof office.Block === "string" ? office.Block.trim() : "";
     const stateRaw =
       typeof office.State === "string" ? office.State.trim() : "";
 

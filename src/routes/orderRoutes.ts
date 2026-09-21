@@ -17,8 +17,14 @@ import {
   cancelOrderSchema,
 } from '../validation/orderSchemas';
 import { createAdaptiveLimiter } from '../middleware/adaptiveRateLimit';
+import { setPrivateNoStore } from '../constants/publicHttpCache';
 
 const router = Router();
+
+router.use((_req, res, next) => {
+  setPrivateNoStore(res);
+  next();
+});
 const paymentLimiter = createAdaptiveLimiter({
   windowMs: 10 * 60 * 1000,
   max: 40,

@@ -1,5 +1,5 @@
 /**
- * Delhivery B2C API — base URL and credentials from env.
+ * Delhivery B2C API - base URL and credentials from env.
  * Staging: https://staging-express.delhivery.com
  * Production: https://track.delhivery.com
  */
@@ -27,7 +27,9 @@ export function delhiveryOriginPincode(): string | undefined {
 
 export function delhiveryIsConfigured(): boolean {
   return Boolean(
-    delhiveryToken() && delhiveryPickupLocationName() && delhiveryOriginPincode(),
+    delhiveryToken() &&
+    delhiveryPickupLocationName() &&
+    delhiveryOriginPincode(),
   );
 }
 

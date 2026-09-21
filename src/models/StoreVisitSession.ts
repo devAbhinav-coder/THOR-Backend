@@ -1,7 +1,7 @@
 import mongoose, { Schema } from "mongoose";
 
 export interface IStoreVisitSession extends mongoose.Document {
-  /** Client-generated id (sessionStorage) — one counted visit per session per IST day */
+  /** Client-generated id (sessionStorage) - one counted visit per session per IST day */
   sessionKey: string;
   /** Asia/Kolkata calendar date YYYY-MM-DD */
   visitDate: string;
@@ -10,7 +10,7 @@ export interface IStoreVisitSession extends mongoose.Document {
   country?: string;
   /** City or state when edge provides it */
   region?: string;
-  /** Classified traffic source — Google, Instagram, Direct, etc. */
+  /** Classified traffic source - Google, Instagram, Direct, etc. */
   referrerSource?: string;
   device?: "mobile" | "tablet" | "desktop";
   utmSource?: string;
@@ -41,7 +41,10 @@ const storeVisitSessionSchema = new Schema<IStoreVisitSession>(
   { timestamps: { createdAt: true, updatedAt: false } },
 );
 
-storeVisitSessionSchema.index({ sessionKey: 1, visitDate: 1 }, { unique: true });
+storeVisitSessionSchema.index(
+  { sessionKey: 1, visitDate: 1 },
+  { unique: true },
+);
 storeVisitSessionSchema.index({ visitDate: 1 });
 storeVisitSessionSchema.index({ createdAt: -1 });
 storeVisitSessionSchema.index({ country: 1, visitDate: 1 });
@@ -50,6 +53,9 @@ storeVisitSessionSchema.index({ utmCampaign: 1, visitDate: 1 });
 
 const StoreVisitSession =
   mongoose.models.StoreVisitSession ||
-  mongoose.model<IStoreVisitSession>("StoreVisitSession", storeVisitSessionSchema);
+  mongoose.model<IStoreVisitSession>(
+    "StoreVisitSession",
+    storeVisitSessionSchema,
+  );
 
 export default StoreVisitSession;

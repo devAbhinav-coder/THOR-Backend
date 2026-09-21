@@ -7,6 +7,8 @@ import { getGiftMinQtyFromRecord } from "./cartValidationService";
 import { recordCartMetric } from "./cartMetricsService";
 import { getActiveSaleCampaigns } from "../sale/saleCacheService";
 import { resolveVariantSellPrice } from "../sale/saleProductEnrichment";
+import { coalesceInFlight } from "../../types/utils/inFlightCoalesce";
+import { hashIdList } from "../auth/authUserSnapshotService";
 
 /**
  * Checkout-safe revalidation: prices, active products, variants, soft stock, min qty.
@@ -22,14 +24,17 @@ export const cartRevalidationService = {
     }
 
     const productIds = [...new Set(cart.items.map((i) => String(i.product)))];
-    const products = await Product.find({
-      _id: { $in: productIds.map((id) => new mongoose.Types.ObjectId(id)) },
-    })
-      .select(
-        "name isActive variants minOrderQty occasions price comparePrice categoryId subcategoryId",
-      )
-      .maxTimeMS(CART_QUERY_MAX_MS)
-      .lean<Record<string, unknown>[]>();
+    const coalesceKey = `cart-products:${hashIdList(productIds)}`;
+    const products = await coalesceInFlight(coalesceKey, async () =>
+      Product.find({
+        _id: { $in: productIds.map((id) => new mongoose.Types.ObjectId(id)) },
+      })
+        .select(
+          "name isActive variants minOrderQty occasions price comparePrice categoryId subcategoryId",
+        )
+        .maxTimeMS(CART_QUERY_MAX_MS)
+        .lean<Record<string, unknown>[]>(),
+    );
 
     const productMap = new Map(products.map((p) => [String(p._id), p]));
     const campaigns = await getActiveSaleCampaigns();
@@ -75,7 +80,7 @@ export const cartRevalidationService = {
 
       if (item.quantity > variant.stock) {
         throw new AppError(
-          `"${item.productName}" — only ${variant.stock} in stock (you have ${item.quantity} in cart). Update quantity and try again.`,
+          `"${item.productName}" - only ${variant.stock} in stock (you have ${item.quantity} in cart). Update quantity and try again.`,
           400,
         );
       }

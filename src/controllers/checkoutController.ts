@@ -6,8 +6,9 @@ import { sendSuccess } from "../types/utils/response";
 import { securityLog } from "../types/utils/securityLog";
 import {
   normalizeIdempotencyKey,
-  acquireCheckoutLock,
+  acquireCheckoutLockWithWait,
   releaseCheckoutLock,
+  checkoutLockRequiresRedis,
   getIdempotentCheckoutResponse,
   setIdempotentCheckoutResponse,
 } from "../services/checkoutConcurrency";
@@ -17,6 +18,7 @@ import { enqueueOrderEvent } from "../queues/orderQueue";
 import { OrderEventType } from "../events/orderEvents";
 import { sanitizeMarketingAttribution } from "../utils/marketingAttribution";
 import { resolveClientIp } from "../utils/metaUserData";
+import { isRedisOperational } from "../config/redis";
 
 export const createOrder = catchAsync(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -35,15 +37,14 @@ export const createOrder = catchAsync(
       }
     }
 
-    const locked = await acquireCheckoutLock(userId);
+    const locked = await acquireCheckoutLockWithWait(userId);
     if (!locked) {
       securityLog("checkout.concurrent_blocked", { userId });
-      return next(
-        new AppError(
-          "Checkout already in progress. Please wait a moment.",
-          429,
-        ),
-      );
+      const message =
+        checkoutLockRequiresRedis() && !isRedisOperational() ?
+          "Checkout is temporarily unavailable. Please try again shortly."
+        : "Checkout already in progress. Please wait a moment.";
+      return next(new AppError(message, 409));
     }
 
     try {

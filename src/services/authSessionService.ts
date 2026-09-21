@@ -6,6 +6,8 @@ import {
   deviceLabelFromUserAgent,
 } from "../auth/authNormalize";
 import { emitAuthEvent } from "./authEventService";
+import { revokeAccessSession } from "./auth/authAccessRevokeService";
+import { accessTokenTtlSeconds } from "../auth/accessTokenTtl";
 
 export type SessionView = {
   id: string;
@@ -60,6 +62,7 @@ export async function revokeSessionById(
     { new: true },
   );
   if (!doc) return false;
+  await revokeAccessSession(sessionId, accessTokenTtlSeconds());
   emitAuthEvent({
     type: "AUTH_SESSION_REVOKED",
     userId,
@@ -82,9 +85,15 @@ export async function revokeAllSessionsExcept(
     filter.tokenHash = { $ne: exceptTokenHash };
   }
 
+  const toRevoke = await RefreshToken.find(filter).select("_id").lean();
   const result = await RefreshToken.updateMany(filter, {
     $set: { revokedAt: new Date() },
   });
+
+  const ttl = accessTokenTtlSeconds();
+  await Promise.all(
+    toRevoke.map((row) => revokeAccessSession(String(row._id), ttl)),
+  );
 
   emitAuthEvent({
     type: "AUTH_SESSION_REVOKED",

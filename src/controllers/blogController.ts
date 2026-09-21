@@ -63,8 +63,9 @@ function enrichBlogFields(body: Record<string, unknown>, existing?: IBlog) {
     .trim()
     .toLowerCase();
 
-  const slugChanged =
-    Boolean(existing && body.slug !== undefined && newSlug !== existing.slug);
+  const slugChanged = Boolean(
+    existing && body.slug !== undefined && newSlug !== existing.slug,
+  );
 
   return {
     title,
@@ -96,9 +97,9 @@ function enrichBlogFields(body: Record<string, unknown>, existing?: IBlog) {
       const raw = String(
         body.articleTemplate ?? existing?.articleTemplate ?? "classic",
       ).trim();
-      return allowed.includes(raw as (typeof allowed)[number]) ?
-          raw
-        : "classic";
+      return allowed.includes(raw as (typeof allowed)[number]) ? raw : (
+          "classic"
+        );
     })(),
     relatedProductIds:
       body.relatedProductIds !== undefined ?
@@ -129,7 +130,7 @@ export const broadcastNewBlog = async (blog: BlogBroadcastPayload) => {
       { isActive: true, role: "user" },
       () => {
         const tpl = emailTemplates.custom(
-          `New Story: ${blog.title} — The House of Rani`,
+          `New Story: ${blog.title} - The House of Rani`,
           `<p>Hi {{name}},</p><p>We have just published a new story that you might love: <strong>${blog.title}</strong>.</p><p>Dive into our latest journal entry to stay inspired with the latest trends and updates!</p>`,
           "Read Story",
           `${frontendUrl}/blog/${blog.slug}`,
@@ -223,7 +224,9 @@ export const getRelatedBlogs = catchAsync(
 
 export const getBlogBySlug = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
-    const slugParam = String(req.params.slug || "").trim().toLowerCase();
+    const slugParam = String(req.params.slug || "")
+      .trim()
+      .toLowerCase();
 
     const blog = await Blog.findOneAndUpdate(
       { slug: slugParam, isPublished: true },
@@ -260,8 +263,7 @@ export const getBlogBySlug = catchAsync(
 
 export const createBlog = catchAsync(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
-    const multerFiles =
-      (req.files as Express.Multer.File[] | undefined) || [];
+    const multerFiles = (req.files as Express.Multer.File[] | undefined) || [];
     const uploadedImages = (
       req as AuthRequest & {
         uploadedImages?: { url: string; publicId: string }[];
@@ -283,12 +285,9 @@ export const createBlog = catchAsync(
       }
     } else if (
       multerFiles.length > 0 &&
-      (!uploadedImages?.length ||
-        uploadedImages.length !== multerFiles.length)
+      (!uploadedImages?.length || uploadedImages.length !== multerFiles.length)
     ) {
-      return next(
-        new AppError("Image upload failed. Please try again.", 500),
-      );
+      return next(new AppError("Image upload failed. Please try again.", 500));
     }
 
     let captions: string[] = [];
@@ -356,7 +355,9 @@ export const createBlog = catchAsync(
         logger.error("Blog broadcast failed", { err }),
       );
       if (blog.slug) {
-        notifyIndexNowStorefront(`/blog/${encodeURIComponent(String(blog.slug))}`);
+        notifyIndexNowStorefront(
+          `/blog/${encodeURIComponent(String(blog.slug))}`,
+        );
       }
     }
 
@@ -373,8 +374,7 @@ export const updateBlog = catchAsync(
       ...enrichBlogFields(req.body as Record<string, unknown>, blog),
     };
 
-    const multerFiles =
-      (req.files as Express.Multer.File[] | undefined) || [];
+    const multerFiles = (req.files as Express.Multer.File[] | undefined) || [];
     const uploadedImages = (
       req as Request & { uploadedImages?: { url: string; publicId: string }[] }
     ).uploadedImages;
@@ -394,12 +394,9 @@ export const updateBlog = catchAsync(
       }
     } else if (
       multerFiles.length > 0 &&
-      (!uploadedImages?.length ||
-        uploadedImages.length !== multerFiles.length)
+      (!uploadedImages?.length || uploadedImages.length !== multerFiles.length)
     ) {
-      return next(
-        new AppError("Image upload failed. Please try again.", 500),
-      );
+      return next(new AppError("Image upload failed. Please try again.", 500));
     }
 
     if (uploadedImages && uploadedImages.length > 0) {
@@ -531,8 +528,7 @@ export const deleteBlogImage = catchAsync(
     const match = blog.images.find(
       (img) => img.publicId === decodedId || img.publicId === rawParam,
     );
-    if (!match)
-      return next(new AppError("Image not found on this blog.", 404));
+    if (!match) return next(new AppError("Image not found on this blog.", 404));
 
     await deleteMultipleImages([match.publicId]);
     blog.images = blog.images.filter((img) => img.publicId !== match.publicId);
@@ -623,53 +619,57 @@ export const trackBlogShopClick = catchAsync(
   },
 );
 
-export const getBlogAnalytics = catchAsync(async (_req: Request, res: Response) => {
-  const [totals, topByViews, topByShopClicks, recentPublished] = await Promise.all([
-    Blog.aggregate([
-      {
-        $group: {
-          _id: null,
-          totalPosts: { $sum: 1 },
-          published: { $sum: { $cond: ["$isPublished", 1, 0] } },
-          totalViews: { $sum: "$viewCount" },
-          totalShopClicks: { $sum: "$shopClickCount" },
-        },
+export const getBlogAnalytics = catchAsync(
+  async (_req: Request, res: Response) => {
+    const [totals, topByViews, topByShopClicks, recentPublished] =
+      await Promise.all([
+        Blog.aggregate([
+          {
+            $group: {
+              _id: null,
+              totalPosts: { $sum: 1 },
+              published: { $sum: { $cond: ["$isPublished", 1, 0] } },
+              totalViews: { $sum: "$viewCount" },
+              totalShopClicks: { $sum: "$shopClickCount" },
+            },
+          },
+        ]),
+        Blog.find({ isPublished: true })
+          .sort("-viewCount")
+          .limit(8)
+          .select("title slug viewCount shopClickCount category createdAt")
+          .lean(),
+        Blog.find({ isPublished: true, shopClickCount: { $gt: 0 } })
+          .sort("-shopClickCount")
+          .limit(8)
+          .select("title slug viewCount shopClickCount category")
+          .lean(),
+        Blog.find({ isPublished: true })
+          .sort("-createdAt")
+          .limit(5)
+          .select("title slug createdAt viewCount shopClickCount")
+          .lean(),
+      ]);
+
+    const summary = totals[0] || {
+      totalPosts: 0,
+      published: 0,
+      totalViews: 0,
+      totalShopClicks: 0,
+    };
+
+    sendSuccess(res, {
+      summary: {
+        ...summary,
+        clickThroughRate:
+          summary.totalViews > 0 ?
+            Math.round((summary.totalShopClicks / summary.totalViews) * 10000) /
+            100
+          : 0,
       },
-    ]),
-    Blog.find({ isPublished: true })
-      .sort("-viewCount")
-      .limit(8)
-      .select("title slug viewCount shopClickCount category createdAt")
-      .lean(),
-    Blog.find({ isPublished: true, shopClickCount: { $gt: 0 } })
-      .sort("-shopClickCount")
-      .limit(8)
-      .select("title slug viewCount shopClickCount category")
-      .lean(),
-    Blog.find({ isPublished: true })
-      .sort("-createdAt")
-      .limit(5)
-      .select("title slug createdAt viewCount shopClickCount")
-      .lean(),
-  ]);
-
-  const summary = totals[0] || {
-    totalPosts: 0,
-    published: 0,
-    totalViews: 0,
-    totalShopClicks: 0,
-  };
-
-  sendSuccess(res, {
-    summary: {
-      ...summary,
-      clickThroughRate:
-        summary.totalViews > 0 ?
-          Math.round((summary.totalShopClicks / summary.totalViews) * 10000) / 100
-        : 0,
-    },
-    topByViews,
-    topByShopClicks,
-    recentPublished,
-  });
-});
+      topByViews,
+      topByShopClicks,
+      recentPublished,
+    });
+  },
+);

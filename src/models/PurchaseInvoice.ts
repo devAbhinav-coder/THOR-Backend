@@ -1,4 +1,4 @@
-import mongoose, { Schema, Document, Types } from 'mongoose';
+import mongoose, { Schema, Document, Types } from "mongoose";
 
 export interface IPurchaseInvoiceLineItem {
   /** Optional link to a catalog product. */
@@ -25,7 +25,7 @@ export interface IPurchaseInvoiceLineItem {
   lineTotal: number;
 }
 
-export type PurchaseInvoiceStatus = 'active' | 'voided';
+export type PurchaseInvoiceStatus = "active" | "voided";
 
 export interface IPurchaseInvoice extends Document {
   _id: Types.ObjectId;
@@ -33,13 +33,13 @@ export interface IPurchaseInvoice extends Document {
   status: PurchaseInvoiceStatus;
   voidedAt?: Date;
   voidedBy?: Types.ObjectId;
-  /** Client Idempotency-Key header — prevents duplicate stock on retries. */
+  /** Client Idempotency-Key header - prevents duplicate stock on retries. */
   idempotencyKey?: string;
   invoiceNumber: string;
   supplierName: string;
   supplierGstin?: string;
   /** Whether the supply is intra-state (CGST+SGST) or inter-state (IGST). */
-  supplyType: 'intra' | 'inter';
+  supplyType: "intra" | "inter";
   invoiceDate: Date;
   lineItems: IPurchaseInvoiceLineItem[];
   /** Sum of all taxableAmount fields. */
@@ -49,7 +49,7 @@ export interface IPurchaseInvoice extends Document {
   totalIgst: number;
   totalTax: number;
   grandTotal: number;
-  paymentStatus: 'unpaid' | 'paid' | 'partial';
+  paymentStatus: "unpaid" | "paid" | "partial";
   paidAmount: number;
   notes?: string;
   createdBy?: Types.ObjectId;
@@ -59,7 +59,7 @@ export interface IPurchaseInvoice extends Document {
 
 const lineItemSchema = new Schema<IPurchaseInvoiceLineItem>(
   {
-    product: { type: Schema.Types.ObjectId, ref: 'Product' },
+    product: { type: Schema.Types.ObjectId, ref: "Product" },
     productName: { type: String, required: true },
     sku: { type: String, required: true },
     variantLabel: String,
@@ -73,14 +73,14 @@ const lineItemSchema = new Schema<IPurchaseInvoiceLineItem>(
     igst: { type: Number, default: 0 },
     lineTotal: { type: Number, required: true, min: 0 },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const purchaseInvoiceSchema = new Schema<IPurchaseInvoice>(
   {
-    status: { type: String, enum: ['active', 'voided'], default: 'active' },
+    status: { type: String, enum: ["active", "voided"], default: "active" },
     voidedAt: Date,
-    voidedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    voidedBy: { type: Schema.Types.ObjectId, ref: "User" },
     idempotencyKey: { type: String, trim: true, sparse: true, unique: true },
     invoiceNumber: { type: String, required: true, trim: true },
     supplierName: { type: String, required: true, trim: true, maxlength: 200 },
@@ -90,25 +90,37 @@ const purchaseInvoiceSchema = new Schema<IPurchaseInvoice>(
       uppercase: true,
       maxlength: 15,
       validate: {
-        validator: (v: string) => !v || /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(v),
-        message: 'Invalid GSTIN format',
+        validator: (v: string) =>
+          !v ||
+          /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(v),
+        message: "Invalid GSTIN format",
       },
     },
-    supplyType: { type: String, enum: ['intra', 'inter'], default: 'intra' },
+    supplyType: { type: String, enum: ["intra", "inter"], default: "intra" },
     invoiceDate: { type: Date, required: true },
-    lineItems: { type: [lineItemSchema], validate: { validator: (v: unknown[]) => v.length > 0, message: 'At least one line item required' } },
+    lineItems: {
+      type: [lineItemSchema],
+      validate: {
+        validator: (v: unknown[]) => v.length > 0,
+        message: "At least one line item required",
+      },
+    },
     totalTaxable: { type: Number, default: 0 },
     totalCgst: { type: Number, default: 0 },
     totalSgst: { type: Number, default: 0 },
     totalIgst: { type: Number, default: 0 },
     totalTax: { type: Number, default: 0 },
     grandTotal: { type: Number, default: 0 },
-    paymentStatus: { type: String, enum: ['unpaid', 'paid', 'partial'], default: 'unpaid' },
+    paymentStatus: {
+      type: String,
+      enum: ["unpaid", "paid", "partial"],
+      default: "unpaid",
+    },
     paidAmount: { type: Number, default: 0 },
     notes: { type: String, maxlength: 2000 },
-    createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    createdBy: { type: Schema.Types.ObjectId, ref: "User" },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 purchaseInvoiceSchema.index({ invoiceDate: -1 });
@@ -116,10 +128,13 @@ purchaseInvoiceSchema.index({ supplierGstin: 1 });
 purchaseInvoiceSchema.index({ createdAt: -1 });
 purchaseInvoiceSchema.index(
   { invoiceNumber: 1 },
-  { unique: true, partialFilterExpression: { status: 'active' } }
+  { unique: true, partialFilterExpression: { status: "active" } },
 );
 purchaseInvoiceSchema.index({ status: 1, invoiceDate: -1 });
 purchaseInvoiceSchema.index({ paymentStatus: 1, invoiceDate: -1 });
 
-const PurchaseInvoice = mongoose.model<IPurchaseInvoice>('PurchaseInvoice', purchaseInvoiceSchema);
+const PurchaseInvoice = mongoose.model<IPurchaseInvoice>(
+  "PurchaseInvoice",
+  purchaseInvoiceSchema,
+);
 export default PurchaseInvoice;

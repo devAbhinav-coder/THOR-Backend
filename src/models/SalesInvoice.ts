@@ -1,10 +1,10 @@
 import mongoose, { Schema, Document } from "mongoose";
 
 /**
- * SalesInvoice — admin-only B2B / bulk-order tax invoice generator.
+ * SalesInvoice - admin-only B2B / bulk-order tax invoice generator.
  *
  * Stand-alone bills for manual B2B sales, or generated from a B2B catalog order
- * via `orderId`. No stock movements — purely a billing artefact stored on the server
+ * via `orderId`. No stock movements - purely a billing artefact stored on the server
  * so the same invoice can be re-opened and reprinted from any device.
  *
  * Money fields are stored as plain numbers in INR with up to 2 decimals.
@@ -208,7 +208,7 @@ const salesInvoiceSchema = new Schema<ISalesInvoice>(
   { timestamps: true },
 );
 
-/** Sort + filter helpers — list views default to newest invoiceDate first. */
+/** Sort + filter helpers - list views default to newest invoiceDate first. */
 salesInvoiceSchema.index({ invoiceDate: -1 });
 salesInvoiceSchema.index({ updatedAt: -1 });
 /** Per-admin uniqueness on (createdBy + invoiceNumber): different admins can mirror series numbers. */

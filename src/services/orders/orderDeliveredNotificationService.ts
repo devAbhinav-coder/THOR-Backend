@@ -16,9 +16,9 @@ function paymentMethodLabel(method?: string): string {
     case "cod":
       return "Cash on Delivery";
     case "offline_upi":
-      return "Offline — UPI";
+      return "Offline - UPI";
     case "offline_cash":
-      return "Offline — Cash";
+      return "Offline - Cash";
     case "razorpay":
       return "Online payment";
     default:
@@ -91,19 +91,20 @@ export async function sendOrderDeliveredNotifications(
         tax: order.tax,
         total: order.total,
         offlineMeta: order.offlineMeta,
-        shippingAddress: order.shippingAddress ?
-          {
-            name: order.shippingAddress.name,
-            house: order.shippingAddress.house,
-            street: order.shippingAddress.street,
-            landmark: order.shippingAddress.landmark,
-            city: order.shippingAddress.city,
-            state: order.shippingAddress.state,
-            pincode: order.shippingAddress.pincode,
-            country: order.shippingAddress.country,
-            phone: order.shippingAddress.phone,
-          }
-        : undefined,
+        shippingAddress:
+          order.shippingAddress ?
+            {
+              name: order.shippingAddress.name,
+              house: order.shippingAddress.house,
+              street: order.shippingAddress.street,
+              landmark: order.shippingAddress.landmark,
+              city: order.shippingAddress.city,
+              state: order.shippingAddress.state,
+              pincode: order.shippingAddress.pincode,
+              country: order.shippingAddress.country,
+              phone: order.shippingAddress.phone,
+            }
+          : undefined,
         items: (order.items || []).map((item) => ({
           name: item.name,
           quantity: item.quantity,
@@ -122,10 +123,9 @@ export async function sendOrderDeliveredNotifications(
     if (pdfBuffer) {
       const invoiceNumber = orderInvoiceNumber(orderNumber);
       const pdfFilename = invoicePdfFilename(orderNumber);
-      const baseUrl = (process.env.FRONTEND_URL || "https://thehouseofrani.com").replace(
-        /\/$/,
-        "",
-      );
+      const baseUrl = (
+        process.env.FRONTEND_URL || "https://thehouseofrani.com"
+      ).replace(/\/$/, "");
       const invoiceUrl = `${baseUrl}/dashboard/orders/${encodeURIComponent(orderId)}/invoice`;
       const orderUrl = `${baseUrl}/dashboard/orders/${encodeURIComponent(orderId)}`;
       const inPersonOffline =
@@ -196,9 +196,8 @@ export async function sendOrderDeliveredNotifications(
     const isHandoverAtSale =
       order.offlineMeta?.fulfillment === "offline_handover";
     if (!isHandoverAtSale) {
-      const { notifyWhatsAppOrderDelivered } = await import(
-        "../whatsappNotifyService"
-      );
+      const { notifyWhatsAppOrderDelivered } =
+        await import("../whatsappNotifyService");
       void notifyWhatsAppOrderDelivered({
         userId: String(user._id),
         orderId,

@@ -8,16 +8,12 @@ import { whatsappConfig, whatsappEnabled } from "../config/whatsapp";
 import { invoicePdfFilename } from "./orders/orderInvoicePdfService";
 import { buildOrderInvoicePdfBuffer } from "./orders/orderInvoicePdfBuffer";
 import type { WhatsAppMessageCategory } from "../models/WhatsAppMessageLog";
-import {
-  logWhatsAppQueued,
-  logWhatsAppResult,
-} from "./whatsappLogService";
+import { logWhatsAppQueued, logWhatsAppResult } from "./whatsappLogService";
 import logger from "../types/utils/logger";
 
-const frontendUrl = (process.env.FRONTEND_URL || "https://thehouseofrani.com").replace(
-  /\/$/,
-  "",
-);
+const frontendUrl = (
+  process.env.FRONTEND_URL || "https://thehouseofrani.com"
+).replace(/\/$/, "");
 
 function invoicePageUrl(orderId: string): string {
   return `${frontendUrl}/dashboard/orders/${encodeURIComponent(orderId)}/invoice`;
@@ -151,8 +147,10 @@ async function sendTemplateThenPdf(opts: {
   }
 }
 
-/** In-person handover — thank-you + invoice link + PDF. */
-export async function processWhatsAppHandoverPack(opts: InvoicePackBase): Promise<void> {
+/** In-person handover - thank-you + invoice link + PDF. */
+export async function processWhatsAppHandoverPack(
+  opts: InvoicePackBase,
+): Promise<void> {
   const tpl =
     whatsappConfig.templates.offlineHandover ||
     whatsappConfig.templates.offlineThankYou;
@@ -174,8 +172,10 @@ export async function processWhatsAppHandoverPack(opts: InvoicePackBase): Promis
   });
 }
 
-/** Order delivered (online / offline courier) — delivered thank-you + invoice link + PDF. */
-export async function processWhatsAppDeliveredPack(opts: InvoicePackBase): Promise<void> {
+/** Order delivered (online / offline courier) - delivered thank-you + invoice link + PDF. */
+export async function processWhatsAppDeliveredPack(
+  opts: InvoicePackBase,
+): Promise<void> {
   const tpl = whatsappConfig.templates.delivered;
   const invoiceUrl = invoicePageUrl(opts.orderId);
   const firstName = opts.customerName.split(/\s+/)[0] || "there";

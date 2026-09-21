@@ -85,7 +85,11 @@ export const openApiSpec = {
         required: ["name", "email", "password"],
         properties: {
           name: { type: "string", example: "Aisha Khan" },
-          email: { type: "string", format: "email", example: "aisha@example.com" },
+          email: {
+            type: "string",
+            format: "email",
+            example: "aisha@example.com",
+          },
           password: { type: "string", minLength: 8, example: "Str0ng!Pass" },
         },
       },
@@ -109,7 +113,10 @@ export const openApiSpec = {
         type: "object",
         required: ["idToken"],
         properties: {
-          idToken: { type: "string", description: "Firebase / Google ID token" },
+          idToken: {
+            type: "string",
+            description: "Firebase / Google ID token",
+          },
         },
       },
       ForgotPasswordBody: {
@@ -187,7 +194,10 @@ export const openApiSpec = {
           description: { type: "string" },
           category: { type: "string" },
           images: { type: "array", items: { type: "string" } },
-          variants: { type: "array", items: { $ref: "#/components/schemas/ProductVariant" } },
+          variants: {
+            type: "array",
+            items: { $ref: "#/components/schemas/ProductVariant" },
+          },
           isFeatured: { type: "boolean" },
           isGiftable: { type: "boolean" },
           tags: { type: "array", items: { type: "string" } },
@@ -284,11 +294,12 @@ export const openApiSpec = {
           razorpaySignature: { type: "string" },
           orderId: {
             type: "string",
-            description: "Mongo ObjectId — required if checkoutIntentId omitted",
+            description:
+              "Mongo ObjectId - required if checkoutIntentId omitted",
           },
           checkoutIntentId: {
             type: "string",
-            description: "Mongo ObjectId — required if orderId omitted",
+            description: "Mongo ObjectId - required if orderId omitted",
           },
           metaBrowser: { type: "object", nullable: true },
         },
@@ -372,7 +383,9 @@ export const openApiSpec = {
       ExpoPushBody: {
         type: "object",
         required: ["token"],
-        properties: { token: { type: "string", description: "Expo push token" } },
+        properties: {
+          token: { type: "string", description: "Expo push token" },
+        },
       },
 
       // ── Admin – Inventory ──────────────────────────────────────────────────
@@ -380,7 +393,10 @@ export const openApiSpec = {
         type: "object",
         required: ["delta", "reason"],
         properties: {
-          delta: { type: "integer", description: "Positive to add, negative to subtract" },
+          delta: {
+            type: "integer",
+            description: "Positive to add, negative to subtract",
+          },
           reason: { type: "string", example: "manual correction" },
         },
       },
@@ -390,7 +406,10 @@ export const openApiSpec = {
         type: "object",
         required: ["category", "amount", "date"],
         properties: {
-          category: { type: "string", enum: ["shipping", "packing", "ads", "misc"] },
+          category: {
+            type: "string",
+            enum: ["shipping", "packing", "ads", "misc"],
+          },
           amount: { type: "number" },
           date: { type: "string", format: "date" },
           description: { type: "string", nullable: true },
@@ -430,14 +449,17 @@ export const openApiSpec = {
         properties: {
           subject: { type: "string" },
           htmlBody: { type: "string" },
-          audience: { type: "string", enum: ["all", "active", "inactive", "segment"] },
+          audience: {
+            type: "string",
+            enum: ["all", "active", "inactive", "segment"],
+          },
           segmentFilter: { type: "object", nullable: true },
         },
       },
     },
   },
 
-  // ─── Global security (cookie OR bearer — either is enough) ─────────────────
+  // ─── Global security (cookie OR bearer - either is enough) ─────────────────
   security: [{ cookieAuth: [] }, { bearerAuth: [] }],
 
   // ─── Paths ──────────────────────────────────────────────────────────────────
@@ -467,7 +489,12 @@ export const openApiSpec = {
                       type: "object",
                       properties: {
                         mongodb: { type: "boolean" },
-                        redis: { oneOf: [{ type: "boolean" }, { type: "string", example: "disabled" }] },
+                        redis: {
+                          oneOf: [
+                            { type: "boolean" },
+                            { type: "string", example: "disabled" },
+                          ],
+                        },
                       },
                     },
                   },
@@ -497,7 +524,9 @@ export const openApiSpec = {
         responses: {
           "200": { description: "Detailed infra report" },
           "401": { description: "Unauthorized" },
-          "503": { description: "Degraded or token not configured in production" },
+          "503": {
+            description: "Degraded or token not configured in production",
+          },
         },
       },
     },
@@ -513,7 +542,9 @@ export const openApiSpec = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/SignupStartBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/SignupStartBody" },
+            },
           },
         },
         responses: {
@@ -531,7 +562,9 @@ export const openApiSpec = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/SignupVerifyBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/SignupVerifyBody" },
+            },
           },
         },
         responses: {
@@ -549,7 +582,9 @@ export const openApiSpec = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/SendOtpBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/SendOtpBody" },
+            },
           },
         },
         responses: {
@@ -592,7 +627,9 @@ export const openApiSpec = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/VerifyOtpBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/VerifyOtpBody" },
+            },
           },
         },
         responses: {
@@ -610,7 +647,9 @@ export const openApiSpec = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/LoginBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/LoginBody" },
+            },
           },
         },
         responses: {
@@ -639,7 +678,9 @@ export const openApiSpec = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/ForgotPasswordBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ForgotPasswordBody" },
+            },
           },
         },
         responses: {
@@ -656,7 +697,9 @@ export const openApiSpec = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/ResetPasswordBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ResetPasswordBody" },
+            },
           },
         },
         responses: {
@@ -673,7 +716,9 @@ export const openApiSpec = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/GoogleAuthBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/GoogleAuthBody" },
+            },
           },
         },
         responses: {
@@ -733,7 +778,9 @@ export const openApiSpec = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/UpdatePasswordBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/UpdatePasswordBody" },
+            },
           },
         },
         responses: {
@@ -762,7 +809,9 @@ export const openApiSpec = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/AddressBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/AddressBody" },
+            },
           },
         },
         responses: {
@@ -777,7 +826,12 @@ export const openApiSpec = {
         summary: "Remove a delivery address",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "addressId", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "addressId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: {
           "200": { description: "Address removed" },
@@ -802,7 +856,12 @@ export const openApiSpec = {
         summary: "Revoke a specific session",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "sessionId", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "sessionId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: {
           "200": { description: "Session revoked" },
@@ -821,9 +880,12 @@ export const openApiSpec = {
     "/auth/sessions/revoke-all": {
       post: {
         tags: ["Auth"],
-        summary: "Revoke ALL sessions including the current one (global logout)",
+        summary:
+          "Revoke ALL sessions including the current one (global logout)",
         security: [{ cookieAuth: [] }],
-        responses: { "200": { description: "All sessions revoked, logged out" } },
+        responses: {
+          "200": { description: "All sessions revoked, logged out" },
+        },
       },
     },
 
@@ -836,17 +898,40 @@ export const openApiSpec = {
         summary: "List / filter storefront products",
         security: [],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 20 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 20 },
+          },
           { name: "category", in: "query", schema: { type: "string" } },
-          { name: "sort", in: "query", schema: { type: "string", example: "price_asc" } },
+          {
+            name: "sort",
+            in: "query",
+            schema: { type: "string", example: "price_asc" },
+          },
           { name: "minPrice", in: "query", schema: { type: "number" } },
           { name: "maxPrice", in: "query", schema: { type: "number" } },
-          { name: "tags", in: "query", schema: { type: "string", description: "Comma-separated tag list" } },
+          {
+            name: "tags",
+            in: "query",
+            schema: { type: "string", description: "Comma-separated tag list" },
+          },
           { name: "inStock", in: "query", schema: { type: "boolean" } },
         ],
         responses: {
-          "200": { description: "Paginated product list", content: { "application/json": { schema: { $ref: "#/components/schemas/PaginatedResponse" } } } },
+          "200": {
+            description: "Paginated product list",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/PaginatedResponse" },
+              },
+            },
+          },
         },
       },
       post: {
@@ -864,11 +949,17 @@ export const openApiSpec = {
                   name: { type: "string" },
                   description: { type: "string" },
                   category: { type: "string" },
-                  variants: { type: "string", description: "JSON string of variant array" },
+                  variants: {
+                    type: "string",
+                    description: "JSON string of variant array",
+                  },
                   isFeatured: { type: "boolean" },
                   isGiftable: { type: "boolean" },
                   tags: { type: "string", description: "Comma-separated tags" },
-                  images: { type: "array", items: { type: "string", format: "binary" } },
+                  images: {
+                    type: "array",
+                    items: { type: "string", format: "binary" },
+                  },
                 },
               },
             },
@@ -887,9 +978,22 @@ export const openApiSpec = {
         summary: "Full-text search products",
         security: [],
         parameters: [
-          { name: "q", in: "query", required: true, schema: { type: "string", example: "silk saree" } },
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 20 } },
+          {
+            name: "q",
+            in: "query",
+            required: true,
+            schema: { type: "string", example: "silk saree" },
+          },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 20 },
+          },
         ],
         responses: { "200": { description: "Search results" } },
       },
@@ -900,7 +1004,12 @@ export const openApiSpec = {
         summary: "Autocomplete search query",
         security: [],
         parameters: [
-          { name: "q", in: "query", required: true, schema: { type: "string" } },
+          {
+            name: "q",
+            in: "query",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: { "200": { description: "Autocomplete suggestions array" } },
       },
@@ -910,9 +1019,7 @@ export const openApiSpec = {
         tags: ["Products"],
         summary: "Personalised / contextual search suggestions",
         security: [],
-        parameters: [
-          { name: "q", in: "query", schema: { type: "string" } },
-        ],
+        parameters: [{ name: "q", in: "query", schema: { type: "string" } }],
         responses: { "200": { description: "Suggestion list" } },
       },
     },
@@ -922,7 +1029,11 @@ export const openApiSpec = {
         summary: "Trending search terms",
         security: [],
         parameters: [
-          { name: "limit", in: "query", schema: { type: "integer", default: 10 } },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 10 },
+          },
         ],
         responses: { "200": { description: "Trending keyword list" } },
       },
@@ -938,7 +1049,8 @@ export const openApiSpec = {
     "/products/filters": {
       get: {
         tags: ["Products"],
-        summary: "Available filter options (categories, price range, sizes, etc.)",
+        summary:
+          "Available filter options (categories, price range, sizes, etc.)",
         security: [],
         responses: { "200": { description: "Filter facets" } },
       },
@@ -949,9 +1061,22 @@ export const openApiSpec = {
         summary: "Products by category slug",
         security: [],
         parameters: [
-          { name: "category", in: "path", required: true, schema: { type: "string" } },
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 20 } },
+          {
+            name: "category",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 20 },
+          },
         ],
         responses: { "200": { description: "Products in category" } },
       },
@@ -962,7 +1087,12 @@ export const openApiSpec = {
         summary: "Get single product by slug",
         security: [],
         parameters: [
-          { name: "slug", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "slug",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: {
           "200": { description: "Product detail" },
@@ -976,7 +1106,12 @@ export const openApiSpec = {
         summary: "[Admin] Update product by MongoDB id",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
         parameters: [
-          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         requestBody: {
           content: {
@@ -988,7 +1123,10 @@ export const openApiSpec = {
                   description: { type: "string" },
                   variants: { type: "string" },
                   isFeatured: { type: "boolean" },
-                  images: { type: "array", items: { type: "string", format: "binary" } },
+                  images: {
+                    type: "array",
+                    items: { type: "string", format: "binary" },
+                  },
                 },
               },
             },
@@ -1005,7 +1143,12 @@ export const openApiSpec = {
         summary: "[Admin] Delete product by MongoDB id",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
         parameters: [
-          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: {
           "200": { description: "Product deleted" },
@@ -1019,7 +1162,12 @@ export const openApiSpec = {
         summary: "Record a product view (analytics)",
         security: [],
         parameters: [
-          { name: "slug", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "slug",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: { "200": { description: "View recorded" } },
       },
@@ -1030,8 +1178,18 @@ export const openApiSpec = {
         summary: "[Admin] Delete a single product image by Cloudinary publicId",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "id", in: "path", required: true, schema: { type: "string" } },
-          { name: "publicId", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            name: "publicId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: {
           "200": { description: "Image deleted" },
@@ -1066,7 +1224,12 @@ export const openApiSpec = {
         summary: "Get single category by ID",
         security: [],
         parameters: [
-          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: {
           "200": { description: "Category detail" },
@@ -1120,7 +1283,9 @@ export const openApiSpec = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/AddToCartBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/AddToCartBody" },
+            },
           },
         },
         responses: {
@@ -1133,7 +1298,8 @@ export const openApiSpec = {
     "/cart/custom-field-image": {
       post: {
         tags: ["Cart"],
-        summary: "Upload a custom-field image for a cart item (e.g. personalisation photo)",
+        summary:
+          "Upload a custom-field image for a cart item (e.g. personalisation photo)",
         security: [{ cookieAuth: [] }],
         requestBody: {
           content: {
@@ -1158,12 +1324,19 @@ export const openApiSpec = {
         summary: "Update cart item quantity",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "cartItemId", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "cartItemId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/UpdateCartItemBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/UpdateCartItemBody" },
+            },
           },
         },
         responses: {
@@ -1176,7 +1349,12 @@ export const openApiSpec = {
         summary: "Remove item from cart",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "cartItemId", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "cartItemId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: {
           "200": { description: "Item removed" },
@@ -1192,7 +1370,9 @@ export const openApiSpec = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/ApplyCouponBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ApplyCouponBody" },
+            },
           },
         },
         responses: {
@@ -1221,11 +1401,16 @@ export const openApiSpec = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/CreateOrderBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/CreateOrderBody" },
+            },
           },
         },
         responses: {
-          "201": { description: "Order created – Razorpay order ID returned for online payment" },
+          "201": {
+            description:
+              "Order created – Razorpay order ID returned for online payment",
+          },
           "400": { description: "Validation error or out-of-stock" },
           "401": { description: "Not authenticated" },
         },
@@ -1239,7 +1424,9 @@ export const openApiSpec = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/VerifyPaymentBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/VerifyPaymentBody" },
+            },
           },
         },
         responses: {
@@ -1254,8 +1441,16 @@ export const openApiSpec = {
         summary: "Get current user's order history",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 10 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 10 },
+          },
           { name: "status", in: "query", schema: { type: "string" } },
         ],
         responses: {
@@ -1270,7 +1465,12 @@ export const openApiSpec = {
         summary: "Get a single order by ID",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: {
           "200": { description: "Order detail" },
@@ -1285,7 +1485,12 @@ export const openApiSpec = {
         summary: "Cancel an order",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         requestBody: {
           content: {
@@ -1299,7 +1504,9 @@ export const openApiSpec = {
         },
         responses: {
           "200": { description: "Order cancelled" },
-          "400": { description: "Cannot cancel (already shipped or delivered)" },
+          "400": {
+            description: "Cannot cancel (already shipped or delivered)",
+          },
         },
       },
     },
@@ -1309,7 +1516,12 @@ export const openApiSpec = {
         summary: "Request a return for an order",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         requestBody: {
           content: {
@@ -1318,7 +1530,11 @@ export const openApiSpec = {
                 type: "object",
                 properties: {
                   reason: { type: "string" },
-                  items: { type: "array", items: { type: "string" }, description: "Order item IDs to return" },
+                  items: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Order item IDs to return",
+                  },
                 },
               },
             },
@@ -1336,7 +1552,12 @@ export const openApiSpec = {
         summary: "Prepare / retry payment for an existing pending order",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "orderId", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "orderId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: {
           "200": { description: "New Razorpay order ID issued for retry" },
@@ -1362,10 +1583,27 @@ export const openApiSpec = {
         summary: "Get reviews for a product",
         security: [],
         parameters: [
-          { name: "productId", in: "path", required: true, schema: { type: "string" } },
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 10 } },
-          { name: "sort", in: "query", schema: { type: "string", example: "recent" } },
+          {
+            name: "productId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 10 },
+          },
+          {
+            name: "sort",
+            in: "query",
+            schema: { type: "string", example: "recent" },
+          },
         ],
         responses: { "200": { description: "Paginated reviews" } },
       },
@@ -1374,7 +1612,12 @@ export const openApiSpec = {
         summary: "Create a review for a product",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "productId", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "productId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         requestBody: {
           content: {
@@ -1386,7 +1629,10 @@ export const openApiSpec = {
                   rating: { type: "integer", minimum: 1, maximum: 5 },
                   title: { type: "string" },
                   body: { type: "string" },
-                  images: { type: "array", items: { type: "string", format: "binary" } },
+                  images: {
+                    type: "array",
+                    items: { type: "string", format: "binary" },
+                  },
                 },
               },
             },
@@ -1405,7 +1651,12 @@ export const openApiSpec = {
         summary: "Check if current user can review this product",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "productId", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "productId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: {
           "200": { description: "{ canReview: boolean }" },
@@ -1418,7 +1669,14 @@ export const openApiSpec = {
         tags: ["Reviews"],
         summary: "Update own review",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         requestBody: {
           content: {
             "application/json": {
@@ -1442,7 +1700,14 @@ export const openApiSpec = {
         tags: ["Reviews"],
         summary: "Delete own review",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: {
           "200": { description: "Review deleted" },
           "403": { description: "Not the owner" },
@@ -1454,7 +1719,14 @@ export const openApiSpec = {
         tags: ["Reviews"],
         summary: "Vote a review as helpful",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: {
           "200": { description: "Vote recorded" },
           "401": { description: "Not authenticated" },
@@ -1466,7 +1738,14 @@ export const openApiSpec = {
         tags: ["Reviews"],
         summary: "Report a review as inappropriate",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         requestBody: {
           content: {
             "application/json": {
@@ -1493,8 +1772,16 @@ export const openApiSpec = {
         summary: "Get current user's wishlist",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 20 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 20 },
+          },
         ],
         responses: {
           "200": { description: "Wishlist items" },
@@ -1508,7 +1795,12 @@ export const openApiSpec = {
         summary: "Toggle product in/out of wishlist",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "productId", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "productId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: {
           "200": { description: "Added or removed from wishlist" },
@@ -1552,7 +1844,12 @@ export const openApiSpec = {
         summary: "Get coupons eligible for the current user & cart",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "cartTotal", in: "query", required: true, schema: { type: "number" } },
+          {
+            name: "cartTotal",
+            in: "query",
+            required: true,
+            schema: { type: "number" },
+          },
         ],
         responses: {
           "200": { description: "Eligible coupon list" },
@@ -1566,8 +1863,16 @@ export const openApiSpec = {
         summary: "[Admin] List all coupons",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 20 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 20 },
+          },
         ],
         responses: { "200": { description: "Coupon list" } },
       },
@@ -1578,7 +1883,9 @@ export const openApiSpec = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/CreateCouponBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/CreateCouponBody" },
+            },
           },
         },
         responses: {
@@ -1592,7 +1899,14 @@ export const openApiSpec = {
         tags: ["Coupons"],
         summary: "[Admin] Get coupon by ID",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: {
           "200": { description: "Coupon detail" },
           "404": { description: "Not found" },
@@ -1602,10 +1916,19 @@ export const openApiSpec = {
         tags: ["Coupons"],
         summary: "[Admin] Update coupon",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         requestBody: {
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/CreateCouponBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/CreateCouponBody" },
+            },
           },
         },
         responses: {
@@ -1618,7 +1941,14 @@ export const openApiSpec = {
         tags: ["Coupons"],
         summary: "[Admin] Delete coupon",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: {
           "200": { description: "Coupon deleted" },
           "403": { description: "Admin only" },
@@ -1630,7 +1960,14 @@ export const openApiSpec = {
         tags: ["Coupons"],
         summary: "[Admin] Archive (deactivate) a coupon",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: {
           "200": { description: "Coupon archived" },
           "403": { description: "Admin only" },
@@ -1647,8 +1984,16 @@ export const openApiSpec = {
         summary: "List published blogs",
         security: [],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 10 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 10 },
+          },
           { name: "tag", in: "query", schema: { type: "string" } },
         ],
         responses: { "200": { description: "Blog list" } },
@@ -1667,10 +2012,16 @@ export const openApiSpec = {
                   title: { type: "string" },
                   body: { type: "string" },
                   tags: { type: "string" },
-                  status: { type: "string", enum: ["draft", "published", "scheduled"] },
+                  status: {
+                    type: "string",
+                    enum: ["draft", "published", "scheduled"],
+                  },
                   publishAt: { type: "string", format: "date-time" },
                   coverImage: { type: "string", format: "binary" },
-                  images: { type: "array", items: { type: "string", format: "binary" } },
+                  images: {
+                    type: "array",
+                    items: { type: "string", format: "binary" },
+                  },
                 },
               },
             },
@@ -1688,8 +2039,16 @@ export const openApiSpec = {
         summary: "[Admin] List all blogs including drafts",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 20 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 20 },
+          },
           { name: "status", in: "query", schema: { type: "string" } },
         ],
         responses: { "200": { description: "All blogs" } },
@@ -1709,7 +2068,12 @@ export const openApiSpec = {
         summary: "Get blog post by slug",
         security: [],
         parameters: [
-          { name: "slug", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "slug",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: {
           "200": { description: "Blog post" },
@@ -1723,7 +2087,12 @@ export const openApiSpec = {
         summary: "[Admin] Update blog post by MongoDB id",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
         parameters: [
-          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         requestBody: {
           content: {
@@ -1733,8 +2102,14 @@ export const openApiSpec = {
                 properties: {
                   title: { type: "string" },
                   body: { type: "string" },
-                  status: { type: "string", enum: ["draft", "published", "scheduled"] },
-                  images: { type: "array", items: { type: "string", format: "binary" } },
+                  status: {
+                    type: "string",
+                    enum: ["draft", "published", "scheduled"],
+                  },
+                  images: {
+                    type: "array",
+                    items: { type: "string", format: "binary" },
+                  },
                 },
               },
             },
@@ -1750,7 +2125,12 @@ export const openApiSpec = {
         summary: "[Admin] Delete blog post by MongoDB id",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
         parameters: [
-          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: {
           "200": { description: "Blog deleted" },
@@ -1764,8 +2144,17 @@ export const openApiSpec = {
         summary: "Get related blog posts",
         security: [],
         parameters: [
-          { name: "slug", in: "path", required: true, schema: { type: "string" } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 3 } },
+          {
+            name: "slug",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 3 },
+          },
         ],
         responses: { "200": { description: "Related blogs" } },
       },
@@ -1776,7 +2165,12 @@ export const openApiSpec = {
         summary: "Track a shop-link click from a blog post",
         security: [],
         parameters: [
-          { name: "slug", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "slug",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: { "200": { description: "Click tracked" } },
       },
@@ -1787,7 +2181,12 @@ export const openApiSpec = {
         summary: "Toggle like on a blog post",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: {
           "200": { description: "Like toggled" },
@@ -1801,7 +2200,12 @@ export const openApiSpec = {
         summary: "Add a comment to a blog post",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         requestBody: {
           required: true,
@@ -1827,8 +2231,18 @@ export const openApiSpec = {
         summary: "Delete a comment (own or admin)",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "id", in: "path", required: true, schema: { type: "string" } },
-          { name: "commentId", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            name: "commentId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: {
           "200": { description: "Comment deleted" },
@@ -1842,8 +2256,18 @@ export const openApiSpec = {
         summary: "[Admin] Delete a blog image by Cloudinary publicId",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "id", in: "path", required: true, schema: { type: "string" } },
-          { name: "publicId", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            name: "publicId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: {
           "200": { description: "Image deleted" },
@@ -1888,8 +2312,16 @@ export const openApiSpec = {
         summary: "Get current user's notifications",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 20 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 20 },
+          },
           { name: "unreadOnly", in: "query", schema: { type: "boolean" } },
         ],
         responses: {
@@ -1958,7 +2390,9 @@ export const openApiSpec = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/PushSubscribeBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/PushSubscribeBody" },
+            },
           },
         },
         responses: {
@@ -1993,7 +2427,9 @@ export const openApiSpec = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/ExpoPushBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ExpoPushBody" },
+            },
           },
         },
         responses: { "200": { description: "Expo token registered" } },
@@ -2004,7 +2440,9 @@ export const openApiSpec = {
         security: [{ cookieAuth: [] }],
         requestBody: {
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/ExpoPushBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ExpoPushBody" },
+            },
           },
         },
         responses: { "200": { description: "Expo token removed" } },
@@ -2024,7 +2462,12 @@ export const openApiSpec = {
         summary: "Mark a single notification as read",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: {
           "200": { description: "Notification marked read" },
@@ -2058,8 +2501,16 @@ export const openApiSpec = {
         summary: "[Admin] List all gifting requests",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 20 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 20 },
+          },
           { name: "status", in: "query", schema: { type: "string" } },
         ],
         responses: { "200": { description: "Gifting request list" } },
@@ -2072,9 +2523,14 @@ export const openApiSpec = {
           content: {
             "multipart/form-data": {
               schema: {
-                allOf: [{ $ref: "#/components/schemas/SubmitGiftingRequestBody" }],
+                allOf: [
+                  { $ref: "#/components/schemas/SubmitGiftingRequestBody" },
+                ],
                 properties: {
-                  images: { type: "array", items: { type: "string", format: "binary" } },
+                  images: {
+                    type: "array",
+                    items: { type: "string", format: "binary" },
+                  },
                 },
               },
             },
@@ -2103,7 +2559,12 @@ export const openApiSpec = {
         summary: "Get a gifting request by ID",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: {
           "200": { description: "Gifting request detail" },
@@ -2116,7 +2577,12 @@ export const openApiSpec = {
         summary: "[Admin] Update gifting request (status, quote, etc.)",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         requestBody: {
           content: {
@@ -2124,7 +2590,16 @@ export const openApiSpec = {
               schema: {
                 type: "object",
                 properties: {
-                  status: { type: "string", enum: ["pending", "quoted", "accepted", "rejected", "fulfilled"] },
+                  status: {
+                    type: "string",
+                    enum: [
+                      "pending",
+                      "quoted",
+                      "accepted",
+                      "rejected",
+                      "fulfilled",
+                    ],
+                  },
                   quotedAmount: { type: "number" },
                   adminNote: { type: "string" },
                 },
@@ -2144,7 +2619,12 @@ export const openApiSpec = {
         summary: "User responds to a gifting quote (accept/reject)",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         requestBody: {
           required: true,
@@ -2174,7 +2654,8 @@ export const openApiSpec = {
     "/storefront/settings": {
       get: {
         tags: ["Storefront"],
-        summary: "Get public storefront settings (banners, SEO, social links, etc.)",
+        summary:
+          "Get public storefront settings (banners, SEO, social links, etc.)",
         security: [],
         responses: { "200": { description: "Storefront settings payload" } },
       },
@@ -2219,7 +2700,11 @@ export const openApiSpec = {
         summary: "Dashboard analytics overview",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "period", in: "query", schema: { type: "string", example: "30d" } },
+          {
+            name: "period",
+            in: "query",
+            schema: { type: "string", example: "30d" },
+          },
         ],
         responses: { "200": { description: "Dashboard analytics data" } },
       },
@@ -2230,8 +2715,16 @@ export const openApiSpec = {
         summary: "Revenue period summary (gross, net, refunds)",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "from", in: "query", schema: { type: "string", format: "date" } },
-          { name: "to", in: "query", schema: { type: "string", format: "date" } },
+          {
+            name: "from",
+            in: "query",
+            schema: { type: "string", format: "date" },
+          },
+          {
+            name: "to",
+            in: "query",
+            schema: { type: "string", format: "date" },
+          },
         ],
         responses: { "200": { description: "Revenue summary" } },
       },
@@ -2242,8 +2735,16 @@ export const openApiSpec = {
         summary: "Security audit logs",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 50 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 50 },
+          },
         ],
         responses: { "200": { description: "Audit log entries" } },
       },
@@ -2266,7 +2767,11 @@ export const openApiSpec = {
         summary: "AI-generated daily business brief (SSE stream)",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "date", in: "query", schema: { type: "string", format: "date" } },
+          {
+            name: "date",
+            in: "query",
+            schema: { type: "string", format: "date" },
+          },
         ],
         responses: {
           "200": {
@@ -2290,7 +2795,12 @@ export const openApiSpec = {
         summary: "AI explanation / summary for a specific order",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "orderId", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "orderId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: { "200": { description: "SSE stream" } },
       },
@@ -2301,7 +2811,12 @@ export const openApiSpec = {
         summary: "AI insight summary for a specific user",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "userId", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "userId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: { "200": { description: "SSE stream" } },
       },
@@ -2343,7 +2858,12 @@ export const openApiSpec = {
         summary: "AI-draft reply to a customer review",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "reviewId", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "reviewId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: { "200": { description: "SSE stream" } },
       },
@@ -2439,11 +2959,20 @@ export const openApiSpec = {
     "/admin/products": {
       get: {
         tags: ["Admin – Products"],
-        summary: "List all products with full admin data (inventory, revenue, etc.)",
+        summary:
+          "List all products with full admin data (inventory, revenue, etc.)",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 20 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 20 },
+          },
           { name: "sort", in: "query", schema: { type: "string" } },
           { name: "category", in: "query", schema: { type: "string" } },
         ],
@@ -2456,7 +2985,12 @@ export const openApiSpec = {
         summary: "Admin product full-text search",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "q", in: "query", required: true, schema: { type: "string" } },
+          {
+            name: "q",
+            in: "query",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: { "200": { description: "Search results" } },
       },
@@ -2467,7 +3001,12 @@ export const openApiSpec = {
         summary: "Get full admin product detail by ID",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: {
           "200": { description: "Product detail (admin view)" },
@@ -2485,11 +3024,27 @@ export const openApiSpec = {
         summary: "List all orders",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 20 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 20 },
+          },
           { name: "status", in: "query", schema: { type: "string" } },
-          { name: "from", in: "query", schema: { type: "string", format: "date" } },
-          { name: "to", in: "query", schema: { type: "string", format: "date" } },
+          {
+            name: "from",
+            in: "query",
+            schema: { type: "string", format: "date" },
+          },
+          {
+            name: "to",
+            in: "query",
+            schema: { type: "string", format: "date" },
+          },
         ],
         responses: { "200": { description: "Paginated order list" } },
       },
@@ -2502,7 +3057,9 @@ export const openApiSpec = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/CreateOfflineOrderBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/CreateOfflineOrderBody" },
+            },
           },
         },
         responses: {
@@ -2516,7 +3073,14 @@ export const openApiSpec = {
         tags: ["Admin – Orders"],
         summary: "Get full order detail",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: {
           "200": { description: "Order detail" },
           "404": { description: "Not found" },
@@ -2526,7 +3090,14 @@ export const openApiSpec = {
         tags: ["Admin – Orders"],
         summary: "Delete an order record",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: {
           "200": { description: "Order deleted" },
           "403": { description: "Admin only" },
@@ -2538,7 +3109,14 @@ export const openApiSpec = {
         tags: ["Admin – Orders"],
         summary: "Update order status (processing → shipped → delivered, etc.)",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         requestBody: {
           required: true,
           content: {
@@ -2547,7 +3125,16 @@ export const openApiSpec = {
                 type: "object",
                 required: ["status"],
                 properties: {
-                  status: { type: "string", enum: ["processing", "confirmed", "shipped", "delivered", "cancelled"] },
+                  status: {
+                    type: "string",
+                    enum: [
+                      "processing",
+                      "confirmed",
+                      "shipped",
+                      "delivered",
+                      "cancelled",
+                    ],
+                  },
                   trackingNumber: { type: "string", nullable: true },
                   courierName: { type: "string", nullable: true },
                 },
@@ -2566,7 +3153,14 @@ export const openApiSpec = {
         tags: ["Admin – Orders"],
         summary: "Generate PDF invoice for an order",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: {
           "200": { description: "Invoice PDF URL returned" },
           "404": { description: "Order not found" },
@@ -2578,14 +3172,24 @@ export const openApiSpec = {
         tags: ["Admin – Orders"],
         summary: "Process a Razorpay refund for an order",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         requestBody: {
           content: {
             "application/json": {
               schema: {
                 type: "object",
                 properties: {
-                  amount: { type: "number", description: "Partial refund amount (omit for full refund)" },
+                  amount: {
+                    type: "number",
+                    description: "Partial refund amount (omit for full refund)",
+                  },
                   reason: { type: "string" },
                 },
               },
@@ -2603,7 +3207,14 @@ export const openApiSpec = {
         tags: ["Admin – Orders"],
         summary: "Resolve a return request (approve / reject)",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         requestBody: {
           content: {
             "application/json": {
@@ -2611,7 +3222,10 @@ export const openApiSpec = {
                 type: "object",
                 required: ["resolution"],
                 properties: {
-                  resolution: { type: "string", enum: ["approved", "rejected"] },
+                  resolution: {
+                    type: "string",
+                    enum: ["approved", "rejected"],
+                  },
                   note: { type: "string" },
                 },
               },
@@ -2630,7 +3244,9 @@ export const openApiSpec = {
         tags: ["Admin – Shipping"],
         summary: "Check Delhivery integration status / credentials",
         security: [{ cookieAuth: [] }],
-        responses: { "200": { description: "{ enabled: boolean, configured: boolean }" } },
+        responses: {
+          "200": { description: "{ enabled: boolean, configured: boolean }" },
+        },
       },
     },
     "/admin/delhivery/serviceability": {
@@ -2639,7 +3255,12 @@ export const openApiSpec = {
         summary: "Check Delhivery serviceability for a PIN code",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "pin", in: "query", required: true, schema: { type: "string" } },
+          {
+            name: "pin",
+            in: "query",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: { "200": { description: "Serviceability result" } },
       },
@@ -2649,7 +3270,14 @@ export const openApiSpec = {
         tags: ["Admin – Shipping"],
         summary: "Check serviceability for the delivery PIN of an order",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: { "200": { description: "Pin serviceability" } },
       },
     },
@@ -2658,7 +3286,14 @@ export const openApiSpec = {
         tags: ["Admin – Shipping"],
         summary: "Estimate Delhivery shipping cost for an order",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         requestBody: {
           content: {
             "application/json": {
@@ -2677,7 +3312,14 @@ export const openApiSpec = {
         tags: ["Admin – Shipping"],
         summary: "Create Delhivery shipment for an order",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         requestBody: {
           content: {
             "application/json": {
@@ -2709,7 +3351,14 @@ export const openApiSpec = {
         tags: ["Admin – Shipping"],
         summary: "Manually sync Delhivery tracking for an order",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: { "200": { description: "Tracking synced" } },
       },
     },
@@ -2718,7 +3367,14 @@ export const openApiSpec = {
         tags: ["Admin – Shipping"],
         summary: "Get packing slip HTML for an order",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: { "200": { description: "HTML packing slip" } },
       },
     },
@@ -2727,7 +3383,14 @@ export const openApiSpec = {
         tags: ["Admin – Shipping"],
         summary: "Download packing slip as a file",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: { "200": { description: "Packing slip file stream" } },
       },
     },
@@ -2736,7 +3399,14 @@ export const openApiSpec = {
         tags: ["Admin – Shipping"],
         summary: "Get packing slip data as JSON",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: { "200": { description: "Packing slip JSON" } },
       },
     },
@@ -2750,7 +3420,11 @@ export const openApiSpec = {
         summary: "List return requests",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
           { name: "status", in: "query", schema: { type: "string" } },
         ],
         responses: { "200": { description: "Return request list" } },
@@ -2774,8 +3448,16 @@ export const openApiSpec = {
         summary: "List all registered users",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 20 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 20 },
+          },
           { name: "search", in: "query", schema: { type: "string" } },
         ],
         responses: { "200": { description: "User list" } },
@@ -2795,7 +3477,11 @@ export const openApiSpec = {
         summary: "List offline (walk-in) customers",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
         ],
         responses: { "200": { description: "Offline customer list" } },
       },
@@ -2805,7 +3491,14 @@ export const openApiSpec = {
         tags: ["Admin – Users"],
         summary: "AI-enriched insights for a single user",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: { "200": { description: "User insights" } },
       },
     },
@@ -2814,7 +3507,14 @@ export const openApiSpec = {
         tags: ["Admin – Users"],
         summary: "Toggle user active / suspended status",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: { "200": { description: "Status toggled" } },
       },
     },
@@ -2823,7 +3523,14 @@ export const openApiSpec = {
         tags: ["Admin – Users"],
         summary: "Update user role (user → admin or vice versa)",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         requestBody: {
           required: true,
           content: {
@@ -2831,7 +3538,9 @@ export const openApiSpec = {
               schema: {
                 type: "object",
                 required: ["role"],
-                properties: { role: { type: "string", enum: ["user", "admin"] } },
+                properties: {
+                  role: { type: "string", enum: ["user", "admin"] },
+                },
               },
             },
           },
@@ -2844,7 +3553,14 @@ export const openApiSpec = {
         tags: ["Admin – Users"],
         summary: "Add / update admin note on a user",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         requestBody: {
           required: true,
           content: {
@@ -2870,7 +3586,11 @@ export const openApiSpec = {
         summary: "List all reviews (including flagged / unreported)",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
           { name: "status", in: "query", schema: { type: "string" } },
           { name: "reported", in: "query", schema: { type: "boolean" } },
         ],
@@ -2882,7 +3602,14 @@ export const openApiSpec = {
         tags: ["Admin – Reviews"],
         summary: "Delete a review",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: { "200": { description: "Review deleted" } },
       },
     },
@@ -2891,7 +3618,14 @@ export const openApiSpec = {
         tags: ["Admin – Reviews"],
         summary: "Post admin reply to a review",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         requestBody: {
           required: true,
           content: {
@@ -2912,7 +3646,14 @@ export const openApiSpec = {
         tags: ["Admin – Reviews"],
         summary: "Moderate a review (approve / hide)",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         requestBody: {
           required: true,
           content: {
@@ -2920,7 +3661,9 @@ export const openApiSpec = {
               schema: {
                 type: "object",
                 required: ["action"],
-                properties: { action: { type: "string", enum: ["approve", "hide"] } },
+                properties: {
+                  action: { type: "string", enum: ["approve", "hide"] },
+                },
               },
             },
           },
@@ -2938,7 +3681,15 @@ export const openApiSpec = {
         summary: "Preview audience size for a marketing email filter",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "audience", in: "query", required: true, schema: { type: "string", enum: ["all", "active", "inactive", "segment"] } },
+          {
+            name: "audience",
+            in: "query",
+            required: true,
+            schema: {
+              type: "string",
+              enum: ["all", "active", "inactive", "segment"],
+            },
+          },
         ],
         responses: { "200": { description: "Audience count preview" } },
       },
@@ -2951,7 +3702,9 @@ export const openApiSpec = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/SendMarketingEmailBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/SendMarketingEmailBody" },
+            },
           },
         },
         responses: {
@@ -2966,8 +3719,16 @@ export const openApiSpec = {
         summary: "List newsletter subscribers",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 50 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 50 },
+          },
         ],
         responses: { "200": { description: "Subscriber list" } },
       },
@@ -2985,7 +3746,8 @@ export const openApiSpec = {
       },
       patch: {
         tags: ["Admin – Storefront"],
-        summary: "Update storefront settings (banners, SEO, social links, logo, etc.)",
+        summary:
+          "Update storefront settings (banners, SEO, social links, logo, etc.)",
         security: [{ cookieAuth: [] }],
         requestBody: {
           content: {
@@ -2995,8 +3757,14 @@ export const openApiSpec = {
                 properties: {
                   siteName: { type: "string" },
                   logo: { type: "string", format: "binary" },
-                  bannerImages: { type: "array", items: { type: "string", format: "binary" } },
-                  settings: { type: "string", description: "JSON string of settings fields" },
+                  bannerImages: {
+                    type: "array",
+                    items: { type: "string", format: "binary" },
+                  },
+                  settings: {
+                    type: "string",
+                    description: "JSON string of settings fields",
+                  },
                 },
               },
             },
@@ -3015,8 +3783,16 @@ export const openApiSpec = {
         summary: "List admin B2B / bulk sales invoices",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 20 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 20 },
+          },
         ],
         responses: { "200": { description: "Invoice list" } },
       },
@@ -3059,14 +3835,28 @@ export const openApiSpec = {
         tags: ["Admin – Invoices"],
         summary: "Get invoice by ID",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: { "200": { description: "Invoice detail" } },
       },
       put: {
         tags: ["Admin – Invoices"],
         summary: "Replace / update invoice",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         requestBody: {
           content: { "application/json": { schema: { type: "object" } } },
         },
@@ -3076,7 +3866,14 @@ export const openApiSpec = {
         tags: ["Admin – Invoices"],
         summary: "Delete invoice",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: { "200": { description: "Invoice deleted" } },
       },
     },
@@ -3119,7 +3916,14 @@ export const openApiSpec = {
         tags: ["Admin – Categories"],
         summary: "Update category",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         requestBody: {
           content: {
             "multipart/form-data": {
@@ -3139,7 +3943,14 @@ export const openApiSpec = {
         tags: ["Admin – Categories"],
         summary: "Delete category",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: { "200": { description: "Category deleted" } },
       },
     },
@@ -3153,7 +3964,11 @@ export const openApiSpec = {
         summary: "Inventory overview (stock levels, low-stock alerts)",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
           { name: "lowStock", in: "query", schema: { type: "boolean" } },
           { name: "category", in: "query", schema: { type: "string" } },
         ],
@@ -3166,13 +3981,26 @@ export const openApiSpec = {
         summary: "Adjust stock for a product variant",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "id", in: "path", required: true, schema: { type: "string" }, description: "Product ID" },
-          { name: "sku", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+            description: "Product ID",
+          },
+          {
+            name: "sku",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/StockAdjustmentBody" } },
+            "application/json": {
+              schema: { $ref: "#/components/schemas/StockAdjustmentBody" },
+            },
           },
         },
         responses: { "200": { description: "Stock adjusted" } },
@@ -3184,9 +4012,21 @@ export const openApiSpec = {
         summary: "Stock movement ledger",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "from", in: "query", schema: { type: "string", format: "date" } },
-          { name: "to", in: "query", schema: { type: "string", format: "date" } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
+          {
+            name: "from",
+            in: "query",
+            schema: { type: "string", format: "date" },
+          },
+          {
+            name: "to",
+            in: "query",
+            schema: { type: "string", format: "date" },
+          },
         ],
         responses: { "200": { description: "Ledger entries" } },
       },
@@ -3205,7 +4045,11 @@ export const openApiSpec = {
         summary: "List purchase invoices (goods received)",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
         ],
         responses: { "200": { description: "Purchase invoice list" } },
       },
@@ -3247,22 +4091,45 @@ export const openApiSpec = {
         tags: ["Admin – Inventory"],
         summary: "Get purchase invoice by ID",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: { "200": { description: "Purchase invoice detail" } },
       },
       put: {
         tags: ["Admin – Inventory"],
         summary: "Update purchase invoice",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        requestBody: { content: { "application/json": { schema: { type: "object" } } } },
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        requestBody: {
+          content: { "application/json": { schema: { type: "object" } } },
+        },
         responses: { "200": { description: "Updated" } },
       },
       delete: {
         tags: ["Admin – Inventory"],
         summary: "Delete purchase invoice",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: { "200": { description: "Deleted" } },
       },
     },
@@ -3272,8 +4139,16 @@ export const openApiSpec = {
         summary: "GST purchase summary for tax filing",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "from", in: "query", schema: { type: "string", format: "date" } },
-          { name: "to", in: "query", schema: { type: "string", format: "date" } },
+          {
+            name: "from",
+            in: "query",
+            schema: { type: "string", format: "date" },
+          },
+          {
+            name: "to",
+            in: "query",
+            schema: { type: "string", format: "date" },
+          },
         ],
         responses: { "200": { description: "GST summary" } },
       },
@@ -3288,10 +4163,22 @@ export const openApiSpec = {
         summary: "List operating expenses",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", default: 1 },
+          },
           { name: "category", in: "query", schema: { type: "string" } },
-          { name: "from", in: "query", schema: { type: "string", format: "date" } },
-          { name: "to", in: "query", schema: { type: "string", format: "date" } },
+          {
+            name: "from",
+            in: "query",
+            schema: { type: "string", format: "date" },
+          },
+          {
+            name: "to",
+            in: "query",
+            schema: { type: "string", format: "date" },
+          },
         ],
         responses: { "200": { description: "Expense list" } },
       },
@@ -3302,7 +4189,11 @@ export const openApiSpec = {
         requestBody: {
           required: true,
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/CreateOperatingExpenseBody" } },
+            "application/json": {
+              schema: {
+                $ref: "#/components/schemas/CreateOperatingExpenseBody",
+              },
+            },
           },
         },
         responses: { "201": { description: "Expense created" } },
@@ -3314,8 +4205,16 @@ export const openApiSpec = {
         summary: "Operating expense summary by category / period",
         security: [{ cookieAuth: [] }],
         parameters: [
-          { name: "from", in: "query", schema: { type: "string", format: "date" } },
-          { name: "to", in: "query", schema: { type: "string", format: "date" } },
+          {
+            name: "from",
+            in: "query",
+            schema: { type: "string", format: "date" },
+          },
+          {
+            name: "to",
+            in: "query",
+            schema: { type: "string", format: "date" },
+          },
         ],
         responses: { "200": { description: "Expense summary" } },
       },
@@ -3325,10 +4224,21 @@ export const openApiSpec = {
         tags: ["Admin – Expenses"],
         summary: "Update operating expense",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         requestBody: {
           content: {
-            "application/json": { schema: { $ref: "#/components/schemas/CreateOperatingExpenseBody" } },
+            "application/json": {
+              schema: {
+                $ref: "#/components/schemas/CreateOperatingExpenseBody",
+              },
+            },
           },
         },
         responses: { "200": { description: "Updated" } },
@@ -3337,7 +4247,14 @@ export const openApiSpec = {
         tags: ["Admin – Expenses"],
         summary: "Void / delete operating expense",
         security: [{ cookieAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: { "200": { description: "Voided" } },
       },
     },
@@ -3368,7 +4285,10 @@ export const openApiSpec = {
                   scheduledDate: { type: "string", format: "date" },
                   topic: { type: "string" },
                   assignedTo: { type: "string" },
-                  status: { type: "string", enum: ["idea", "in-progress", "done"] },
+                  status: {
+                    type: "string",
+                    enum: ["idea", "in-progress", "done"],
+                  },
                 },
               },
             },
@@ -3380,7 +4300,8 @@ export const openApiSpec = {
     "/admin/blog-content-plans/bulk": {
       post: {
         tags: ["Admin – Blog Calendar"],
-        summary: "Bulk create blog content plan entries (e.g. from AI calendar plan)",
+        summary:
+          "Bulk create blog content plan entries (e.g. from AI calendar plan)",
         security: [{ cookieAuth: [] }],
         requestBody: {
           required: true,
@@ -3414,7 +4335,14 @@ export const openApiSpec = {
         tags: ["Admin – Blog Calendar"],
         summary: "Update a blog content plan entry",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         requestBody: {
           content: {
             "application/json": { schema: { type: "object" } },
@@ -3426,7 +4354,14 @@ export const openApiSpec = {
         tags: ["Admin – Blog Calendar"],
         summary: "Delete a blog content plan entry",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: { "200": { description: "Deleted" } },
       },
     },
@@ -3450,7 +4385,10 @@ export const openApiSpec = {
         requestBody: {
           content: { "application/json": { schema: { type: "object" } } },
         },
-        responses: { "200": { description: "Preview result" }, "403": { description: "Admin only" } },
+        responses: {
+          "200": { description: "Preview result" },
+          "403": { description: "Admin only" },
+        },
       },
     },
     "/sales": {
@@ -3458,7 +4396,10 @@ export const openApiSpec = {
         tags: ["Sales"],
         summary: "[Admin] List all sale campaigns",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        responses: { "200": { description: "Sale campaigns" }, "403": { description: "Admin only" } },
+        responses: {
+          "200": { description: "Sale campaigns" },
+          "403": { description: "Admin only" },
+        },
       },
       post: {
         tags: ["Sales"],
@@ -3467,11 +4408,17 @@ export const openApiSpec = {
         requestBody: {
           content: {
             "multipart/form-data": {
-              schema: { type: "object", properties: { image: { type: "string", format: "binary" } } },
+              schema: {
+                type: "object",
+                properties: { image: { type: "string", format: "binary" } },
+              },
             },
           },
         },
-        responses: { "201": { description: "Created" }, "403": { description: "Admin only" } },
+        responses: {
+          "201": { description: "Created" },
+          "403": { description: "Admin only" },
+        },
       },
     },
     "/sales/{id}": {
@@ -3479,22 +4426,52 @@ export const openApiSpec = {
         tags: ["Sales"],
         summary: "[Admin] Get sale campaign",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { "200": { description: "Sale campaign" }, "403": { description: "Admin only" } },
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": { description: "Sale campaign" },
+          "403": { description: "Admin only" },
+        },
       },
       patch: {
         tags: ["Sales"],
         summary: "[Admin] Update sale campaign",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { "200": { description: "Updated" }, "403": { description: "Admin only" } },
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": { description: "Updated" },
+          "403": { description: "Admin only" },
+        },
       },
       delete: {
         tags: ["Sales"],
         summary: "[Admin] Delete sale campaign",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { "200": { description: "Deleted" }, "403": { description: "Admin only" } },
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": { description: "Deleted" },
+          "403": { description: "Admin only" },
+        },
       },
     },
     "/sales/{id}/archive": {
@@ -3502,8 +4479,18 @@ export const openApiSpec = {
         tags: ["Sales"],
         summary: "[Admin] Archive sale campaign",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { "200": { description: "Archived" }, "403": { description: "Admin only" } },
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": { description: "Archived" },
+          "403": { description: "Admin only" },
+        },
       },
     },
 
@@ -3512,8 +4499,18 @@ export const openApiSpec = {
         tags: ["Collections"],
         summary: "Get shop collection (category) details",
         security: [],
-        parameters: [{ name: "catSlug", in: "path", required: true, schema: { type: "string" } }],
-        responses: { "200": { description: "Collection details" }, "404": { description: "Not found" } },
+        parameters: [
+          {
+            name: "catSlug",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": { description: "Collection details" },
+          "404": { description: "Not found" },
+        },
       },
     },
     "/collections/{catSlug}/products": {
@@ -3522,7 +4519,12 @@ export const openApiSpec = {
         summary: "List products in a collection",
         security: [],
         parameters: [
-          { name: "catSlug", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "catSlug",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
           { name: "page", in: "query", schema: { type: "integer" } },
           { name: "limit", in: "query", schema: { type: "integer" } },
           { name: "sort", in: "query", schema: { type: "string" } },
@@ -3535,7 +4537,14 @@ export const openApiSpec = {
         tags: ["Collections"],
         summary: "Filter facets for a collection",
         security: [],
-        parameters: [{ name: "catSlug", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "catSlug",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: { "200": { description: "Filters" } },
       },
     },
@@ -3545,8 +4554,18 @@ export const openApiSpec = {
         summary: "Get subcategory collection details",
         security: [],
         parameters: [
-          { name: "catSlug", in: "path", required: true, schema: { type: "string" } },
-          { name: "subSlug", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "catSlug",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            name: "subSlug",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: { "200": { description: "Subcollection details" } },
       },
@@ -3557,8 +4576,18 @@ export const openApiSpec = {
         summary: "List products in a subcategory collection",
         security: [],
         parameters: [
-          { name: "catSlug", in: "path", required: true, schema: { type: "string" } },
-          { name: "subSlug", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "catSlug",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            name: "subSlug",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: { "200": { description: "Products" } },
       },
@@ -3569,8 +4598,18 @@ export const openApiSpec = {
         summary: "Filter facets for a subcategory collection",
         security: [],
         parameters: [
-          { name: "catSlug", in: "path", required: true, schema: { type: "string" } },
-          { name: "subSlug", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "catSlug",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            name: "subSlug",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
         ],
         responses: { "200": { description: "Filters" } },
       },
@@ -3587,7 +4626,10 @@ export const openApiSpec = {
         tags: ["Testimonials"],
         summary: "[Admin] Create testimonial",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        responses: { "201": { description: "Created" }, "403": { description: "Admin only" } },
+        responses: {
+          "201": { description: "Created" },
+          "403": { description: "Admin only" },
+        },
       },
     },
     "/testimonials/submit": {
@@ -3603,7 +4645,10 @@ export const openApiSpec = {
                 properties: {
                   name: { type: "string" },
                   message: { type: "string" },
-                  images: { type: "array", items: { type: "string", format: "binary" } },
+                  images: {
+                    type: "array",
+                    items: { type: "string", format: "binary" },
+                  },
                 },
               },
             },
@@ -3617,7 +4662,10 @@ export const openApiSpec = {
         tags: ["Testimonials"],
         summary: "[Admin] List all testimonials",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        responses: { "200": { description: "Admin list" }, "403": { description: "Admin only" } },
+        responses: {
+          "200": { description: "Admin list" },
+          "403": { description: "Admin only" },
+        },
       },
     },
     "/testimonials/{id}": {
@@ -3625,15 +4673,35 @@ export const openApiSpec = {
         tags: ["Testimonials"],
         summary: "[Admin] Update testimonial",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { "200": { description: "Updated" }, "403": { description: "Admin only" } },
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": { description: "Updated" },
+          "403": { description: "Admin only" },
+        },
       },
       delete: {
         tags: ["Testimonials"],
         summary: "[Admin] Delete testimonial",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { "200": { description: "Deleted" }, "403": { description: "Admin only" } },
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": { description: "Deleted" },
+          "403": { description: "Admin only" },
+        },
       },
     },
     "/testimonials/{id}/approve": {
@@ -3641,8 +4709,18 @@ export const openApiSpec = {
         tags: ["Testimonials"],
         summary: "[Admin] Approve testimonial",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { "200": { description: "Approved" }, "403": { description: "Admin only" } },
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": { description: "Approved" },
+          "403": { description: "Admin only" },
+        },
       },
     },
     "/testimonials/{id}/reject": {
@@ -3650,8 +4728,18 @@ export const openApiSpec = {
         tags: ["Testimonials"],
         summary: "[Admin] Reject testimonial",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { "200": { description: "Rejected" }, "403": { description: "Admin only" } },
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": { description: "Rejected" },
+          "403": { description: "Admin only" },
+        },
       },
     },
 
@@ -3660,8 +4748,18 @@ export const openApiSpec = {
         tags: ["Review Invites"],
         summary: "Get public review invite by token",
         security: [],
-        parameters: [{ name: "token", in: "path", required: true, schema: { type: "string" } }],
-        responses: { "200": { description: "Invite details" }, "404": { description: "Invalid/expired" } },
+        parameters: [
+          {
+            name: "token",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": { description: "Invite details" },
+          "404": { description: "Invalid/expired" },
+        },
       },
     },
     "/review-invites/{token}/submit": {
@@ -3669,7 +4767,14 @@ export const openApiSpec = {
         tags: ["Review Invites"],
         summary: "Submit review via invite token",
         security: [],
-        parameters: [{ name: "token", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "token",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         requestBody: {
           content: {
             "multipart/form-data": {
@@ -3679,7 +4784,10 @@ export const openApiSpec = {
                   rating: { type: "integer", minimum: 1, maximum: 5 },
                   title: { type: "string" },
                   comment: { type: "string" },
-                  images: { type: "array", items: { type: "string", format: "binary" } },
+                  images: {
+                    type: "array",
+                    items: { type: "string", format: "binary" },
+                  },
                 },
               },
             },
@@ -3764,8 +4872,18 @@ export const openApiSpec = {
         tags: ["Categories"],
         summary: "Get category by slug",
         security: [],
-        parameters: [{ name: "slug", in: "path", required: true, schema: { type: "string" } }],
-        responses: { "200": { description: "Category" }, "404": { description: "Not found" } },
+        parameters: [
+          {
+            name: "slug",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": { description: "Category" },
+          "404": { description: "Not found" },
+        },
       },
     },
     "/categories/slug/{slug}/subcategories": {
@@ -3773,7 +4891,14 @@ export const openApiSpec = {
         tags: ["Categories"],
         summary: "List subcategories for a category slug",
         security: [],
-        parameters: [{ name: "slug", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [
+          {
+            name: "slug",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
         responses: { "200": { description: "Subcategories" } },
       },
     },
@@ -3790,7 +4915,10 @@ export const openApiSpec = {
                 properties: {
                   rating: { type: "integer" },
                   comment: { type: "string" },
-                  images: { type: "array", items: { type: "string", format: "binary" } },
+                  images: {
+                    type: "array",
+                    items: { type: "string", format: "binary" },
+                  },
                 },
               },
             },
@@ -3808,7 +4936,10 @@ export const openApiSpec = {
         requestBody: {
           content: { "application/json": { schema: { type: "object" } } },
         },
-        responses: { "200": { description: "Draft SEO" }, "403": { description: "Admin only" } },
+        responses: {
+          "200": { description: "Draft SEO" },
+          "403": { description: "Admin only" },
+        },
       },
     },
     "/admin/orders/{id}/review-invite": {
@@ -3816,8 +4947,18 @@ export const openApiSpec = {
         tags: ["Admin – Orders"],
         summary: "[Admin] Create review invite for order",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { "201": { description: "Invite created" }, "403": { description: "Admin only" } },
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "201": { description: "Invite created" },
+          "403": { description: "Admin only" },
+        },
       },
     },
     "/admin/orders/{id}/review-invite/email": {
@@ -3825,8 +4966,18 @@ export const openApiSpec = {
         tags: ["Admin – Orders"],
         summary: "[Admin] Email review invite for order",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { "200": { description: "Email queued" }, "403": { description: "Admin only" } },
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": { description: "Email queued" },
+          "403": { description: "Admin only" },
+        },
       },
     },
     "/admin/categories/{id}/subcategories": {
@@ -3834,8 +4985,18 @@ export const openApiSpec = {
         tags: ["Admin – Categories"],
         summary: "[Admin] List subcategories for category",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { "200": { description: "Subcategories" }, "403": { description: "Admin only" } },
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": { description: "Subcategories" },
+          "403": { description: "Admin only" },
+        },
       },
     },
     "/admin/subcategories": {
@@ -3843,13 +5004,19 @@ export const openApiSpec = {
         tags: ["Admin – Categories"],
         summary: "[Admin] List subcategories",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        responses: { "200": { description: "Subcategories" }, "403": { description: "Admin only" } },
+        responses: {
+          "200": { description: "Subcategories" },
+          "403": { description: "Admin only" },
+        },
       },
       post: {
         tags: ["Admin – Categories"],
         summary: "[Admin] Create subcategory",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        responses: { "201": { description: "Created" }, "403": { description: "Admin only" } },
+        responses: {
+          "201": { description: "Created" },
+          "403": { description: "Admin only" },
+        },
       },
     },
     "/admin/subcategories/reorder": {
@@ -3860,7 +5027,10 @@ export const openApiSpec = {
         requestBody: {
           content: { "application/json": { schema: { type: "object" } } },
         },
-        responses: { "200": { description: "Reordered" }, "403": { description: "Admin only" } },
+        responses: {
+          "200": { description: "Reordered" },
+          "403": { description: "Admin only" },
+        },
       },
     },
     "/admin/subcategories/{id}": {
@@ -3868,22 +5038,52 @@ export const openApiSpec = {
         tags: ["Admin – Categories"],
         summary: "[Admin] Get subcategory",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { "200": { description: "Subcategory" }, "403": { description: "Admin only" } },
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": { description: "Subcategory" },
+          "403": { description: "Admin only" },
+        },
       },
       patch: {
         tags: ["Admin – Categories"],
         summary: "[Admin] Update subcategory",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { "200": { description: "Updated" }, "403": { description: "Admin only" } },
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": { description: "Updated" },
+          "403": { description: "Admin only" },
+        },
       },
       delete: {
         tags: ["Admin – Categories"],
         summary: "[Admin] Delete subcategory",
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { "200": { description: "Deleted" }, "403": { description: "Admin only" } },
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": { description: "Deleted" },
+          "403": { description: "Admin only" },
+        },
       },
     },
   },

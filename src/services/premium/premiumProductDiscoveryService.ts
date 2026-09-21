@@ -1,5 +1,5 @@
 import Product from "../../models/Product";
-import { getCache, setCache } from "../cacheService";
+import { cachedFetch } from "../cache/cachedFetch";
 import { reconcileProductJson } from "../../types/utils/productStock";
 import {
   PREMIUM_PRODUCT_CACHE_TTL,
@@ -32,46 +32,40 @@ export async function discoverPremiumProducts(query: Record<string, string>) {
   const skip = (pageNum - 1) * limit;
   const filter = buildPremiumFilter(search, audience);
 
-  const cacheKey = `cache:premium:products:v${PREMIUM_CACHE_SHAPE_VERSION}:${JSON.stringify({ search, page: pageNum, limit, audience })}`;
-  const cached = await getCache<{
-    products: Record<string, unknown>[];
-    total: number;
-  }>(cacheKey);
+  const cacheKey = `cache:premium:products:env:v${PREMIUM_CACHE_SHAPE_VERSION}:${JSON.stringify({ search, page: pageNum, limit, audience })}`;
 
-  if (cached) {
-    const loaded = skip + cached.products.length;
-    return {
-      products: normalizeProducts(cached.products),
-      page: pageNum,
-      limit,
-      total: cached.total,
-      hasNextPage: cached.products.length > 0 && loaded < cached.total,
-    };
-  }
+  const cached = await cachedFetch({
+    key: cacheKey,
+    softTtlSec: PREMIUM_PRODUCT_CACHE_TTL,
+    hardTtlSec: Math.max(
+      PREMIUM_PRODUCT_CACHE_TTL * 3,
+      PREMIUM_PRODUCT_CACHE_TTL + 60,
+    ),
+    fetchFresh: async () => {
+      const [products, total] = await Promise.all([
+        Product.find(filter)
+          .select(PREMIUM_PRODUCT_SELECT)
+          .sort({ sortOrderPremium: 1, createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .lean()
+          .maxTimeMS(PREMIUM_QUERY_MAX_MS),
+        Product.countDocuments(filter).maxTimeMS(PREMIUM_QUERY_MAX_MS),
+      ]);
+      return {
+        products: normalizeProducts(products as Record<string, unknown>[]),
+        total,
+      };
+    },
+  });
 
-  const [products, total] = await Promise.all([
-    Product.find(filter)
-      .select(PREMIUM_PRODUCT_SELECT)
-      .sort({ sortOrderPremium: 1, createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean()
-      .maxTimeMS(PREMIUM_QUERY_MAX_MS),
-    Product.countDocuments(filter).maxTimeMS(PREMIUM_QUERY_MAX_MS),
-  ]);
-
-  const normalized = normalizeProducts(products as Record<string, unknown>[]);
-  setCache(cacheKey, { products: normalized, total }, PREMIUM_PRODUCT_CACHE_TTL).catch(
-    () => {},
-  );
-
-  const loaded = skip + normalized.length;
+  const loaded = skip + cached.products.length;
   return {
-    products: normalized,
+    products: cached.products,
     page: pageNum,
     limit,
-    total,
-    hasNextPage: normalized.length > 0 && loaded < total,
+    total: cached.total,
+    hasNextPage: cached.products.length > 0 && loaded < cached.total,
   };
 }
 
@@ -79,30 +73,36 @@ export async function getPremiumProductBySlug(slug: string) {
   const safe = String(slug || "").trim().toLowerCase();
   if (!safe) return null;
 
-  const cacheKey = `cache:premium:product:v${PREMIUM_CACHE_SHAPE_VERSION}:${safe}`;
-  const cached = await getCache<Record<string, unknown>>(cacheKey);
-  if (cached) {
-    return reconcileProductJson(
-      cached as Parameters<typeof reconcileProductJson>[0],
-    );
-  }
+  const cacheKey = `cache:premium:product:env:v${PREMIUM_CACHE_SHAPE_VERSION}:${safe}`;
 
-  const product = await Product.findOne({
-    isPremium: true,
-    isActive: true,
-    $or: [{ premiumSlug: safe }, { slug: safe }],
-  })
-    .select(PREMIUM_PRODUCT_SELECT)
-    .lean()
-    .maxTimeMS(PREMIUM_QUERY_MAX_MS);
+  const cached = await cachedFetch({
+    key: cacheKey,
+    softTtlSec: PREMIUM_PRODUCT_CACHE_TTL,
+    hardTtlSec: Math.max(
+      PREMIUM_PRODUCT_CACHE_TTL * 3,
+      PREMIUM_PRODUCT_CACHE_TTL + 60,
+    ),
+    fetchFresh: async () => {
+      const product = await Product.findOne({
+        isPremium: true,
+        isActive: true,
+        $or: [{ premiumSlug: safe }, { slug: safe }],
+      })
+        .select(PREMIUM_PRODUCT_SELECT)
+        .lean()
+        .maxTimeMS(PREMIUM_QUERY_MAX_MS);
 
-  if (!product) return null;
+      if (!product) {
+        return null;
+      }
 
-  const normalized = reconcileProductJson(
-    product as Parameters<typeof reconcileProductJson>[0],
-  );
-  setCache(cacheKey, normalized, PREMIUM_PRODUCT_CACHE_TTL).catch(() => {});
-  return normalized;
+      return reconcileProductJson(
+        product as Parameters<typeof reconcileProductJson>[0],
+      );
+    },
+  });
+
+  return cached;
 }
 
 export function invalidatePremiumProductCache(): void {

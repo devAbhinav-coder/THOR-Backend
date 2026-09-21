@@ -1,4 +1,4 @@
-/** Configurable BullMQ job retention — tune via env to control Redis memory. */
+/** Configurable BullMQ job retention - tune via env to control Redis memory. */
 export const bullmqRetention = {
   removeOnComplete: Number(process.env.BULLMQ_REMOVE_ON_COMPLETE || 500),
   removeOnFail: Number(process.env.BULLMQ_REMOVE_ON_FAIL || 1000),

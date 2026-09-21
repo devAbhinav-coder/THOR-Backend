@@ -155,30 +155,47 @@ let SUBCATEGORY_KEYWORDS = [
   "luxury",
 ];
 
-export function updateDynamicKeywords(categories: string[], subcategories: string[]) {
+export function updateDynamicKeywords(
+  categories: string[],
+  subcategories: string[],
+) {
   if (categories.length) {
-    CATEGORY_KEYWORDS = [...new Set([...CATEGORY_KEYWORDS, ...categories.map(c => c.toLowerCase())])];
+    CATEGORY_KEYWORDS = [
+      ...new Set([
+        ...CATEGORY_KEYWORDS,
+        ...categories.map((c) => c.toLowerCase()),
+      ]),
+    ];
   }
   if (subcategories.length) {
-    SUBCATEGORY_KEYWORDS = [...new Set([...SUBCATEGORY_KEYWORDS, ...subcategories.map(c => c.toLowerCase())])];
+    SUBCATEGORY_KEYWORDS = [
+      ...new Set([
+        ...SUBCATEGORY_KEYWORDS,
+        ...subcategories.map((c) => c.toLowerCase()),
+      ]),
+    ];
   }
 }
 
 export async function initSearchKeywords() {
   try {
-    const mongoose = (await import('mongoose')).default;
-    const Category = mongoose.model('Category');
-    const SubCategory = mongoose.model('SubCategory');
-    
-    const categories = await Category.find({ isActive: true }).select('name').lean() as any[];
-    const subcategories = await SubCategory.find({ isActive: true }).select('name').lean() as any[];
-    
+    const mongoose = (await import("mongoose")).default;
+    const Category = mongoose.model("Category");
+    const SubCategory = mongoose.model("SubCategory");
+
+    const categories = (await Category.find({ isActive: true })
+      .select("name")
+      .lean()) as any[];
+    const subcategories = (await SubCategory.find({ isActive: true })
+      .select("name")
+      .lean()) as any[];
+
     updateDynamicKeywords(
-      categories.map(c => c.name),
-      subcategories.map(s => s.name)
+      categories.map((c) => c.name),
+      subcategories.map((s) => s.name),
     );
   } catch (err) {
-    console.error('Failed to init search keywords', err);
+    console.error("Failed to init search keywords", err);
   }
 }
 
@@ -243,8 +260,7 @@ function parseAmount(match: RegExpExecArray): number | undefined {
   }
   const base = Number.parseFloat(match[1]);
   if (!Number.isFinite(base)) return undefined;
-  const mult =
-    match[2] && /^k|thousand$/i.test(match[2]) ? 1000 : 1;
+  const mult = match[2] && /^k|thousand$/i.test(match[2]) ? 1000 : 1;
   return Math.round(base * mult);
 }
 
@@ -357,7 +373,8 @@ function extractPrice(text: string): {
     PRICE_UNDER_RE.lastIndex = 0;
     PRICE_ABOVE_RE.lastIndex = 0;
 
-    const amountMatch = token.match(/^(\d+(?:\.\d+)?)(k|K)?$/) ??
+    const amountMatch =
+      token.match(/^(\d+(?:\.\d+)?)(k|K)?$/) ??
       token.match(/^₹?(\d+(?:\.\d+)?)(k|K)?$/);
     if (amountMatch) {
       let amount = Number.parseFloat(amountMatch[1]);
@@ -366,7 +383,9 @@ function extractPrice(text: string): {
       if (underCtx || next === "tak" || lower.endsWith("k")) {
         maxPrice = amount;
         if (lower.endsWith("k") && !amountMatch[2]) {
-          maxPrice = Math.round(Number.parseFloat(lower.replace(/k$/i, "")) * 1000);
+          maxPrice = Math.round(
+            Number.parseFloat(lower.replace(/k$/i, "")) * 1000,
+          );
         }
         if (["under", "below", "upto", "max", "tak"].includes(prev)) {
           kept.pop();
@@ -383,7 +402,8 @@ function extractPrice(text: string): {
     if (PRICE_UNDER_RE.test(token)) {
       PRICE_UNDER_RE.lastIndex = 0;
       const nextToken = segments[i + 1];
-      const m = nextToken?.match(/^(\d+(?:\.\d+)?)(k|K)?$/) ??
+      const m =
+        nextToken?.match(/^(\d+(?:\.\d+)?)(k|K)?$/) ??
         nextToken?.match(/^₹?(\d+(?:\.\d+)?)(k|K)?$/);
       if (m) {
         let amount = Number.parseFloat(m[1]);
@@ -503,7 +523,11 @@ function pickPhrases(text: string, phrases: string[]): string[] {
 function levenshtein(a: string, b: string): number {
   if (a === b) return 0;
   const matrix: number[][] = Array.from({ length: b.length + 1 }, (_, j) =>
-    Array.from({ length: a.length + 1 }, (_, i) => (j === 0 ? i : i === 0 ? j : 0)),
+    Array.from({ length: a.length + 1 }, (_, i) =>
+      j === 0 ? i
+      : i === 0 ? j
+      : 0,
+    ),
   );
   for (let j = 1; j <= b.length; j++) {
     for (let i = 1; i <= a.length; i++) {
@@ -540,7 +564,9 @@ export function parseSearchQueryIntent(raw: unknown): ParsedSearchIntent {
   const correctedWords: string[] = [];
 
   for (const token of tokens) {
-    const { word, corrected } = correctToken(token.replace(/[^\p{L}\p{N}]/gu, ""));
+    const { word, corrected } = correctToken(
+      token.replace(/[^\p{L}\p{N}]/gu, ""),
+    );
     if (!word) continue;
     correctedWords.push(word);
     if (corrected) corrections.push(`${token} → ${word}`);
@@ -615,16 +641,13 @@ export function parseSearchQueryIntent(raw: unknown): ParsedSearchIntent {
 
   const displayParts: string[] = [];
   if (textQuery) {
-    displayParts.push(
-      textQuery
-        .split(/\s+/)
-        .map(titleCase)
-        .join(" "),
-    );
+    displayParts.push(textQuery.split(/\s+/).map(titleCase).join(" "));
   }
 
-  if (maxPrice !== undefined) displayParts.push(`Under ₹${maxPrice.toLocaleString("en-IN")}`);
-  if (minPrice !== undefined) displayParts.push(`Above ₹${minPrice.toLocaleString("en-IN")}`);
+  if (maxPrice !== undefined)
+    displayParts.push(`Under ₹${maxPrice.toLocaleString("en-IN")}`);
+  if (minPrice !== undefined)
+    displayParts.push(`Above ₹${minPrice.toLocaleString("en-IN")}`);
 
   const displayLabel = displayParts.join(" · ") || rawQuery;
   const normalizedRaw = rawQuery.trim().toLowerCase();
@@ -696,7 +719,7 @@ export function mergeSearchIntentWithFilters(
   categories: string[];
   /**
    * Categories parsed from the search query text (intent only).
-   * These should NOT become hard filters — use them for relevance boosting
+   * These should NOT become hard filters - use them for relevance boosting
    * and text search only, so subcategories like "Banarasi Saree" still match
    * when searching for "saree".
    */
@@ -705,7 +728,7 @@ export function mergeSearchIntentWithFilters(
   maxPrice?: number;
   /** Only explicit URL param subcategories. Become hard MongoDB filters. */
   subcategories: string[];
-  /** Intent-parsed subcategories (from PHRASE_HINTS). Soft boost only — NOT hard filters. */
+  /** Intent-parsed subcategories (from PHRASE_HINTS). Soft boost only - NOT hard filters. */
   intentSubcategories: string[];
   tags: string[];
 } {
@@ -749,16 +772,12 @@ export function mergeSearchIntentWithFilters(
   }
 
   // Explicit URL subcategories (become hard MongoDB filters)
-  const explicitSubcategorySet = new Set(
-    [...(filters.subcategories || [])]
-  );
+  const explicitSubcategorySet = new Set([...(filters.subcategories || [])]);
 
-  // Intent subcategories from PHRASE_HINTS (soft boost only — NOT hard filters)
+  // Intent subcategories from PHRASE_HINTS (soft boost only - NOT hard filters)
   // e.g. "cotton saree" auto-matches PHRASE_HINTS but DB has "Cotton Sarees" (different case/plural)
   // Using these as hard filters via buildShopCollectionFilter produces 0 results.
-  const intentSubcategorySet = new Set(
-    [...(intent.subcategories || [])]
-  );
+  const intentSubcategorySet = new Set([...(intent.subcategories || [])]);
 
   return {
     query: intent.textQuery || intent.rawQuery,
@@ -774,4 +793,3 @@ export function mergeSearchIntentWithFilters(
     tags: intent.tags,
   };
 }
-

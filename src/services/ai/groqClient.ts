@@ -34,7 +34,7 @@ export function sanitizeAiText(raw: string, maxLen = 8000): string {
     .slice(0, maxLen);
 }
 
-const BULLET_LINE = /^(?:[-–—•*]|\d+[.)])\s+(.+)$/;
+const BULLET_LINE = /^(?:[-–-•*]|\d+[.)])\s+(.+)$/;
 
 function stripMarkdown(raw: string): string {
   return raw
@@ -141,7 +141,7 @@ export function buildFormattedAiFields(text: string): {
 function processGroqResponse(raw: string, jsonObject?: boolean): string {
   const trimmed = raw.trim();
   if (!trimmed) return "";
-  // JSON drafts include HTML in string fields — sanitizeAiText would corrupt them.
+  // JSON drafts include HTML in string fields - sanitizeAiText would corrupt them.
   if (jsonObject) return trimmed.slice(0, 48000);
   return sanitizeAiText(trimmed);
 }
@@ -177,7 +177,7 @@ async function callGroqOnce(
     logger.warn(`Groq API error ${res.status}: ${errBody.slice(0, 200)}`);
     if (res.status === 429) {
       throw new AppError(
-        "Groq rate limit reached — wait 1–2 minutes, then try again.",
+        "Groq rate limit reached - wait 1–2 minutes, then try again.",
         429,
       );
     }
@@ -204,14 +204,26 @@ async function callGroq(
   for (let attempt = 0; attempt < retries.length; attempt++) {
     if (attempt > 0) await sleep(retries[attempt]);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), aiConfig.requestTimeoutMs);
+    const timer = setTimeout(
+      () => controller.abort(),
+      aiConfig.requestTimeoutMs,
+    );
 
     try {
-      return await callGroqOnce(messages, maxTokens, jsonObject, controller.signal);
+      return await callGroqOnce(
+        messages,
+        maxTokens,
+        jsonObject,
+        controller.signal,
+      );
     } catch (e) {
       lastErr = e;
-      if (e instanceof AppError && e.statusCode === 429 && attempt < retries.length - 1) {
-        logger.warn(`Groq 429 — retry ${attempt + 1}/${retries.length - 1}`);
+      if (
+        e instanceof AppError &&
+        e.statusCode === 429 &&
+        attempt < retries.length - 1
+      ) {
+        logger.warn(`Groq 429 - retry ${attempt + 1}/${retries.length - 1}`);
         continue;
       }
       if (e instanceof AppError) throw e;
@@ -246,7 +258,8 @@ export async function groqChatCompletion(
   },
 ): Promise<{ text: string; model: string }> {
   assertAiEnabled();
-  const maxPrompt = options?.maxPromptChars ?? (options?.jsonObject ? 14000 : 6000);
+  const maxPrompt =
+    options?.maxPromptChars ?? (options?.jsonObject ? 14000 : 6000);
   const messages: GroqMessage[] = [
     {
       role: "system",

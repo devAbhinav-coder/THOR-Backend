@@ -50,7 +50,7 @@ function handleAuthEvent(payload: AuthEventPayload): void {
     ).catch(() => undefined);
   }
 
-  /* Queue hooks — extend with CRM/analytics workers without blocking HTTP */
+  /* Queue hooks - extend with CRM/analytics workers without blocking HTTP */
   if (type === "AUTH_SIGNUP_COMPLETED" && email) {
     /* Welcome mail is sent inline/queued in signup path; event is for downstream sync */
   }

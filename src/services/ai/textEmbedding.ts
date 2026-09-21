@@ -1,4 +1,4 @@
-/** Local feature-hashing embeddings — no Pinecone / external API required. */
+/** Local feature-hashing embeddings - no Pinecone / external API required. */
 
 const DIM = 256;
 

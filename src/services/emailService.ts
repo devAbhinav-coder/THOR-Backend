@@ -46,8 +46,7 @@ function extractMailDomain(fromHeader: string): string {
 }
 
 function buildDkim():
-  | { domainName: string; keySelector: string; privateKey: string }
-  | undefined {
+  { domainName: string; keySelector: string; privateKey: string } | undefined {
   const domainName = process.env.DKIM_DOMAIN?.trim();
   if (!domainName) return undefined;
 
@@ -284,16 +283,16 @@ export const emailTemplates = {
     ),
   }),
   couponAnnouncement: (code: string, description?: string) => ({
-    subject: `Offer: ${code} — The House of Rani`,
+    subject: `Offer: ${code} - The House of Rani`,
     html: shell(
       "Promotional offer",
-      `You can use code <b>${code}</b>${description ? ` — ${description}` : ""} on your next qualifying order at checkout.`,
+      `You can use code <b>${code}</b>${description ? ` - ${description}` : ""} on your next qualifying order at checkout.`,
       "Visit store",
       `${frontendUrl}/shop`,
     ),
   }),
   abandonedCart: (name: string, total: number, itemCount: number) => ({
-    subject: "Your cart is waiting — The House of Rani",
+    subject: "Your cart is waiting - The House of Rani",
     html: renderAbandonedCartEmail({
       name: escEmail(name),
       itemCount,
@@ -362,7 +361,7 @@ export const emailTemplates = {
       opts.fulfillment === "offline_handover" ?
         opts.pdfAttached ?
           "Your purchase was completed <b>in person</b> at the time of sale. Your <b>tax invoice (PDF)</b> is attached to this email."
-        : "Your purchase was completed <b>in person</b> at the time of sale — nothing will be shipped to this address for this order."
+        : "Your purchase was completed <b>in person</b> at the time of sale - nothing will be shipped to this address for this order."
       : "We will arrange <b>courier delivery</b> as usual. You will receive shipping updates on email and WhatsApp, and your <b>tax invoice (PDF)</b> once the order is delivered.";
 
     const body = `Hi ${escEmail(name)},<br/><br/>
@@ -381,12 +380,12 @@ export const emailTemplates = {
         <tbody>${rows}</tbody>
       </table>
       <p style="margin:16px 0 0;font-size:15px;"><b>Order total:</b> ₹${total.toFixed(2)}</p>
-      <p style="margin:12px 0 0;font-size:13px;color:#6b7280;">You can open this email again anytime — the link below always shows your latest order status.</p>`;
+      <p style="margin:12px 0 0;font-size:13px;color:#6b7280;">You can open this email again anytime - the link below always shows your latest order status.</p>`;
 
     const orderUrl = `${frontendUrl}/dashboard/orders/${encodeURIComponent(opts.orderId)}`;
 
     return {
-      subject: `Thank you — your order ${orderNumber} is confirmed`,
+      subject: `Thank you - your order ${orderNumber} is confirmed`,
       html: shell(
         "Thank you for your purchase",
         body,
@@ -396,7 +395,7 @@ export const emailTemplates = {
     };
   },
 
-  /** Secure order review invite — verified purchase review link (no login). */
+  /** Secure order review invite - verified purchase review link (no login). */
   reviewInvite: (opts: {
     name: string;
     orderNumber: string;
@@ -412,12 +411,12 @@ export const emailTemplates = {
     const body = `Hi ${first},<br/><br/>
       Thank you for shopping with <b>The House of Rani</b>. We hope you are enjoying order
       <b>${escEmail(opts.orderNumber)}</b>.<br/><br/>
-      We would love to hear about your experience. Share a short review and a photo — it only takes a minute.
+      We would love to hear about your experience. Share a short review and a photo - it only takes a minute.
       Your feedback helps other customers and means a lot to our team.<br/><br/>
       <p style="margin:0;font-size:13px;color:#64748b;">This link is valid until <b>${escEmail(expiry)}</b>.</p>`;
 
     return {
-      subject: `How was your order? — ${opts.orderNumber}`,
+      subject: `How was your order? - ${opts.orderNumber}`,
       html: shell(
         "Share your experience",
         body,
@@ -427,7 +426,7 @@ export const emailTemplates = {
     };
   },
 
-  /** Delivered order email — full tax invoice attached as PDF (email-safe body). */
+  /** Delivered order email - full tax invoice attached as PDF (email-safe body). */
   orderDeliveredWithInvoice: (
     name: string,
     opts: {
@@ -458,7 +457,7 @@ export const emailTemplates = {
     const fulfilNote =
       opts.inPersonOffline ?
         "Thank you for shopping with us in person. Your complete tax invoice is attached as a PDF."
-      : "Great news — your order has been delivered. Your complete tax invoice is attached as a PDF for your records.";
+      : "Great news - your order has been delivered. Your complete tax invoice is attached as a PDF for your records.";
 
     const body = `
       <p style="margin:0 0 16px;">Hi ${escEmail(name)},</p>
@@ -496,7 +495,7 @@ export const emailTemplates = {
         </tr>
       </table>
       <p style="margin:18px 0 0;font-size:14px;color:#334155;line-height:1.7;">
-        📎 <b>Attached:</b> ${escEmail(opts.pdfFilename)} — full itemised tax invoice (all products, taxes &amp; totals).<br/>
+        📎 <b>Attached:</b> ${escEmail(opts.pdfFilename)} - full itemised tax invoice (all products, taxes &amp; totals).<br/>
         Open the PDF on your phone or computer; you can also print it anytime.
       </p>
       <p style="margin:16px 0 0;font-size:13px;color:#64748b;line-height:1.6;">
@@ -506,7 +505,7 @@ export const emailTemplates = {
       </p>`;
 
     return {
-      subject: `${opts.inPersonOffline ? "Your purchase receipt" : "Delivered"} — Invoice ${opts.invoiceNumber} (PDF attached)`,
+      subject: `${opts.inPersonOffline ? "Your purchase receipt" : "Delivered"} - Invoice ${opts.invoiceNumber} (PDF attached)`,
       html: shell(
         opts.inPersonOffline ?
           "Thank you for your purchase"
@@ -524,7 +523,7 @@ export const emailTemplates = {
     status: string,
     opts?: { carrier?: string; awb?: string; trackingUrl?: string },
   ) => ({
-    subject: `Order ${orderNumber} — ${status}`,
+    subject: `Order ${orderNumber} - ${status}`,
     html: shell(
       status === "shipped" ? "📦 Your order is on the way!"
       : status === "delivered" ? "✅ Order Delivered!"
@@ -534,7 +533,7 @@ export const emailTemplates = {
       : status === "refunded" ? "💰 Refund update"
       : "Order update",
       `Hi ${name},<br/><br/>Your order <b>${orderNumber}</b> is now <b>${status}</b>.<br/><br/>
-       ${status === "confirmed" ? "Thank you — your order is confirmed and will move into processing soon.<br/><br/>" : ""}
+       ${status === "confirmed" ? "Thank you - your order is confirmed and will move into processing soon.<br/><br/>" : ""}
        ${status === "processing" ? "Our team is carefully preparing your pieces. You'll receive shipping details when your parcel is dispatched.<br/><br/>" : ""}
        ${status === "shipped" && opts?.carrier ? `<b>Courier:</b> ${opts.carrier}<br/>${opts.awb ? `<b>AWB:</b> ${opts.awb}<br/>` : ""}${opts?.trackingUrl ? `<b><a href="${opts.trackingUrl}" style="color:#b45309;">Track your shipment →</a></b><br/>` : ""}<br/>` : ""}
        ${status === "delivered" ? "We hope you love your purchase!<br/><br/>If you have any issues, please reach out within 5 days." : ""}
@@ -618,7 +617,7 @@ export const emailTemplates = {
     proposedPrice: number | undefined,
     requestId: string,
   ) => ({
-    subject: `New Custom Gift Request — ${occasion}`,
+    subject: `New Custom Gift Request - ${occasion}`,
     html: shell(
       "New Custom Gift Request",
       `A new customization request has come in and requires your attention.<br/><br/>
@@ -638,7 +637,7 @@ export const emailTemplates = {
     quotedPrice: number,
     orderId: string,
   ) => ({
-    subject: `Your Custom Gift Order is Created — ${orderNumber}`,
+    subject: `Your Custom Gift Order is Created - ${orderNumber}`,
     html: shell(
       "Order Created 🎁",
       `Hi ${userName},<br/><br/>
@@ -659,7 +658,7 @@ export const emailTemplates = {
     quotedPrice: number,
     orderId: string,
   ) => ({
-    subject: `Custom Gift Accepted — Order ${orderNumber}`,
+    subject: `Custom Gift Accepted - Order ${orderNumber}`,
     html: shell(
       "Customer Accepted the Quote ✅",
       `<b>${requesterName}</b> has accepted the quote for their <b>${occasion}</b> custom gift request.<br/><br/>
@@ -675,7 +674,7 @@ export const emailTemplates = {
     occasion: string,
     requestId: string,
   ) => ({
-    subject: `Custom Gift Rejected — ${occasion}`,
+    subject: `Custom Gift Rejected - ${occasion}`,
     html: shell(
       "Customer Rejected the Quote ❌",
       `<b>${requesterName}</b> has rejected the quote for their <b>${occasion}</b> custom gift request.<br/><br/>
@@ -693,7 +692,7 @@ export const emailTemplates = {
     reason: string,
     refundMethod: string,
   ) => ({
-    subject: `Return request received — ${orderNumber}`,
+    subject: `Return request received - ${orderNumber}`,
     html: shell(
       "Return Request Received",
       `Hi ${name},<br/><br/>We have received your return request for order <b>${orderNumber}</b>.<br/><br/>
@@ -712,7 +711,7 @@ export const emailTemplates = {
     status: "approved" | "rejected",
     adminNote?: string,
   ) => ({
-    subject: `Return ${status} — ${orderNumber}`,
+    subject: `Return ${status} - ${orderNumber}`,
     html: shell(
       status === "approved" ? "Return Approved ✅" : "Return Rejected ❌",
       `Hi ${name},<br/><br/>Your return request for order <b>${orderNumber}</b> has been <b>${status}</b>.<br/><br/>
@@ -739,7 +738,7 @@ export const emailTemplates = {
       bankName?: string;
     },
   ) => ({
-    subject: `Refund processed — ${orderNumber}`,
+    subject: `Refund processed - ${orderNumber}`,
     html: shell(
       "💸 Refund Processed",
       `Hi ${name},<br/><br/>Your refund for order <b>${orderNumber}</b> has been processed.<br/><br/>
@@ -752,9 +751,9 @@ export const emailTemplates = {
            `✅ The refund will be transferred to your UPI ID: <b>${refundDetails?.upiId || "your registered UPI ID"}</b>.<br/>It typically arrives within <b>1–2 business days</b>.`
          : method === "bank_transfer" ?
            `✅ The refund will be transferred to your bank account:<br/>
-                <b>Account Name:</b> ${refundDetails?.accountName || "—"}<br/>
-                <b>Account Number:</b> ****${(refundDetails?.accountNumber || "").slice(-4) || "—"}<br/>
-                <b>Bank:</b> ${refundDetails?.bankName || "—"}<br/>
+                <b>Account Name:</b> ${refundDetails?.accountName || "-"}<br/>
+                <b>Account Number:</b> ****${(refundDetails?.accountNumber || "").slice(-4) || "-"}<br/>
+                <b>Bank:</b> ${refundDetails?.bankName || "-"}<br/>
                 Transfers typically arrive within <b>2–3 business days</b>.`
          : method === "cash" ?
            "✅ A cash refund will be arranged by our team. We will contact you to coordinate the handover."
@@ -774,7 +773,7 @@ export const emailTemplates = {
     refundMethod: string,
     paymentMethod: string,
   ) => ({
-    subject: `🔄 Return Request — ${orderNumber}`,
+    subject: `🔄 Return Request - ${orderNumber}`,
     html: shell(
       "New Return Request",
       `A customer has requested a return for their order.<br/><br/>
@@ -795,7 +794,7 @@ export const emailTemplates = {
     action: "approved" | "rejected",
     adminNote?: string,
   ) => ({
-    subject: `Return ${action} — ${orderNumber}`,
+    subject: `Return ${action} - ${orderNumber}`,
     html: shell(
       action === "approved" ? "✅ Return Approved" : "❌ Return Rejected",
       `You have <b>${action}</b> the return request for order <b>${orderNumber}</b> by <b>${customerName}</b>.<br/><br/>
@@ -813,7 +812,7 @@ export const emailTemplates = {
     reason?: string,
     initiatedBy: "customer" | "admin" = "customer",
   ) => ({
-    subject: `🚨 Order Cancelled — ${orderNumber}`,
+    subject: `🚨 Order Cancelled - ${orderNumber}`,
     html: shell(
       "Order Cancelled",
       `Order <b>${orderNumber}</b> has been cancelled${initiatedBy === "customer" ? " by the customer" : " by an admin"}.<br/><br/>
@@ -832,7 +831,7 @@ export const emailTemplates = {
     amount: number,
     method: string,
   ) => ({
-    subject: `💸 Refund Processed — ${orderNumber}`,
+    subject: `💸 Refund Processed - ${orderNumber}`,
     html: shell(
       "Refund Processed",
       `A refund has been successfully processed for order <b>${orderNumber}</b>.<br/><br/>
@@ -893,7 +892,9 @@ export const sendEmailNow = async (payload: EmailPayload) => {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Resend failed";
       if (smtpConfigured()) {
-        logger.warn(`Resend failed (${message}); falling back to SMTP for ${payload.to}`);
+        logger.warn(
+          `Resend failed (${message}); falling back to SMTP for ${payload.to}`,
+        );
         await sendViaSmtpWithRetry(body);
         return;
       }
@@ -906,5 +907,7 @@ export const sendEmailNow = async (payload: EmailPayload) => {
     return;
   }
 
-  throw new Error("No email provider configured (set RESEND_API_KEY or SMTP_HOST).");
+  throw new Error(
+    "No email provider configured (set RESEND_API_KEY or SMTP_HOST).",
+  );
 };

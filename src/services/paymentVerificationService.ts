@@ -8,7 +8,10 @@ import {
   verifyPaymentAndThrow,
   assertRazorpayPaymentMatchesOrder,
 } from "./razorpay";
-import { decrementVariantStock, incrementVariantStock } from "./inventoryService";
+import {
+  decrementVariantStock,
+  incrementVariantStock,
+} from "./inventoryService";
 import { orderRepository } from "../repositories/orderRepository";
 import {
   ORDER_PAYMENT_RESPONSE_SELECT,
@@ -222,7 +225,7 @@ export const paymentVerificationService = {
       const newOrder = createdArr[0] as InstanceType<typeof Order>;
       resolvedOrderId = newOrder._id as mongoose.Types.ObjectId;
 
-      // Soft-hold already decremented at intent create — do not decrement again.
+      // Soft-hold already decremented at intent create - do not decrement again.
       if (claimedIntent.inventoryHeld) {
         await CheckoutPaymentIntent.updateOne(
           { _id: intent._id },

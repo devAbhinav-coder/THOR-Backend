@@ -1,5 +1,5 @@
 /**
- * Migration Phase 3 — Regenerate product slugs for cleaner URLs.
+ * Migration Phase 3 - Regenerate product slugs for cleaner URLs.
  *
  * What this script does:
  *   1. For every product, generates a clean slug from the name using slugify.
@@ -16,16 +16,16 @@
  *   DRY_RUN=true npx ts-node scripts/migrate-phase3-regenerate-slugs.ts
  */
 
-import 'dotenv/config';
-import * as fs from 'fs';
-import * as path from 'path';
-import mongoose from 'mongoose';
-import Product from '../src/models/Product';
+import "dotenv/config";
+import * as fs from "fs";
+import * as path from "path";
+import mongoose from "mongoose";
+import Product from "../src/models/Product";
 
 // Inline nanoid-like function (no external dep for scripts)
 function nanoid(len = 5): string {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let out = '';
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let out = "";
   for (let i = 0; i < len; i++) {
     out += chars[Math.floor(Math.random() * chars.length)];
   }
@@ -35,26 +35,31 @@ function nanoid(len = 5): string {
 function slugify(name: string): string {
   return name
     .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
     .slice(0, 80);
 }
 
-const DRY_RUN = process.env.DRY_RUN === 'true';
+const DRY_RUN = process.env.DRY_RUN === "true";
 const BATCH_SIZE = 100; // smaller batch due to sequential slug collision checks
 
 async function run() {
   const MONGO_URI = process.env.MONGODB_URI || process.env.MONGO_URI;
-  if (!MONGO_URI) throw new Error('MONGODB_URI env variable not set');
+  if (!MONGO_URI) throw new Error("MONGODB_URI env variable not set");
 
   await mongoose.connect(MONGO_URI);
   console.log(`[Phase 3] Connected. DRY_RUN=${DRY_RUN}`);
 
   // Track all slugs already assigned in this run to catch in-batch collisions
   const usedInRun = new Set<string>();
-  const slugMap: { oldSlug: string; newSlug: string; productId: string; name: string }[] = [];
+  const slugMap: {
+    oldSlug: string;
+    newSlug: string;
+    productId: string;
+    name: string;
+  }[] = [];
 
   const total = await Product.countDocuments({ oldSlug: { $exists: false } });
   console.log(`[Phase 3] Products to process: ${total}`);
@@ -64,7 +69,7 @@ async function run() {
   let unchanged = 0;
 
   const cursor = Product.find({ oldSlug: { $exists: false } })
-    .select('_id name slug')
+    .select("_id name slug")
     .cursor();
 
   let batch: any[] = [];
@@ -79,7 +84,7 @@ async function run() {
     const needsRegeneration = hasTimestampSuffix || oldSlug !== baseSlug;
 
     if (!needsRegeneration) {
-      // Slug is already clean — just record oldSlug = current slug to avoid re-processing
+      // Slug is already clean - just record oldSlug = current slug to avoid re-processing
       if (!DRY_RUN) {
         batch.push({
           updateOne: {
@@ -103,7 +108,10 @@ async function run() {
         newSlug = `${baseSlug}-${nanoid(5)}`;
         // Re-check for very unlikely second collision
         while (
-          (await Product.exists({ slug: newSlug, _id: { $ne: product._id } })) ||
+          (await Product.exists({
+            slug: newSlug,
+            _id: { $ne: product._id },
+          })) ||
           usedInRun.has(newSlug)
         ) {
           newSlug = `${baseSlug}-${nanoid(5)}`;
@@ -111,7 +119,12 @@ async function run() {
       }
 
       usedInRun.add(newSlug);
-      slugMap.push({ oldSlug, newSlug, productId: (product._id as mongoose.Types.ObjectId).toString(), name: product.name });
+      slugMap.push({
+        oldSlug,
+        newSlug,
+        productId: (product._id as mongoose.Types.ObjectId).toString(),
+        name: product.name,
+      });
 
       if (!DRY_RUN) {
         batch.push({
@@ -136,10 +149,10 @@ async function run() {
   }
 
   // Write redirect map
-  const logsDir = path.join(__dirname, '..', 'logs');
+  const logsDir = path.join(__dirname, "..", "logs");
   if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
 
-  const slugMapPath = path.join(logsDir, 'migration-phase3-slug-map.json');
+  const slugMapPath = path.join(logsDir, "migration-phase3-slug-map.json");
   fs.writeFileSync(slugMapPath, JSON.stringify(slugMap, null, 2));
 
   // Also write a next.config.js-friendly redirects array
@@ -148,24 +161,29 @@ async function run() {
     destination: `/shop/${newSlug}`,
     permanent: true,
   }));
-  const redirectsPath = path.join(logsDir, 'migration-phase3-nextjs-redirects.json');
+  const redirectsPath = path.join(
+    logsDir,
+    "migration-phase3-nextjs-redirects.json",
+  );
   fs.writeFileSync(redirectsPath, JSON.stringify(redirects, null, 2));
 
-  console.log('\n[Phase 3] Summary:');
+  console.log("\n[Phase 3] Summary:");
   console.log(`  Total processed : ${processed}`);
   console.log(`  Slugs changed   : ${changed}`);
   console.log(`  Slugs unchanged : ${unchanged}`);
   console.log(`  Slug map        : ${slugMapPath}`);
   console.log(`  Next.js redirects: ${redirectsPath}`);
-  console.log(`\n  ⚠️  NEXT STEP: Add the redirects from ${redirectsPath} to your next.config.js redirects() function.`);
+  console.log(
+    `\n  ⚠️  NEXT STEP: Add the redirects from ${redirectsPath} to your next.config.js redirects() function.`,
+  );
 
-  if (DRY_RUN) console.log('\n  ⚠️  DRY RUN — no writes performed.');
-  else console.log('\n  ✅ Phase 3 complete.');
+  if (DRY_RUN) console.log("\n  ⚠️  DRY RUN - no writes performed.");
+  else console.log("\n  ✅ Phase 3 complete.");
 
   await mongoose.disconnect();
 }
 
 run().catch((err) => {
-  console.error('[Phase 3] FATAL:', err);
+  console.error("[Phase 3] FATAL:", err);
   process.exit(1);
 });

@@ -194,7 +194,7 @@ export const updatePurchaseInvoiceHandler = catchAsync(
   },
 );
 
-/** DELETE /admin/inventory/purchase-invoices/:id — soft-void (audit-safe, same API contract). */
+/** DELETE /admin/inventory/purchase-invoices/:id - soft-void (audit-safe, same API contract). */
 export const deletePurchaseInvoice = catchAsync(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {

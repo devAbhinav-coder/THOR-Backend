@@ -562,7 +562,7 @@ export async function estimateShippingCharges(params: {
 }
 
 /**
- * TAT / expected delivery — path may vary by account; we try a few known patterns.
+ * TAT / expected delivery - path may vary by account; we try a few known patterns.
  */
 export async function fetchTatHint(params: {
   origin_pin: string;
@@ -637,7 +637,8 @@ function extractTatDays(json: unknown, depth = 0): number | undefined {
     o.transit_days,
   ];
   for (const c of candidates) {
-    if (typeof c === "number" && Number.isFinite(c) && c > 0) return Math.round(c);
+    if (typeof c === "number" && Number.isFinite(c) && c > 0)
+      return Math.round(c);
     if (typeof c === "string" && /^\d+(\.\d+)?$/.test(c.trim())) {
       const n = Number(c.trim());
       if (n > 0) return Math.round(n);
@@ -656,7 +657,7 @@ export function sanitizeManifestText(s: string): string {
     .trim();
 }
 
-/** Chargeable weight (g): max(actual, volumetric) — volumetric from cm ÷ 5000 → kg → g */
+/** Chargeable weight (g): max(actual, volumetric) - volumetric from cm ÷ 5000 → kg → g */
 export function chargeableWeightGrams(
   lengthCm: number,
   breadthCm: number,
@@ -669,7 +670,7 @@ export function chargeableWeightGrams(
 }
 
 /**
- * Dead weight per box (g) for multi-piece — must match manifest `weight` on each box.
+ * Dead weight per box (g) for multi-piece - must match manifest `weight` on each box.
  * Same rule as Delhivery UI: max(50g floor, ceil(total / boxes)).
  */
 export function perBoxDeadWeightGm(
@@ -689,7 +690,7 @@ export function volumetricWeightGrams(
   return Math.ceil(volKg * 1000);
 }
 
-/** Parse CMU create.json response — structure varies; collect waybills and error text */
+/** Parse CMU create.json response - structure varies; collect waybills and error text */
 export function parseCreateShipmentResult(json: unknown): {
   ok: boolean;
   waybills: string[];

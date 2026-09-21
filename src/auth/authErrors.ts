@@ -1,6 +1,6 @@
 import AppError from "../types/utils/AppError";
 
-/** Same copy for every failed password login — avoids account enumeration. */
+/** Same copy for every failed password login - avoids account enumeration. */
 export const LOGIN_FAILED_GENERIC = "Invalid email or password.";
 
 export const OTP_INVALID = "Invalid or expired verification code.";

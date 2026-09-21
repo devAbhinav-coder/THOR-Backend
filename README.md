@@ -13,17 +13,17 @@ Or run separately:
 
 ```bash
 npm run redis:up      # once
-npm run dev           # terminal 1 — API
-npm run worker:dev    # terminal 2 — jobs (abandoned cart, payment recovery, emails)
+npm run dev           # terminal 1 - API
+npm run worker:dev    # terminal 2 - jobs (abandoned cart, payment recovery, emails)
 ```
 
 ## Critical infrastructure
 
-| Component | Why it matters | Local command |
-|-----------|----------------|---------------|
-| **Redis** | Auth rate limits, cart sync (multi-tab), BullMQ email/job queues | `npm run redis:up` |
-| **Worker process** | Abandoned cart emails, payment recovery, review invites, outbox | `npm run worker:dev` or `dev:stack` |
-| **SMTP or Resend** | Abandoned cart recovery, order/OTP emails | Set in `.env` |
+| Component          | Why it matters                                                   | Local command                       |
+| ------------------ | ---------------------------------------------------------------- | ----------------------------------- |
+| **Redis**          | Auth rate limits, cart sync (multi-tab), BullMQ email/job queues | `npm run redis:up`                  |
+| **Worker process** | Abandoned cart emails, payment recovery, review invites, outbox  | `npm run worker:dev` or `dev:stack` |
+| **SMTP or Resend** | Abandoned cart recovery, order/OTP emails                        | Set in `.env`                       |
 
 ### Health check
 
@@ -65,14 +65,14 @@ npm run worker     # Worker (separate process/container)
 
 ## Environment variables (essential)
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `MONGODB_URI` | yes | MongoDB connection |
-| `JWT_SECRET` | yes | 32+ chars in production |
-| `REDIS_URL` | prod | Redis for limits, cart sync, queues |
-| `SMTP_HOST` or `RESEND_API_KEY` | prod worker | Transactional + recovery emails |
-| `RAZORPAY_KEY_ID` / `SECRET` | prod | Online payments + recovery |
-| `RUN_MODE` | no | `api` \| `worker` \| `all` |
-| `QUEUE_WORKERS_ENABLED` | worker | `true` on worker pod |
+| Variable                        | Required    | Description                         |
+| ------------------------------- | ----------- | ----------------------------------- |
+| `MONGODB_URI`                   | yes         | MongoDB connection                  |
+| `JWT_SECRET`                    | yes         | 32+ chars in production             |
+| `REDIS_URL`                     | prod        | Redis for limits, cart sync, queues |
+| `SMTP_HOST` or `RESEND_API_KEY` | prod worker | Transactional + recovery emails     |
+| `RAZORPAY_KEY_ID` / `SECRET`    | prod        | Online payments + recovery          |
+| `RUN_MODE`                      | no          | `api` \| `worker` \| `all`          |
+| `QUEUE_WORKERS_ENABLED`         | worker      | `true` on worker pod                |
 
 See `.env.example` for full list (cart abandon tuning, payment recovery interval, etc.).

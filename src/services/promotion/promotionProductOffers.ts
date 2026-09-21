@@ -1,4 +1,4 @@
-import type { CouponLineScope } from '../coupon/couponBusinessRules';
+import type { CouponLineScope } from "../coupon/couponBusinessRules";
 import {
   buildProgressHint,
   calculatePromotionDiscount,
@@ -6,7 +6,7 @@ import {
   promotionDisplayLabel,
   promotionMatchesProduct,
   type PromotionLike,
-} from './promotionBusinessRules';
+} from "./promotionBusinessRules";
 
 export type ProductPromotionDto = {
   displayTitle: string;
@@ -94,7 +94,7 @@ export function getProductPromotionOffers(
     }
 
     if (hint) {
-      // PDP: always surface scoped offers (BOGO / flat / %) — hint explains how to unlock
+      // PDP: always surface scoped offers (BOGO / flat / %) - hint explains how to unlock
       activePromotions.push({
         ...dto,
         progressHint: hint.message,
@@ -107,7 +107,7 @@ export function getProductPromotionOffers(
   return { activePromotions, nearEligiblePromotions: [] };
 }
 
-/** @deprecated Use getProductPromotionOffers — kept for cart/list callers. */
+/** @deprecated Use getProductPromotionOffers - kept for cart/list callers. */
 export function getPromotionsForProduct(
   promotions: PromotionLike[],
   product: {
@@ -118,11 +118,10 @@ export function getPromotionsForProduct(
     subcategory?: string | null;
   },
 ): ProductPromotionDto[] {
-  const { activePromotions, nearEligiblePromotions } = getProductPromotionOffers(
-    promotions,
-    product,
-    0,
-    1,
-  );
-  return [...activePromotions, ...nearEligiblePromotions.map(({ hintMessage: _h, ...rest }) => rest)];
+  const { activePromotions, nearEligiblePromotions } =
+    getProductPromotionOffers(promotions, product, 0, 1);
+  return [
+    ...activePromotions,
+    ...nearEligiblePromotions.map(({ hintMessage: _h, ...rest }) => rest),
+  ];
 }

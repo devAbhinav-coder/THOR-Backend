@@ -4,14 +4,14 @@ Production-grade inventory layer for the House of Rani ecommerce backend. All **
 
 ## Layering
 
-| Layer | Responsibility |
-|-------|----------------|
-| `inventoryController.ts` | Validate (Zod middleware), orchestrate, serialize responses |
-| `services/inventory/*` | Business logic, transactions, bulk writes, reporting |
-| `utils/financialMath.ts` | Paise-based GST/totals (legacy `Math.round` compatible) |
-| `utils/mongoTransaction.ts` | `withTransaction` wrapper + structured errors |
-| `models/*` | PurchaseInvoice (status/void/idempotency), InventoryEventOutbox |
-| `jobs/*` | Outbox poller, totalStock reconciliation |
+| Layer                       | Responsibility                                                  |
+| --------------------------- | --------------------------------------------------------------- |
+| `inventoryController.ts`    | Validate (Zod middleware), orchestrate, serialize responses     |
+| `services/inventory/*`      | Business logic, transactions, bulk writes, reporting            |
+| `utils/financialMath.ts`    | Paise-based GST/totals (legacy `Math.round` compatible)         |
+| `utils/mongoTransaction.ts` | `withTransaction` wrapper + structured errors                   |
+| `models/*`                  | PurchaseInvoice (status/void/idempotency), InventoryEventOutbox |
+| `jobs/*`                    | Outbox poller, totalStock reconciliation                        |
 
 ## Critical flows (transaction-safe)
 
@@ -30,7 +30,7 @@ Production-grade inventory layer for the House of Rani ecommerce backend. All **
 
 ### Invoice delete (`DELETE`)
 
-- **Soft void** (`status: voided`) — preserves audit trail; does **not** reverse stock (same as legacy hard delete from an inventory perspective).
+- **Soft void** (`status: voided`) - preserves audit trail; does **not** reverse stock (same as legacy hard delete from an inventory perspective).
 - Excluded from list + GST aggregates (same UX as removal).
 
 ## Financial precision
@@ -45,10 +45,10 @@ Production-grade inventory layer for the House of Rani ecommerce backend. All **
 
 ## Background jobs
 
-| Env | Default | Job |
-|-----|---------|-----|
-| `INVENTORY_OUTBOX_POLL_ENABLED` | on | Retry cache/PDP side effects |
-| `INVENTORY_RECONCILE_ENABLED` | on | Fix `totalStock` drift (batch of 50 products/hour by default) |
+| Env                             | Default | Job                                                           |
+| ------------------------------- | ------- | ------------------------------------------------------------- |
+| `INVENTORY_OUTBOX_POLL_ENABLED` | on      | Retry cache/PDP side effects                                  |
+| `INVENTORY_RECONCILE_ENABLED`   | on      | Fix `totalStock` drift (batch of 50 products/hour by default) |
 
 Disable in dev with `=false`.
 
@@ -60,7 +60,7 @@ Disable in dev with `=false`.
 
 ## Zero-breaking migration
 
-1. Deploy backend — existing documents without `status` behave as active (`$ne: voided` queries).
+1. Deploy backend - existing documents without `status` behave as active (`$ne: voided` queries).
 2. Ensure MongoDB replica set for transactions (required for `withTransaction`).
 3. If duplicate `invoiceNumber` exist in DB, resolve before unique index builds.
 4. Optional: send `Idempotency-Key` from frontend on invoice create for retry safety.

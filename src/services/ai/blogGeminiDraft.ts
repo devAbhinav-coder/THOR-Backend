@@ -21,7 +21,7 @@ function geminiWordTarget(targetLength?: "short" | "medium" | "long"): string {
   return "450-550";
 }
 
-/** Two Gemini calls — metadata JSON + content JSON — avoids MAX_TOKENS on one huge blob. */
+/** Two Gemini calls - metadata JSON + content JSON - avoids MAX_TOKENS on one huge blob. */
 export async function draftBlogWithGemini(input: {
   topic: string;
   tone?: string;
@@ -76,7 +76,8 @@ Tone: ${tone || "warm expert"}. Allowed tags only: p, h2, ul, ol, li, strong, em
 ${AI_ENGLISH_ONLY_RULE}`;
 
   const contentResult = await blogChatCompletion(contentPrompt, {
-    systemExtra: "JSON with single content field. Complete valid HTML inside content.",
+    systemExtra:
+      "JSON with single content field. Complete valid HTML inside content.",
     maxTokens: 8192,
     maxPromptChars: 8000,
     jsonObject: true,
@@ -91,7 +92,9 @@ ${AI_ENGLISH_ONLY_RULE}`;
   content = enrichBlogContentHtml(content);
 
   if (content.length < 120) {
-    logger.warn("Gemini content phase short — retrying with 300-400 word target");
+    logger.warn(
+      "Gemini content phase short - retrying with 300-400 word target",
+    );
     const shortPrompt = `Return JSON: {"content": "HTML blog body"}
 Topic: "${topic}". Only 300-400 words, 2 <h2> sections, 1 product link.
 Products: ${JSON.stringify(products.slice(0, 2))}
@@ -116,8 +119,7 @@ ${AI_ENGLISH_ONLY_RULE}`;
     ...metaNorm,
     content,
     excerpt,
-    seoDescription:
-      metaNorm.seoDescription || excerpt.slice(0, 170),
+    seoDescription: metaNorm.seoDescription || excerpt.slice(0, 170),
     readingTimeMin: computeReadingTimeMin(content),
   };
 

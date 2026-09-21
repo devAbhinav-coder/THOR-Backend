@@ -6,9 +6,7 @@ import SalesInvoice, {
 } from "../../models/SalesInvoice";
 import type { IAddress, IOrderItem } from "../../types";
 import AppError from "../../types/utils/AppError";
-import {
-  suggestB2bTaxInvoiceNumber,
-} from "../../utils/documentNumbers";
+import { suggestB2bTaxInvoiceNumber } from "../../utils/documentNumbers";
 import {
   computeTotals,
   DEFAULT_SALES_INVOICE_SELLER,
@@ -43,7 +41,7 @@ function lineDescription(item: IOrderItem): string {
     (v): v is string => typeof v === "string" && v.trim().length > 0,
   );
   if (variantParts.length === 0) return item.name;
-  return `${item.name} — ${variantParts.join(" / ")}`;
+  return `${item.name} - ${variantParts.join(" / ")}`;
 }
 
 function hsnForItem(
@@ -63,8 +61,7 @@ function buildLinesFromOrder(
 ): ISalesInvoiceLine[] {
   return items.map((item) => {
     const productId =
-      item.product instanceof mongoose.Types.ObjectId ?
-        String(item.product)
+      item.product instanceof mongoose.Types.ObjectId ? String(item.product)
       : typeof item.product === "object" && item.product !== null ?
         String((item.product as PopulatedProduct)._id)
       : String(item.product);
@@ -126,7 +123,10 @@ export async function createTaxInvoiceFromB2bOrder(
 
   if (!order) throw new AppError("Order not found.", 404);
   if (order.offlineMeta?.source !== "b2b") {
-    throw new AppError("Tax invoices can only be created from B2B orders.", 400);
+    throw new AppError(
+      "Tax invoices can only be created from B2B orders.",
+      400,
+    );
   }
   if (!order.items?.length) {
     throw new AppError("Order has no line items.", 400);

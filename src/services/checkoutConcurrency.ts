@@ -1,8 +1,17 @@
 import crypto from "crypto";
-import { redisConnection } from "../config/redis";
+import { isRedisOperational, redisConnection } from "../config/redis";
 
 const LOCK_PREFIX = "checkout:lock:";
-const LOCK_TTL_SEC = 25;
+const LOCK_TTL_SEC = Math.max(
+  5,
+  Math.ceil(
+    Number(process.env.CHECKOUT_LOCK_TTL_MS || 15000) / 1000,
+  ),
+);
+const LOCK_WAIT_MS = Math.min(
+  5000,
+  Math.max(0, Number(process.env.CHECKOUT_LOCK_WAIT_MS || 3000)),
+);
 const IDEMP_PREFIX = "checkout:idemp:";
 const IDEMP_TTL_SEC = 86400;
 const PAY_VERIFY_PREFIX = "pay:verify:";
@@ -25,9 +34,39 @@ export function normalizeIdempotencyKey(raw: string | undefined): string | null 
   return t;
 }
 
+export function checkoutLockRequiresRedis(): boolean {
+  return process.env.NODE_ENV === "production";
+}
+
 export async function acquireCheckoutLock(userId: string): Promise<boolean> {
-  const r = await redisConnection.set(`${LOCK_PREFIX}${userId}`, "1", "EX", LOCK_TTL_SEC, "NX");
+  if (checkoutLockRequiresRedis() && !isRedisOperational()) {
+    return false;
+  }
+  const r = await redisConnection.set(
+    `${LOCK_PREFIX}${userId}`,
+    "1",
+    "EX",
+    LOCK_TTL_SEC,
+    "NX",
+  );
   return r === "OK";
+}
+
+/** Wait briefly for an in-flight checkout on the same account. */
+export async function acquireCheckoutLockWithWait(
+  userId: string,
+): Promise<boolean> {
+  if (checkoutLockRequiresRedis() && !isRedisOperational()) {
+    return false;
+  }
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  while (Date.now() < deadline) {
+    if (await acquireCheckoutLock(userId)) {
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return false;
 }
 
 export async function releaseCheckoutLock(userId: string): Promise<void> {

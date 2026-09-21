@@ -59,7 +59,11 @@ import {
   startAllBackgroundWork,
   stopAllBackgroundWork,
 } from "./jobs/jobBootstrap";
-import { shouldRunHttpServer, getRunMode, shouldRunBackgroundJobs } from "./config/runMode";
+import {
+  shouldRunHttpServer,
+  getRunMode,
+  shouldRunBackgroundJobs,
+} from "./config/runMode";
 import { setupBullBoard } from "./config/bullBoard";
 import { requestContext } from "./types/utils/requestContext";
 import { botHeuristics } from "./middleware/botHeuristics";
@@ -78,6 +82,11 @@ import {
   ensureRedisReady,
   logInfrastructureReport,
 } from "./config/infrastructureReadiness";
+import {
+  isRedisRequiredForProduction,
+  pingRedisForReadiness,
+} from "./config/redisReadiness";
+import { resolveApiRateLimitMax } from "./config/rateLimitPolicy";
 const app = express();
 
 if (process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true") {
@@ -170,10 +179,11 @@ const windowMs = parseInt(
 );
 
 const configuredMax = parseInt(process.env.RATE_LIMIT_MAX || "200", 10);
-const max =
+const configuredProdMax =
   process.env.NODE_ENV === "production" ?
     Math.min(Math.max(100, configuredMax), 2000)
   : configuredMax;
+const max = resolveApiRateLimitMax(configuredProdMax);
 if (process.env.NODE_ENV === "production" && configuredMax > 2000) {
   logger.warn(
     `RATE_LIMIT_MAX=${configuredMax} too high for production; capped to ${max}.`,
@@ -211,7 +221,7 @@ const limiter = rateLimit({
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 50,
+  max: resolveApiRateLimitMax(50),
   skip: (req) => req.method === "OPTIONS",
   message: {
     status: "error",
@@ -312,7 +322,9 @@ app.get("/api/health/live", (_req: Request, res: Response) => {
 
 app.get("/api/health/worker", async (req: Request, res: Response) => {
   const expected = process.env.HEALTHCHECK_TOKEN?.trim();
-  const given = String(req.query.token || req.headers["x-healthcheck-token"] || "");
+  const given = String(
+    req.query.token || req.headers["x-healthcheck-token"] || "",
+  );
   if (expected && given !== expected) {
     res.status(401).json({ status: "fail", message: "Unauthorized" });
     return;
@@ -321,42 +333,32 @@ app.get("/api/health/worker", async (req: Request, res: Response) => {
   const beat = await readWorkerHeartbeat();
   res.status(beat.alive ? 200 : 503).json({
     status: beat.alive ? "ok" : "down",
-    message: beat.alive ? "Worker heartbeat is fresh" : "Worker heartbeat missing — job process may be down",
+    message:
+      beat.alive ?
+        "Worker heartbeat is fresh"
+      : "Worker heartbeat missing - job process may be down",
     lastBeatAt: beat.lastBeatAt,
     timestamp: new Date().toISOString(),
   });
 });
 
 /**
- * Public readiness — Mongo/Redis booleans only (no infra posture leak).
+ * Public readiness - Mongo/Redis booleans only (no infra posture leak).
  * Full report: GET /api/health/detailed?token=HEALTHCHECK_TOKEN
  */
 app.get("/api/health", async (_req: Request, res: Response) => {
   await ensureRedisReady();
   const mongoOk = mongoose.connection.readyState === 1;
-  const isProd = process.env.NODE_ENV === "production";
-  const redisRequired = isProd && redisEnabled;
-  let redisOk = !redisRequired;
-  if (redisEnabled) {
-    try {
-      const pong = await Promise.race([
-        redisConnection.ping(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("timeout")), 2500),
-        ),
-      ]);
-      redisOk = pong === "PONG";
-    } catch {
-      redisOk = false;
-    }
-  }
+  const redisRequired = isRedisRequiredForProduction();
+  const redisOk = await pingRedisForReadiness();
   const ok = mongoOk && (!redisRequired || redisOk);
 
   res.status(ok ? 200 : 503).json({
     status: ok ? "ok" : "degraded",
     message:
       !mongoOk ? "Database connection failed"
-      : redisRequired && !redisOk ? "Redis connection failed"
+      : redisRequired && !redisOk ?
+        "Redis unavailable (strict readiness - drain this pod)"
       : "API is running",
     timestamp: new Date().toISOString(),
     checks: {
@@ -366,7 +368,7 @@ app.get("/api/health", async (_req: Request, res: Response) => {
   });
 });
 
-/** Detailed infra posture — gated (same token as /api/health/worker). */
+/** Detailed infra posture - gated (same token as /api/health/worker). */
 app.get("/api/health/detailed", async (req: Request, res: Response) => {
   const expected = process.env.HEALTHCHECK_TOKEN?.trim();
   const given = String(
@@ -388,8 +390,8 @@ app.get("/api/health/detailed", async (req: Request, res: Response) => {
   await ensureRedisReady();
   const report = await buildInfrastructureReport();
   const mongoOk = report.checks.mongodb.status === "ok";
-  const redisOk = report.checks.redis.status === "ok";
-  const redisRequired = isProd && redisEnabled;
+  const redisOk = await pingRedisForReadiness();
+  const redisRequired = isRedisRequiredForProduction();
   const ok = mongoOk && (!redisRequired || redisOk);
 
   res.status(ok ? 200 : 503).json({
@@ -402,8 +404,7 @@ app.get("/api/health/detailed", async (req: Request, res: Response) => {
     runMode: report.runMode,
     checks: {
       mongodb: mongoOk,
-      redis:
-        report.checks.redis.status === "disabled" ? "disabled" : redisOk,
+      redis: report.checks.redis.status === "disabled" ? "disabled" : redisOk,
       email: report.checks.email.status,
       worker: report.checks.workerProcess.status,
       abandonedCartRecovery: report.checks.abandonedCartRecovery.status,
@@ -491,7 +492,7 @@ async function bootstrap(): Promise<void> {
       );
     } else if (mode === "api" && shouldRunBackgroundJobs()) {
       logger.warn(
-        "Unexpected: RUN_MODE=api but background jobs started — check JOBS_ENABLED.",
+        "Unexpected: RUN_MODE=api but background jobs started - check JOBS_ENABLED.",
       );
     } else if (mode === "api") {
       logger.info(
@@ -591,7 +592,9 @@ process.on("unhandledRejection", (err: Error) => {
       err.message,
     );
   if (redisNoise) {
-    logger.warn("Ignoring Redis rejection in development — API continues with fallbacks.");
+    logger.warn(
+      "Ignoring Redis rejection in development - API continues with fallbacks.",
+    );
     return;
   }
   if (server) {

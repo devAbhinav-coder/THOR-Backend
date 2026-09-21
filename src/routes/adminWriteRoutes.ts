@@ -86,7 +86,7 @@ import {
 import { ADMIN_WRITE_SURFACES } from "../config/adminWriteSurfaces";
 
 /**
- * Canonical admin write surface — already behind /api/admin + 2FA.
+ * Canonical admin write surface - already behind /api/admin + 2FA.
  * Legacy public-prefix writes remain for compatibility; WAF should cover both.
  */
 const router = Router();
@@ -123,7 +123,11 @@ router.post(
   validate(createCouponSchema),
   createCoupon,
 );
-router.patch("/coupons/:id/archive", validate(couponIdParamsSchema), archiveCoupon);
+router.patch(
+  "/coupons/:id/archive",
+  validate(couponIdParamsSchema),
+  archiveCoupon,
+);
 router.patch(
   "/coupons/:id",
   uploadCouponBanner,
@@ -140,7 +144,11 @@ router.post(
   validate(createSaleCampaignSchema),
   createSaleCampaign,
 );
-router.patch("/sales/:id/archive", validate(saleCampaignIdParamsSchema), archiveSaleCampaign);
+router.patch(
+  "/sales/:id/archive",
+  validate(saleCampaignIdParamsSchema),
+  archiveSaleCampaign,
+);
 router.patch(
   "/sales/:id",
   uploadSaleBanner,
@@ -148,7 +156,11 @@ router.patch(
   validate(updateSaleCampaignSchema),
   updateSaleCampaign,
 );
-router.delete("/sales/:id", validate(saleCampaignIdParamsSchema), deleteSaleCampaign);
+router.delete(
+  "/sales/:id",
+  validate(saleCampaignIdParamsSchema),
+  deleteSaleCampaign,
+);
 
 router.post(
   "/promotions",
@@ -157,7 +169,11 @@ router.post(
   validate(createPromotionSchema),
   createPromotion,
 );
-router.patch("/promotions/:id/archive", validate(promotionIdParamsSchema), archivePromotion);
+router.patch(
+  "/promotions/:id/archive",
+  validate(promotionIdParamsSchema),
+  archivePromotion,
+);
 router.patch(
   "/promotions/:id",
   uploadPromotionBanner,
@@ -165,7 +181,11 @@ router.patch(
   validate(updatePromotionSchema),
   updatePromotion,
 );
-router.delete("/promotions/:id", validate(promotionIdParamsSchema), deletePromotion);
+router.delete(
+  "/promotions/:id",
+  validate(promotionIdParamsSchema),
+  deletePromotion,
+);
 
 router.post(
   "/blogs",
@@ -194,8 +214,16 @@ router.post(
   validate(createTestimonialSchema),
   createTestimonial,
 );
-router.patch("/testimonials/:id/approve", validate(testimonialIdParamSchema), approveTestimonial);
-router.patch("/testimonials/:id/reject", validate(testimonialIdParamSchema), rejectTestimonial);
+router.patch(
+  "/testimonials/:id/approve",
+  validate(testimonialIdParamSchema),
+  approveTestimonial,
+);
+router.patch(
+  "/testimonials/:id/reject",
+  validate(testimonialIdParamSchema),
+  rejectTestimonial,
+);
 router.patch(
   "/testimonials/:id",
   uploadReviewImages,
@@ -204,6 +232,10 @@ router.patch(
   validate(updateTestimonialSchema),
   updateTestimonial,
 );
-router.delete("/testimonials/:id", validate(testimonialIdParamSchema), deleteTestimonial);
+router.delete(
+  "/testimonials/:id",
+  validate(testimonialIdParamSchema),
+  deleteTestimonial,
+);
 
 export default router;

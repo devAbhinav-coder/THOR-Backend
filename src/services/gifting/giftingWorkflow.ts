@@ -13,7 +13,7 @@ const TERMINAL: GiftingStatus[] = [
   "cancelled",
 ];
 
-/** Admin status transitions — prevents accidental workflow regression. */
+/** Admin status transitions - prevents accidental workflow regression. */
 const ADMIN_TRANSITIONS: Record<GiftingStatus, GiftingStatus[]> = {
   new: ["new", "price_quoted", "cancelled"],
   price_quoted: ["price_quoted", "cancelled"],

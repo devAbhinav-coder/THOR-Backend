@@ -1,5 +1,8 @@
-/** Cart Redis cache TTL (seconds). */
-export const CART_CACHE_TTL_SEC = 1800;
+/** Cart cache soft TTL (seconds) - checkout always uses skipCache. */
+export const CART_CACHE_TTL_SEC = 45;
+
+/** Cart cache hard TTL (seconds) for stale-while-revalidate window. */
+export const CART_CACHE_HARD_TTL_SEC = 180;
 
 /** Cart mutation distributed lock TTL (seconds). */
 export const CART_LOCK_TTL_SEC = 8;
@@ -14,17 +17,17 @@ export const CART_QUERY_MAX_MS = 5000;
 export const CART_IDEMPOTENCY_TTL_SEC = 300;
 
 /** Redis pub/sub channel prefix for realtime cart sync. */
-export const CART_EVENT_CHANNEL_PREFIX = 'cart:events:';
+export const CART_EVENT_CHANNEL_PREFIX = "cart:events:";
 
-export const CART_CACHE_KEY_PREFIX = 'cache:cart:v2:';
-export const CART_LOCK_KEY_PREFIX = 'lock:cart:';
-export const CART_IDEMPOTENCY_KEY_PREFIX = 'cache:cart:idempotency:';
+export const CART_CACHE_KEY_PREFIX = "cache:cart:v2:";
+export const CART_LOCK_KEY_PREFIX = "lock:cart:";
+export const CART_IDEMPOTENCY_KEY_PREFIX = "cache:cart:idempotency:";
 
 /** Product fields required for add-to-cart validation and line building. */
 export const PRODUCT_FOR_CART_SELECT =
-  'name slug images isActive price comparePrice categoryId subcategoryId variants customFields occasions minOrderQty';
+  "name slug images isActive price comparePrice categoryId subcategoryId variants customFields occasions minOrderQty";
 
-export const PRODUCT_MIN_QTY_SELECT = 'minOrderQty occasions';
+export const PRODUCT_MIN_QTY_SELECT = "minOrderQty occasions";
 
 export const COUPON_LOOKUP_SELECT =
-  'code discountType discountValue minOrderAmount maxDiscountAmount usageLimit usedCount userUsageLimit usedBy startDate expiryDate isActive deletedAt eligibilityType minCompletedOrders maxCompletedOrders scopeType applicableCategories applicableCategoryIds applicableSubcategoryIds applicableProductIds';
+  "code discountType discountValue minOrderAmount maxDiscountAmount usageLimit usedCount userUsageLimit usedBy startDate expiryDate isActive deletedAt eligibilityType minCompletedOrders maxCompletedOrders scopeType applicableCategories applicableCategoryIds applicableSubcategoryIds applicableProductIds";

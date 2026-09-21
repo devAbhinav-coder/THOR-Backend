@@ -1,4 +1,4 @@
-/** Stable Unsplash URLs — saree / ethnic wear (seed-only, not uploaded to Cloudinary). */
+/** Stable Unsplash URLs - saree / ethnic wear (seed-only, not uploaded to Cloudinary). */
 export const SHOP_CATALOG_SEED_IMAGES = [
   "https://images.unsplash.com/photo-1610030311234-aab2665a6617?auto=format&fit=crop&w=900&q=80",
   "https://images.unsplash.com/photo-1583391733988-388b328023aa?auto=format&fit=crop&w=900&q=80",

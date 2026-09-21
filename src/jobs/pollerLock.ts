@@ -1,5 +1,9 @@
 import { randomUUID } from "crypto";
-import { redisConnection, redisEnabled } from "../config/redis";
+import {
+  redisConnection,
+  redisEnabled,
+  isRedisOperational,
+} from "../config/redis";
 import logger from "../types/utils/logger";
 
 const LOCK_PREFIX = "poller:lock:";
@@ -15,6 +19,10 @@ export async function withPollerLock<T>(
 ): Promise<T | null> {
   if (!redisEnabled) {
     return fn();
+  }
+
+  if (!isRedisOperational()) {
+    return null;
   }
 
   const lockKey = `${LOCK_PREFIX}${pollerName}`;
@@ -57,6 +65,10 @@ export async function acquireJobLock(
 ): Promise<string | null> {
   if (!redisEnabled) {
     return "dev-no-redis";
+  }
+
+  if (!isRedisOperational()) {
+    return null;
   }
 
   const lockKey = `${LOCK_PREFIX}job:${jobName}`;

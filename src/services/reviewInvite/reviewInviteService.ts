@@ -1,28 +1,31 @@
-import crypto from 'crypto';
-import mongoose from 'mongoose';
-import QRCode from 'qrcode';
-import ReviewInvite from '../../models/ReviewInvite';
-import Order from '../../models/Order';
-import Product from '../../models/Product';
-import Review from '../../models/Review';
-import User from '../../models/User';
-import AppError from '../../types/utils/AppError';
-import { OFFLINE_MANUAL_PRODUCT_TAG } from '../../constants/offlineOrder';
-import { REVIEW_QUERY_MAX_MS } from '../reviews/reviewConstants';
-import { reviewCacheService } from '../reviews/reviewCacheService';
-import { applyModerationToReview } from '../reviews/reviewModerationService';
-import { emitReviewEvent } from '../reviews/reviewEventService';
-import { recordReviewMetric } from '../reviews/reviewMetricsService';
-import { testimonialService } from '../testimonialService';
-import { emailTemplates } from '../emailService';
-import { enqueueEmail } from '../../queues/emailQueue';
-import { isCustomerDeliverableEmail } from '../../types/utils/customerEmail';
+import crypto from "crypto";
+import mongoose from "mongoose";
+import QRCode from "qrcode";
+import ReviewInvite from "../../models/ReviewInvite";
+import Order from "../../models/Order";
+import Product from "../../models/Product";
+import Review from "../../models/Review";
+import User from "../../models/User";
+import AppError from "../../types/utils/AppError";
+import { OFFLINE_MANUAL_PRODUCT_TAG } from "../../constants/offlineOrder";
+import { REVIEW_QUERY_MAX_MS } from "../reviews/reviewConstants";
+import { reviewCacheService } from "../reviews/reviewCacheService";
+import { applyModerationToReview } from "../reviews/reviewModerationService";
+import { emitReviewEvent } from "../reviews/reviewEventService";
+import { recordReviewMetric } from "../reviews/reviewMetricsService";
+import { testimonialService } from "../testimonialService";
+import { emailTemplates } from "../emailService";
+import { enqueueEmail } from "../../queues/emailQueue";
+import { isCustomerDeliverableEmail } from "../../types/utils/customerEmail";
 
 const INVITE_TTL_DAYS = Number(process.env.REVIEW_INVITE_TTL_DAYS || 90);
 const TOKEN_BYTES = 32;
 
 function frontendBase(): string {
-  return (process.env.FRONTEND_URL || 'https://thehouseofrani.com').replace(/\/$/, '');
+  return (process.env.FRONTEND_URL || "https://thehouseofrani.com").replace(
+    /\/$/,
+    "",
+  );
 }
 
 function invitePublicUrl(token: string): string {
@@ -31,36 +34,36 @@ function invitePublicUrl(token: string): string {
 
 /** Safely extract Mongo ObjectId string from raw id / populated doc. */
 function resolveId(value: unknown): string {
-  if (value == null) return '';
-  if (typeof value === 'string') {
-    return mongoose.Types.ObjectId.isValid(value) ? value : '';
+  if (value == null) return "";
+  if (typeof value === "string") {
+    return mongoose.Types.ObjectId.isValid(value) ? value : "";
   }
   if (value instanceof mongoose.Types.ObjectId) {
     return value.toHexString();
   }
-  if (typeof value === 'object') {
+  if (typeof value === "object") {
     const o = value as { _id?: unknown; id?: unknown };
     if (o._id != null) return resolveId(o._id);
     if (o.id != null) return resolveId(o.id);
   }
-  return '';
+  return "";
 }
 
 function normalizeWhitespace(value: string): string {
-  return value.replace(/\s+/g, ' ').trim();
+  return value.replace(/\s+/g, " ").trim();
 }
 
 async function catalogProductIdsFromOrder(orderId: string): Promise<string[]> {
   const order = await Order.findById(orderId)
-    .select('items.product')
+    .select("items.product")
     .lean()
     .maxTimeMS(REVIEW_QUERY_MAX_MS);
-  if (!order) throw new AppError('Order not found.', 404);
+  if (!order) throw new AppError("Order not found.", 404);
 
   const rawIds = [
     ...new Set(
       (order.items || [])
-        .map((it) => String((it as { product?: unknown }).product || ''))
+        .map((it) => String((it as { product?: unknown }).product || ""))
         .filter((id) => mongoose.Types.ObjectId.isValid(id)),
     ),
   ];
@@ -71,7 +74,7 @@ async function catalogProductIdsFromOrder(orderId: string): Promise<string[]> {
     isActive: true,
     tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
   })
-    .select('_id')
+    .select("_id")
     .lean()
     .maxTimeMS(REVIEW_QUERY_MAX_MS);
 
@@ -79,12 +82,17 @@ async function catalogProductIdsFromOrder(orderId: string): Promise<string[]> {
 }
 
 async function assertInviteUsable(token: string) {
-  const invite = await ReviewInvite.findOne({ token }).maxTimeMS(REVIEW_QUERY_MAX_MS);
+  const invite = await ReviewInvite.findOne({ token }).maxTimeMS(
+    REVIEW_QUERY_MAX_MS,
+  );
   if (!invite || invite.revokedAt) {
-    throw new AppError('This review link is invalid or has been revoked.', 404);
+    throw new AppError("This review link is invalid or has been revoked.", 404);
   }
   if (invite.expiresAt.getTime() < Date.now()) {
-    throw new AppError('This review link has expired. Please ask us for a new one.', 410);
+    throw new AppError(
+      "This review link has expired. Please ask us for a new one.",
+      410,
+    );
   }
   return invite;
 }
@@ -94,29 +102,29 @@ export const reviewInviteService = {
 
   async createQrDataUrl(url: string): Promise<string> {
     return QRCode.toDataURL(url, {
-      errorCorrectionLevel: 'H',
+      errorCorrectionLevel: "H",
       margin: 2,
       width: 480,
-      color: { dark: '#0b1220', light: '#ffffff' },
+      color: { dark: "#0b1220", light: "#ffffff" },
     });
   },
 
   /** Create or reuse active invite for an order. */
   async createOrGetForOrder(orderId: string, adminId?: string) {
     if (!mongoose.Types.ObjectId.isValid(orderId)) {
-      throw new AppError('Invalid order id.', 400);
+      throw new AppError("Invalid order id.", 400);
     }
 
     const order = await Order.findById(orderId)
-      .select('_id orderNumber user status offlineMeta')
-      .populate('user', 'name email phone')
+      .select("_id orderNumber user status offlineMeta")
+      .populate("user", "name email phone")
       .maxTimeMS(REVIEW_QUERY_MAX_MS);
-    if (!order) throw new AppError('Order not found.', 404);
+    if (!order) throw new AppError("Order not found.", 404);
 
     const productIds = await catalogProductIdsFromOrder(orderId);
     if (!productIds.length) {
       throw new AppError(
-        'No catalog products on this order to review (manual lines are excluded).',
+        "No catalog products on this order to review (manual lines are excluded).",
         400,
       );
     }
@@ -129,8 +137,10 @@ export const reviewInviteService = {
     }).maxTimeMS(REVIEW_QUERY_MAX_MS);
 
     if (!invite) {
-      const token = crypto.randomBytes(TOKEN_BYTES).toString('base64url');
-      const expiresAt = new Date(now.getTime() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
+      const token = crypto.randomBytes(TOKEN_BYTES).toString("base64url");
+      const expiresAt = new Date(
+        now.getTime() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000,
+      );
       invite = await ReviewInvite.create({
         token,
         order: orderId,
@@ -141,13 +151,19 @@ export const reviewInviteService = {
       });
     } else {
       // Refresh eligible products if order items changed
-      invite.productIds = productIds.map((id) => new mongoose.Types.ObjectId(id));
+      invite.productIds = productIds.map(
+        (id) => new mongoose.Types.ObjectId(id),
+      );
       await invite.save();
     }
 
     const url = invitePublicUrl(invite.token);
     const qrDataUrl = await this.createQrDataUrl(url);
-    const user = order.user as unknown as { name?: string; email?: string; phone?: string };
+    const user = order.user as unknown as {
+      name?: string;
+      email?: string;
+      phone?: string;
+    };
 
     return {
       invite: {
@@ -165,8 +181,9 @@ export const reviewInviteService = {
         _id: String(order._id),
         userId: resolveId(order.user),
         orderNumber: order.orderNumber,
-        customerName: user?.name || 'Customer',
-        customerEmail: isCustomerDeliverableEmail(user?.email) ? user.email : null,
+        customerName: user?.name || "Customer",
+        customerEmail:
+          isCustomerDeliverableEmail(user?.email) ? user.email : null,
         customerPhone: user?.phone || null,
         hasWhatsAppPhone: Boolean(
           user?.phone && String(user.phone).replace(/\D/g, "").length >= 10,
@@ -178,11 +195,11 @@ export const reviewInviteService = {
   async getPublicInvite(token: string) {
     const invite = await assertInviteUsable(token);
     const order = await Order.findById(invite.order)
-      .select('orderNumber items.product items.name items.image user')
-      .populate('user', 'name')
+      .select("orderNumber items.product items.name items.image user")
+      .populate("user", "name")
       .lean()
       .maxTimeMS(REVIEW_QUERY_MAX_MS);
-    if (!order) throw new AppError('Order not found for this invite.', 404);
+    if (!order) throw new AppError("Order not found for this invite.", 404);
 
     const reviewedSet = new Set(invite.reviewedProductIds.map(String));
     const products = await Product.find({
@@ -190,21 +207,24 @@ export const reviewInviteService = {
       isActive: true,
       tags: { $nin: [OFFLINE_MANUAL_PRODUCT_TAG] },
     })
-      .select('name slug images')
+      .select("name slug images")
       .lean()
       .maxTimeMS(REVIEW_QUERY_MAX_MS);
 
     const orderUserId = resolveId((order as { user?: unknown }).user);
-    const existingReviews = orderUserId
-      ? await Review.find({
+    const existingReviews =
+      orderUserId ?
+        await Review.find({
           user: orderUserId,
           product: { $in: invite.productIds },
         })
-          .select('product')
+          .select("product")
           .lean()
           .maxTimeMS(REVIEW_QUERY_MAX_MS)
       : [];
-    const alreadyReviewedByUser = new Set(existingReviews.map((r) => String(r.product)));
+    const alreadyReviewedByUser = new Set(
+      existingReviews.map((r) => String(r.product)),
+    );
 
     const items = products.map((p) => {
       const id = String(p._id);
@@ -222,13 +242,13 @@ export const reviewInviteService = {
 
     const populatedUser = (order as { user?: { name?: string } | string }).user;
     const customerName =
-      typeof populatedUser === 'object' && populatedUser?.name
-        ? String(populatedUser.name).trim() || 'Guest'
-        : 'Guest';
+      typeof populatedUser === "object" && populatedUser?.name ?
+        String(populatedUser.name).trim() || "Guest"
+      : "Guest";
 
     return {
       orderNumber: order.orderNumber,
-      customerFirstName: customerName.split(/\s+/)[0] || 'there',
+      customerFirstName: customerName.split(/\s+/)[0] || "there",
       expiresAt: invite.expiresAt,
       items,
       remainingCount: items.filter((i) => !i.alreadyReviewed).length,
@@ -248,52 +268,57 @@ export const reviewInviteService = {
     },
   ) {
     const invite = await assertInviteUsable(token);
-    const productId = String(input.productId || '').trim();
+    const productId = String(input.productId || "").trim();
     if (!mongoose.Types.ObjectId.isValid(productId)) {
-      throw new AppError('Invalid product.', 400);
+      throw new AppError("Invalid product.", 400);
     }
     if (!invite.productIds.some((id) => String(id) === productId)) {
-      throw new AppError('This product is not part of your purchase invite.', 403);
+      throw new AppError(
+        "This product is not part of your purchase invite.",
+        403,
+      );
     }
     if (invite.reviewedProductIds.some((id) => String(id) === productId)) {
-      throw new AppError('You have already reviewed this product via this link.', 409);
+      throw new AppError(
+        "You have already reviewed this product via this link.",
+        409,
+      );
     }
 
     const comment = normalizeWhitespace(input.comment);
     if (comment.length < 10) {
-      throw new AppError('Please write at least 10 characters.', 400);
+      throw new AppError("Please write at least 10 characters.", 400);
     }
     const rating = Number(input.rating);
     if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-      throw new AppError('Rating must be between 1 and 5.', 400);
+      throw new AppError("Rating must be between 1 and 5.", 400);
     }
     const images = input.images?.slice(0, 5) || [];
     if (images.length < 1) {
-      throw new AppError('Please add at least one photo.', 400);
+      throw new AppError("Please add at least one photo.", 400);
     }
 
     const order = await Order.findById(invite.order)
-      .select('_id user status')
+      .select("_id user status")
       .maxTimeMS(REVIEW_QUERY_MAX_MS);
-    if (!order?.user) throw new AppError('Order customer not found.', 404);
+    if (!order?.user) throw new AppError("Order customer not found.", 404);
 
     const userId = resolveId(order.user);
     if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
-      throw new AppError('Order customer not found.', 404);
+      throw new AppError("Order customer not found.", 404);
     }
     const existing = await Review.findOne({ product: productId, user: userId })
-      .select('_id')
+      .select("_id")
       .lean()
       .maxTimeMS(REVIEW_QUERY_MAX_MS);
     if (existing) {
-      throw new AppError('You have already reviewed this product.', 409);
+      throw new AppError("You have already reviewed this product.", 409);
     }
 
     const anonymous =
-      Boolean(input.isAnonymous) || !String(input.displayName || '').trim();
-    const displayName = anonymous
-      ? 'Anonymous'
-      : String(input.displayName).trim().slice(0, 80);
+      Boolean(input.isAnonymous) || !String(input.displayName || "").trim();
+    const displayName =
+      anonymous ? "Anonymous" : String(input.displayName).trim().slice(0, 80);
 
     const title = input.title ? normalizeWhitespace(input.title) : undefined;
 
@@ -307,28 +332,30 @@ export const reviewInviteService = {
         comment,
         images,
         isVerifiedPurchase: true,
-        source: 'invite',
-        status: 'pending_moderation',
+        source: "invite",
+        status: "pending_moderation",
         userSnapshot: { name: displayName },
         helpfulCount: 0,
       },
     ]);
     applyModerationToReview(review, title, comment);
-    review.status = 'pending_moderation';
+    review.status = "pending_moderation";
     await review.save();
 
     invite.reviewedProductIds.push(new mongoose.Types.ObjectId(productId));
     await invite.save();
 
     // Keep display name friendly on guest-ish accounts without overwriting real accounts
-    const userDoc = await User.findById(userId).select('name email offlineLead');
+    const userDoc = await User.findById(userId).select(
+      "name email offlineLead",
+    );
     if (userDoc && !anonymous && userDoc.offlineLead) {
       userDoc.name = displayName.slice(0, 50);
       await userDoc.save().catch(() => {});
     }
 
     const story = await testimonialService.submitFromPublicLink({
-      displayName: anonymous ? '' : displayName,
+      displayName: anonymous ? "" : displayName,
       isAnonymous: anonymous,
       quote: comment.slice(0, 1200),
       rating,
@@ -338,17 +365,17 @@ export const reviewInviteService = {
     });
 
     reviewCacheService.scheduleInvalidateProduct(productId);
-    recordReviewMetric('review.created', {
+    recordReviewMetric("review.created", {
       productId,
       rating,
-      source: 'invite',
+      source: "invite",
     });
     emitReviewEvent({
-      type: 'review.created',
+      type: "review.created",
       reviewId: String(review._id),
       productId,
       userId,
-      meta: { rating, source: 'invite' },
+      meta: { rating, source: "invite" },
     });
 
     const remaining = invite.productIds.filter(
@@ -358,7 +385,7 @@ export const reviewInviteService = {
     return {
       reviewId: String(review._id),
       testimonialId: String(story._id),
-      status: 'pending_moderation',
+      status: "pending_moderation",
       remainingCount: remaining,
     };
   },
@@ -368,7 +395,7 @@ export const reviewInviteService = {
     const email = payload.order.customerEmail;
     if (!email) {
       throw new AppError(
-        'No customer email on this order. Copy the link or QR instead.',
+        "No customer email on this order. Copy the link or QR instead.",
         400,
       );
     }
@@ -428,7 +455,7 @@ export const reviewInviteService = {
     };
   },
 
-  /** Auto job — email if available, otherwise WhatsApp. */
+  /** Auto job - email if available, otherwise WhatsApp. */
   async sendInviteAuto(orderId: string) {
     const payload = await this.createOrGetForOrder(orderId);
     const email = payload.order.customerEmail;
@@ -452,7 +479,8 @@ export const reviewInviteService = {
       channel = "email";
     }
 
-    const { notifyWhatsAppReviewInvite } = await import("../whatsappNotifyService");
+    const { notifyWhatsAppReviewInvite } =
+      await import("../whatsappNotifyService");
     const waSent = await notifyWhatsAppReviewInvite({
       userId: payload.order.userId || undefined,
       orderId: payload.order._id,
@@ -469,7 +497,10 @@ export const reviewInviteService = {
     }
 
     if (!channel) {
-      throw new AppError("No deliverable email or phone for review invite.", 400);
+      throw new AppError(
+        "No deliverable email or phone for review invite.",
+        400,
+      );
     }
 
     return { orderId, channel };

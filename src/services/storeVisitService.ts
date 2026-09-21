@@ -63,11 +63,26 @@ function normalizeLandingPath(path?: string): string {
   if (!p || p === "/") return "Home";
   if (p.startsWith("/shop/")) return "Product / Shop";
   if (p.startsWith("/shop")) return "Shop";
+  if (p.startsWith("/premium/")) return "Product / Premium";
+  if (p.startsWith("/premium")) return "Premium";
   if (p.startsWith("/blog")) return "Blog";
   if (p.startsWith("/gifting")) return "Gifting";
   if (p.startsWith("/checkout")) return "Checkout";
   if (p.startsWith("/cart")) return "Cart";
   return p.length > 40 ? `${p.slice(0, 38)}…` : p;
+}
+
+function mergeLandingPageVisits(
+  rows: { _id: string; visits: number }[],
+): { page: string; visits: number }[] {
+  const map = new Map<string, number>();
+  for (const r of rows) {
+    const page = normalizeLandingPath(r._id);
+    map.set(page, (map.get(page) ?? 0) + r.visits);
+  }
+  return [...map.entries()]
+    .map(([page, visits]) => ({ page, visits }))
+    .sort((a, b) => b.visits - a.visits);
 }
 
 export async function getStoreVisitStats() {
@@ -120,7 +135,7 @@ export async function getStoreVisitStats() {
       { $match: insightMatch },
       { $group: { _id: "$path", visits: { $sum: 1 } } },
       { $sort: { visits: -1 as const } },
-      { $limit: 8 },
+      { $limit: 200 },
     ]),
     StoreVisitSession.aggregate([
       { $match: { ...insightMatch, utmCampaign: { $exists: true, $nin: [null, ""] } } },
@@ -164,10 +179,9 @@ export async function getStoreVisitStats() {
     visits: r.visits,
   }));
 
-  const visitsByLandingPage = (byPathRaw as { _id: string; visits: number }[]).map((r) => ({
-    page: normalizeLandingPath(r._id),
-    visits: r.visits,
-  }));
+  const visitsByLandingPage = mergeLandingPageVisits(
+    byPathRaw as { _id: string; visits: number }[],
+  ).slice(0, 8);
 
   const visitsByCampaign = (byCampaignRaw as { _id: string; visits: number }[]).map(
     (r) => ({

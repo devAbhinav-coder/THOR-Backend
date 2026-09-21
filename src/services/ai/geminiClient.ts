@@ -52,8 +52,14 @@ async function callGeminiOnce(
       safetySettings: [
         { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
         { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
-        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
-        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
+        {
+          category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+          threshold: "BLOCK_ONLY_HIGH",
+        },
+        {
+          category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+          threshold: "BLOCK_ONLY_HIGH",
+        },
       ],
     }),
     signal,
@@ -64,12 +70,15 @@ async function callGeminiOnce(
     logger.warn(`Gemini API error ${res.status}: ${errBody.slice(0, 300)}`);
     if (res.status === 429) {
       throw new AppError(
-        "Gemini rate limit reached — wait 30–60 seconds, then click Regenerate.",
+        "Gemini rate limit reached - wait 30–60 seconds, then click Regenerate.",
         429,
       );
     }
     if (res.status === 503) {
-      throw new AppError("Gemini is under high demand — wait 30 seconds and retry.", 503);
+      throw new AppError(
+        "Gemini is under high demand - wait 30 seconds and retry.",
+        503,
+      );
     }
     throw new AppError("Gemini AI temporarily unavailable.", 502);
   }
@@ -84,11 +93,15 @@ async function callGeminiOnce(
 
   if (json.promptFeedback?.blockReason) {
     logger.warn(`Gemini blocked prompt: ${json.promptFeedback.blockReason}`);
-    throw new AppError("Gemini blocked this content — try a slightly different topic.", 502);
+    throw new AppError(
+      "Gemini blocked this content - try a slightly different topic.",
+      502,
+    );
   }
 
   const candidate = json.candidates?.[0];
-  const raw = candidate?.content?.parts?.map((p) => p.text || "").join("") || "";
+  const raw =
+    candidate?.content?.parts?.map((p) => p.text || "").join("") || "";
   const truncated = candidate?.finishReason === "MAX_TOKENS";
 
   if (truncated) {
@@ -132,7 +145,9 @@ async function callGemini(
         (e.statusCode === 429 || e.statusCode === 503) &&
         attempt < retries.length - 1
       ) {
-        logger.warn(`Gemini ${e.statusCode} — retry ${attempt + 1}/${retries.length - 1}`);
+        logger.warn(
+          `Gemini ${e.statusCode} - retry ${attempt + 1}/${retries.length - 1}`,
+        );
         continue;
       }
       if (e instanceof AppError) throw e;
@@ -169,13 +184,21 @@ export async function geminiChatCompletion(
     );
   }
 
-  const maxPrompt = options?.maxPromptChars ?? (options?.jsonObject ? 28000 : 8000);
-  const base = options?.systemBase !== undefined ? options.systemBase : BLOG_SYSTEM_BASE;
+  const maxPrompt =
+    options?.maxPromptChars ?? (options?.jsonObject ? 28000 : 8000);
+  const base =
+    options?.systemBase !== undefined ? options.systemBase : BLOG_SYSTEM_BASE;
   const systemText =
     options?.systemExtra ?
-      base ? `${base}\n\n${options.systemExtra}` : options.systemExtra
+      base ? `${base}\n\n${options.systemExtra}`
+      : options.systemExtra
     : base;
   const userText = trimPrompt(userPrompt, maxPrompt, options?.jsonObject);
 
-  return callGemini(systemText, userText, options?.maxTokens, options?.jsonObject);
+  return callGemini(
+    systemText,
+    userText,
+    options?.maxTokens,
+    options?.jsonObject,
+  );
 }

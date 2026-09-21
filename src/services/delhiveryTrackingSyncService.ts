@@ -36,7 +36,7 @@ function parseTrackApiEnvelope(json: unknown): {
 }
 
 /**
- * Best-effort parse of /api/v1/packages/json — Delhivery nests status under
+ * Best-effort parse of /api/v1/packages/json - Delhivery nests status under
  * ShipmentData[].Shipment.Status.Status and scans under Shipment.Scans; we must recurse.
  */
 export function parseDelhiveryTrackSummary(json: unknown): {
@@ -185,11 +185,11 @@ export function formatDelhiverySyncSummary(
     parsed.scans.length === 0
   ) {
     parts.push(
-      "No scan data yet — shipment may still be manifesting; try again in a few minutes.",
+      "No scan data yet - shipment may still be manifesting; try again in a few minutes.",
     );
   }
   if (parts.length === 0) {
-    return `Synced AWB ${waybill} — no detailed status returned yet (check Delhivery dashboard).`;
+    return `Synced AWB ${waybill} - no detailed status returned yet (check Delhivery dashboard).`;
   }
   return parts.join(" • ");
 }
@@ -280,7 +280,9 @@ export async function syncDelhiveryOrderById(orderId: string): Promise<{
     await order.save();
 
     if (statusChanged) {
-      void onOrderDelivered(String(order._id), String(order.user)).catch(() => {});
+      void onOrderDelivered(String(order._id), String(order.user)).catch(
+        () => {},
+      );
     }
 
     const lastSc = parsed.scans[parsed.scans.length - 1];

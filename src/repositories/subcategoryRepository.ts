@@ -1,11 +1,11 @@
-import { Types } from 'mongoose';
-import SubCategory, { ISubCategory } from '../models/SubCategory';
+import { Types } from "mongoose";
+import SubCategory, { ISubCategory } from "../models/SubCategory";
 
 const LIST_SELECT =
-  'name slug categoryId categorySlug description image imagePublicId heroBannerImage metaTitle metaDescription isActive sortOrder productCount';
+  "name slug categoryId categorySlug description image imagePublicId heroBannerImage metaTitle metaDescription isActive sortOrder productCount";
 
 export const subcategoryRepository = {
-  /** All active subcategories for a category (by ObjectId) — sorted by sortOrder asc, then name. */
+  /** All active subcategories for a category (by ObjectId) - sorted by sortOrder asc, then name. */
   listByCategoryId(categoryId: Types.ObjectId | string) {
     return SubCategory.find({ categoryId, isActive: true })
       .sort({ sortOrder: 1, name: 1 })
@@ -13,9 +13,12 @@ export const subcategoryRepository = {
       .lean<ISubCategory[]>();
   },
 
-  /** All active subcategories for a category (by slug) — used in navigation lookups. */
+  /** All active subcategories for a category (by slug) - used in navigation lookups. */
   listByCategorySlug(categorySlug: string) {
-    return SubCategory.find({ categorySlug: categorySlug.toLowerCase(), isActive: true })
+    return SubCategory.find({
+      categorySlug: categorySlug.toLowerCase(),
+      isActive: true,
+    })
       .sort({ sortOrder: 1, name: 1 })
       .select(LIST_SELECT)
       .lean<ISubCategory[]>();
@@ -39,12 +42,14 @@ export const subcategoryRepository = {
       .lean<ISubCategory | null>();
   },
 
-  /** All subcategories (admin — includes inactive). */
+  /** All subcategories (admin - includes inactive). */
   listAll(filter: Partial<{ categoryId: string; isActive: boolean }> = {}) {
     const query: Record<string, unknown> = {};
     if (filter.categoryId) query.categoryId = filter.categoryId;
     if (filter.isActive !== undefined) query.isActive = filter.isActive;
-    return SubCategory.find(query).sort({ categorySlug: 1, sortOrder: 1, name: 1 }).lean<ISubCategory[]>();
+    return SubCategory.find(query)
+      .sort({ categorySlug: 1, sortOrder: 1, name: 1 })
+      .lean<ISubCategory[]>();
   },
 
   create(data: Partial<ISubCategory>) {
@@ -56,14 +61,17 @@ export const subcategoryRepository = {
   },
 
   updateById(id: string, update: Partial<ISubCategory>) {
-    return SubCategory.findByIdAndUpdate(id, update, { new: true, runValidators: true }).lean<ISubCategory | null>();
+    return SubCategory.findByIdAndUpdate(id, update, {
+      new: true,
+      runValidators: true,
+    }).lean<ISubCategory | null>();
   },
 
   deleteById(id: string) {
     return SubCategory.findByIdAndDelete(id);
   },
 
-  /** Bulk update sortOrder values — used by admin drag-to-reorder. */
+  /** Bulk update sortOrder values - used by admin drag-to-reorder. */
   async bulkReorder(items: { id: string; sortOrder: number }[]) {
     const ops = items.map(({ id, sortOrder }) => ({
       updateOne: {
@@ -77,8 +85,10 @@ export const subcategoryRepository = {
   /** Count products currently associated with a subcategory (for delete guard). */
   countProducts(subcategoryId: string) {
     // Lazy import to avoid circular deps; Product is in the same layer
-    const Product = require('../models/Product').default;
-    return (Product as import('mongoose').Model<import('../types').IProduct>).countDocuments({
+    const Product = require("../models/Product").default;
+    return (
+      Product as import("mongoose").Model<import("../types").IProduct>
+    ).countDocuments({
       subcategoryId,
       isActive: true,
     });
@@ -87,6 +97,9 @@ export const subcategoryRepository = {
   /** Recalculate and update the cached productCount field. */
   async recalculateProductCount(subcategoryId: string) {
     const count = await this.countProducts(subcategoryId);
-    return SubCategory.updateOne({ _id: subcategoryId }, { $set: { productCount: count } });
+    return SubCategory.updateOne(
+      { _id: subcategoryId },
+      { $set: { productCount: count } },
+    );
   },
 };

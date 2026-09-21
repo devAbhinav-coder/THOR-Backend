@@ -14,10 +14,10 @@ const OLD_SNIPPET_MARKERS = [
 ];
 
 const NEW_HOME_GIFT_DESCRIPTION =
-  "Also explore handmade gifts, corporate gifting, and curated hampers — perfect alongside our saree, salwar suit, and corset collections.";
+  "Also explore handmade gifts, corporate gifting, and curated hampers - perfect alongside our saree, salwar suit, and corset collections.";
 
 const NEW_FOOTER_DESCRIPTION =
-  "Your destination for exquisite Indian ethnic wear. Curated sarees, salwar suits, and corsets — crafted with love and tradition.";
+  "Your destination for exquisite Indian ethnic wear. Curated sarees, salwar suits, and corsets - crafted with love and tradition.";
 
 async function main() {
   const uri = process.env.MONGODB_URI || process.env.DATABASE_URL;
@@ -28,7 +28,9 @@ async function main() {
   await mongoose.connect(uri);
   const doc = await StorefrontSettings.findOne().lean();
   if (!doc) {
-    console.log("No storefront settings document — defaults apply on next save.");
+    console.log(
+      "No storefront settings document - defaults apply on next save.",
+    );
     await mongoose.disconnect();
     return;
   }
@@ -47,7 +49,7 @@ async function main() {
     footerDesc.length < 40;
 
   if (!giftNeedsPatch && !footerNeedsPatch) {
-    console.log("Storefront copy already aligned — no changes.");
+    console.log("Storefront copy already aligned - no changes.");
     await mongoose.disconnect();
     return;
   }
