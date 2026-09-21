@@ -86,12 +86,31 @@ import {
   isRedisRequiredForProduction,
   pingRedisForReadiness,
 } from "./config/redisReadiness";
-import { resolveApiRateLimitMax } from "./config/rateLimitPolicy";
+import { createApiRateLimiters } from "./middleware/createApiRateLimiters";
+import type { RateLimitRequestHandler } from "express-rate-limit";
+
 const app = express();
 
-if (process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true") {
-  app.set("trust proxy", 1);
+function configureTrustProxy(): void {
+  const explicit = process.env.TRUST_PROXY?.trim().toLowerCase();
+  if (explicit === "1" || explicit === "true") {
+    app.set("trust proxy", 1);
+    return;
+  }
+  if (explicit === "0" || explicit === "false") {
+    return;
+  }
+  if (process.env.NODE_ENV !== "production") return;
+  if (
+    process.env.RENDER ||
+    process.env.RAILWAY_ENVIRONMENT ||
+    process.env.FLY_APP_NAME
+  ) {
+    app.set("trust proxy", 1);
+  }
 }
+
+configureTrustProxy();
 
 const corsAllowSet = getCorsAllowedOriginSet();
 
@@ -183,95 +202,63 @@ const configuredProdMax =
   process.env.NODE_ENV === "production" ?
     Math.min(Math.max(100, configuredMax), 2000)
   : configuredMax;
-const max = resolveApiRateLimitMax(configuredProdMax);
-if (process.env.NODE_ENV === "production" && configuredMax > 2000) {
-  logger.warn(
-    `RATE_LIMIT_MAX=${configuredMax} too high for production; capped to ${max}.`,
-  );
+
+let apiLimiter: RateLimitRequestHandler | null = null;
+let authLimiter: RateLimitRequestHandler | null = null;
+let webhookLimiter: RateLimitRequestHandler | null = null;
+
+function runApiLimiter(
+  limiter: RateLimitRequestHandler | null,
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  if (!limiter) {
+    next();
+    return;
+  }
+  limiter(req, res, next);
 }
 
-/** Dev uses in-memory store only when Redis probe failed at startup. */
-const useRedisRateLimitStore = shouldUseRedisRateLimit();
+function mountApiRateLimitersAfterRedis(): void {
+  const { limiter, authLimiter: authLim, effectiveMax } =
+    createApiRateLimiters(configuredProdMax, windowMs);
+  apiLimiter = limiter;
+  authLimiter = authLim;
 
-const limiter = rateLimit({
-  windowMs,
-  max,
-  skip: (req) => req.method === "OPTIONS",
-  message: {
-    status: "error",
-    message: "Too many requests, please try again later.",
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-  ...(useRedisRateLimitStore ?
-    {
-      store: new RedisStore({
-        prefix: "rl:api:",
-        sendCommand: (...args: string[]) =>
-          redisConnection.call(
-            args[0],
-            ...(args.slice(1) as string[]),
-          ) as Promise<
-            string | number | boolean | (string | number | boolean)[]
-          >,
-      }),
-    }
-  : {}),
-});
+  const useRedisStore = shouldUseRedisRateLimit();
+  webhookLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 120,
+    skip: (req) => req.method === "OPTIONS",
+    message: {
+      status: "error",
+      message: "Too many webhook requests, please try again later.",
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    ...(useRedisStore ?
+      {
+        store: new RedisStore({
+          prefix: "rl:webhook:",
+          sendCommand: (...args: string[]) =>
+            redisConnection.call(
+              args[0],
+              ...(args.slice(1) as string[]),
+            ) as Promise<
+              string | number | boolean | (string | number | boolean)[]
+            >,
+        }),
+      }
+    : {}),
+  });
 
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: resolveApiRateLimitMax(50),
-  skip: (req) => req.method === "OPTIONS",
-  message: {
-    status: "error",
-    message:
-      "Too many authentication attempts, please try again after 15 minutes.",
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-  ...(useRedisRateLimitStore ?
-    {
-      store: new RedisStore({
-        prefix: "rl:auth:",
-        sendCommand: (...args: string[]) =>
-          redisConnection.call(
-            args[0],
-            ...(args.slice(1) as string[]),
-          ) as Promise<
-            string | number | boolean | (string | number | boolean)[]
-          >,
-      }),
-    }
-  : {}),
-});
-
-/** Protect HMAC verification from flood/DoS (runs before express.json). */
-const webhookLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 120,
-  skip: (req) => req.method === "OPTIONS",
-  message: {
-    status: "error",
-    message: "Too many webhook requests, please try again later.",
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-  ...(useRedisRateLimitStore ?
-    {
-      store: new RedisStore({
-        prefix: "rl:webhook:",
-        sendCommand: (...args: string[]) =>
-          redisConnection.call(
-            args[0],
-            ...(args.slice(1) as string[]),
-          ) as Promise<
-            string | number | boolean | (string | number | boolean)[]
-          >,
-      }),
-    }
-  : {}),
-});
+  if (process.env.NODE_ENV === "production" && configuredMax > 2000) {
+    logger.warn(
+      `RATE_LIMIT_MAX=${configuredMax} exceeds production ceiling; effective API max=${effectiveMax} (after Redis bootstrap).`,
+    );
+  }
+}
 
 app.use((req: Request, res: Response, next: NextFunction) => {
   const id = (req.headers["x-request-id"] as string) || randomUUID();
@@ -286,7 +273,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 /** Razorpay webhooks require raw body for HMAC verification (must run before express.json). */
 app.use(
   "/api/webhooks",
-  webhookLimiter,
+  (req: Request, res: Response, next: NextFunction) =>
+    runApiLimiter(webhookLimiter, req, res, next),
   express.raw({
     type: "application/json",
     limit: process.env.JSON_BODY_LIMIT || "512kb",
@@ -429,8 +417,11 @@ app.use(
   swaggerUi.setup(openApiSpec),
 );
 
-app.use("/api/auth", authLimiter, authRoutes);
-app.use("/api", limiter);
+app.use("/api/auth", (req, res, next) =>
+  runApiLimiter(authLimiter, req, res, next),
+);
+app.use("/api/auth", authRoutes);
+app.use("/api", (req, res, next) => runApiLimiter(apiLimiter, req, res, next));
 
 app.use("/api/products", productRoutes);
 app.use("/api/cart", cartRoutes);
@@ -469,6 +460,7 @@ let server: ReturnType<typeof app.listen> | null = null;
 
 async function bootstrap(): Promise<void> {
   await bootstrapRedis();
+  mountApiRateLimitersAfterRedis();
   await connectDB();
   startAllBackgroundWork();
   await setupBullBoard(app);

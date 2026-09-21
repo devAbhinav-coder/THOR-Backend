@@ -10,6 +10,7 @@ import { recordBrowserMetaEvent } from '../controllers/metaEventController';
 import { browserMetaEventSchema } from '../validation/metaEventSchemas';
 import { recordOfferEvent } from '../controllers/offerEventController';
 import { recordOfferEventSchema } from '../validation/offerEventSchemas';
+import { getStorefrontPublicOffers } from '../controllers/storefrontPublicOffersController';
 import { getDeliveryEstimate } from '../controllers/storefrontShippingController';
 import { storefrontShippingEstimateQuerySchema } from '../validation/schemas';
 
@@ -45,6 +46,7 @@ const shippingEstimateLimiter = createAdaptiveLimiter({
 
 router.get('/settings', getStorefrontSettings);
 router.get('/home', getStorefrontHomeBundle);
+router.get('/public-offers', getStorefrontPublicOffers);
 router.get(
   '/shipping/estimate',
   shippingEstimateLimiter,
