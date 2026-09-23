@@ -16,8 +16,7 @@ const OLD_SNIPPET_MARKERS = [
 const NEW_HOME_GIFT_DESCRIPTION =
   "Also explore handmade gifts, corporate gifting, and curated hampers - perfect alongside our saree, salwar suit, and corset collections.";
 
-const NEW_FOOTER_DESCRIPTION =
-  "Your destination for exquisite Indian ethnic wear. Curated sarees, salwar suits, and corsets - crafted with love and tradition.";
+const NEW_FOOTER_DESCRIPTION = "Celebrating the queen in every woman";
 
 async function main() {
   const uri = process.env.MONGODB_URI || process.env.DATABASE_URL;

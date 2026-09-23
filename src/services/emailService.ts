@@ -10,6 +10,7 @@ import {
   renderOrderConfirmEmail,
   renderOtpEmail,
 } from "../emails/renderEmail";
+import { BRAND_NAME, BRAND_TAGLINE } from "../constants/brand";
 
 export type EmailPayload = {
   to: string;
@@ -230,11 +231,11 @@ const shell = (
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
           <tr>
             <td style="vertical-align:middle;">
-              <img src="${brandLogoUrl}" alt="The House of Rani" width="140" height="42" style="height:42px;width:auto;max-width:140px;display:block;border:0;" />
+              <img src="${brandLogoUrl}" alt="${BRAND_NAME}" style="display:block;border:0;max-width:168px;width:auto;height:auto;max-height:44px;" />
             </td>
-            <td style="text-align:right;vertical-align:middle;">
-              <span style="display:inline-block;background:rgba(255,255,255,0.14);padding:6px 10px;border-radius:999px;font-size:11px;letter-spacing:.06em;">
-                The House of Rani
+            <td style="text-align:right;vertical-align:middle;padding-left:16px;">
+              <span style="display:inline-block;font-size:13px;line-height:1.45;font-style:italic;color:rgba(255,255,255,0.88);font-family:Georgia,'Times New Roman',serif;max-width:220px;">
+                ${BRAND_TAGLINE}
               </span>
             </td>
           </tr>
@@ -264,8 +265,11 @@ const shell = (
         <p style="margin:0;font-size:12px;color:#6b7280;">
           This is an automated message. For help, use the contact options on our website.
         </p>
-        <p style="margin:8px 0 0;font-size:12px;color:#9ca3af;">
-          © ${new Date().getFullYear()} The House of Rani
+        <p style="margin:8px 0 0;font-size:12px;font-style:italic;color:#9ca3af;font-family:Georgia,'Times New Roman',serif;">
+          ${BRAND_TAGLINE}
+        </p>
+        <p style="margin:6px 0 0;font-size:11px;color:#d1d5db;">
+          © ${new Date().getFullYear()} ${BRAND_NAME}
         </p>
       </div>
     </div>

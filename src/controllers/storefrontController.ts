@@ -24,6 +24,7 @@ import {
   mergePremiumStory,
 } from "../types/utils/storefrontImageMerge";
 import { sendSuccess } from "../types/utils/response";
+import { BRAND_TAGLINE } from "../constants/brand";
 
 const FALLBACK_SETTINGS = {
   announcementMessages: ["New arrivals added every week"],
@@ -179,8 +180,7 @@ const FALLBACK_SETTINGS = {
     ],
   },
   footer: {
-    description:
-      "Your destination for exquisite Indian ethnic wear. Curated sarees, salwar suits, and corsets - crafted with love and tradition.",
+    description: BRAND_TAGLINE,
     contactAddress: "123 Silk Road, Textile Market, Surat, Gujarat 395003",
     contactPhone: "+91 98765 43210",
     contactEmail: "hello@houseofrani.in",
@@ -225,6 +225,19 @@ type StorefrontPayload = {
 const LEGACY_HOME_GIFT_SNIPPET =
   "Handmade gifts, corporate gifting, and curated hampers";
 
+/** Old footer blurbs replaced by BRAND_TAGLINE on read + one-time DB patch. */
+const LEGACY_FOOTER_DESCRIPTION_MARKERS = [
+  "Your destination for exquisite Indian ethnic wear",
+  "Discover premium Indian ethnic wear including sarees",
+  "Curated sarees, salwar suits, and corsets - crafted with love",
+] as const;
+
+function footerNeedsTaglineMigration(footerDesc: string): boolean {
+  const d = footerDesc.trim();
+  if (!d || d.includes(LEGACY_HOME_GIFT_SNIPPET)) return true;
+  return LEGACY_FOOTER_DESCRIPTION_MARKERS.some((m) => d.includes(m));
+}
+
 function sanitizeHomeGiftDescription(desc: string): string {
   return desc.includes(LEGACY_HOME_GIFT_SNIPPET) ?
       FALLBACK_SETTINGS.homeGiftShowcase.description
@@ -232,7 +245,7 @@ function sanitizeHomeGiftDescription(desc: string): string {
 }
 
 function sanitizeFooterDescription(desc: string): string {
-  if (desc.includes(LEGACY_HOME_GIFT_SNIPPET) || !desc.trim()) {
+  if (footerNeedsTaglineMigration(desc)) {
     return FALLBACK_SETTINGS.footer.description;
   }
   return desc;
@@ -252,8 +265,7 @@ function persistHomeSeoSanitizeIfNeeded(raw: Record<string, unknown>) {
     (raw.footer as { description?: string } | undefined)?.description || "",
   );
   const needsGift = giftDesc.includes(LEGACY_HOME_GIFT_SNIPPET);
-  const needsFooter =
-    footerDesc.includes(LEGACY_HOME_GIFT_SNIPPET) || !footerDesc.trim();
+  const needsFooter = footerNeedsTaglineMigration(footerDesc);
   if (!needsGift && !needsFooter) return;
   const $set: Record<string, string> = {};
   if (needsGift) {
