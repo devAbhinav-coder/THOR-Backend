@@ -21,6 +21,7 @@ import { categoryRepository } from '../../repositories/categoryRepository';
 import { invalidateMegaMenuCache } from '../navigationController';
 import { enqueueImageDelete } from '../../queues/imageQueue';
 import { notifyIndexNowStorefront } from '../../services/indexNowService';
+import { notifyStorefrontCatalogStructureChange } from '../../services/storefrontRevalidateService';
 
 // ─── List ─────────────────────────────────────────────────────────────────────
 
@@ -91,9 +92,11 @@ export const createSubcategory = catchAsync(async (req: Request, res: Response, 
   invalidateMegaMenuCache();
 
   if (subcat.isActive !== false && subcat.categorySlug && subcat.slug) {
-    notifyIndexNowStorefront(
-      `/shop/collections/${encodeURIComponent(String(subcat.categorySlug))}/${encodeURIComponent(String(subcat.slug))}`,
-    );
+    const subPath = `/shop/collections/${encodeURIComponent(String(subcat.categorySlug))}/${encodeURIComponent(String(subcat.slug))}`;
+    notifyIndexNowStorefront(subPath);
+    notifyStorefrontCatalogStructureChange([subPath]);
+  } else {
+    notifyStorefrontCatalogStructureChange();
   }
 
   if (subcat.isActive !== false) {
@@ -142,9 +145,11 @@ export const updateSubcategory = catchAsync(async (req: Request, res: Response, 
   invalidateMegaMenuCache();
 
   if (updated?.isActive !== false && updated?.categorySlug && updated?.slug) {
-    notifyIndexNowStorefront(
-      `/shop/collections/${encodeURIComponent(String(updated.categorySlug))}/${encodeURIComponent(String(updated.slug))}`,
-    );
+    const subPath = `/shop/collections/${encodeURIComponent(String(updated.categorySlug))}/${encodeURIComponent(String(updated.slug))}`;
+    notifyIndexNowStorefront(subPath);
+    notifyStorefrontCatalogStructureChange([subPath]);
+  } else {
+    notifyStorefrontCatalogStructureChange();
   }
 
   sendSuccess(res, { subcategory: updated }, 'SubCategory updated');
@@ -173,6 +178,7 @@ export const deleteSubcategory = catchAsync(async (req: Request, res: Response, 
 
   await subcategoryRepository.deleteById(req.params.id);
   invalidateMegaMenuCache();
+  notifyStorefrontCatalogStructureChange();
   res.status(204).end();
 });
 
@@ -190,6 +196,7 @@ export const reorderSubcategories = catchAsync(async (req: Request, res: Respons
   }
   await subcategoryRepository.bulkReorder(items);
   invalidateMegaMenuCache();
+  notifyStorefrontCatalogStructureChange();
   sendSuccess(res, {}, 'Subcategories reordered');
 });
 

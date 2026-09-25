@@ -15,6 +15,7 @@ import {
 import { setPublicCatalogCacheHeaders } from "../constants/publicHttpCache";
 import { invalidateMegaMenuCache } from "./navigationController";
 import { notifyIndexNowStorefront } from "../services/indexNowService";
+import { notifyStorefrontCatalogStructureChange } from "../services/storefrontRevalidateService";
 
 // GET /api/categories - public
 export const getAllCategories = catchAsync(
@@ -133,9 +134,11 @@ export const createCategory = catchAsync(
       heroBannerPublicId: uploadedHeroBanner?.publicId,
     });
     if (category.isActive !== false && category.slug) {
-      notifyIndexNowStorefront(
-        `/shop/collections/${encodeURIComponent(String(category.slug))}`,
-      );
+      const collectionPath = `/shop/collections/${encodeURIComponent(String(category.slug))}`;
+      notifyIndexNowStorefront(collectionPath);
+      notifyStorefrontCatalogStructureChange([collectionPath]);
+    } else {
+      notifyStorefrontCatalogStructureChange();
     }
     if (category.isActive !== false) {
       const { notifyWhatsAppCatalogAlert } =
@@ -214,9 +217,11 @@ export const updateCategory = catchAsync(
 
     if (!category) return next(new AppError("Category not found", 404));
     if (category.isActive !== false && category.slug) {
-      notifyIndexNowStorefront(
-        `/shop/collections/${encodeURIComponent(String(category.slug))}`,
-      );
+      const collectionPath = `/shop/collections/${encodeURIComponent(String(category.slug))}`;
+      notifyIndexNowStorefront(collectionPath);
+      notifyStorefrontCatalogStructureChange([collectionPath]);
+    } else {
+      notifyStorefrontCatalogStructureChange();
     }
     invalidateCategoryListCaches();
     invalidateMegaMenuCache();
@@ -258,6 +263,7 @@ export const deleteCategory = catchAsync(
     await category.deleteOne();
     invalidateCategoryListCaches();
     invalidateMegaMenuCache();
+    notifyStorefrontCatalogStructureChange();
     res.status(204).end();
   },
 );

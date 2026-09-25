@@ -28,6 +28,8 @@ import {
 import { cloudinaryInstance } from "../cloudinary";
 import StoreVisitSession from "../../models/StoreVisitSession";
 import { istYesterdayWindow } from "../../utils/istDate";
+import { excludeOfflineManualProductFilter } from "../../constants/offlineOrder";
+import { storefrontProductPaths } from "../storefrontPathService";
 
 const PAYMENT_STATUS_GROSS = {
   paymentStatus: { $in: ["paid", "refunded"] as const },
@@ -205,7 +207,7 @@ export async function runWishlistPriceDropJob(): Promise<number> {
         baseline,
         currentPrice,
         dropPct,
-        `${frontendUrl}/products/${product.slug}`,
+        `${frontendUrl}${storefrontProductPaths(product)[0] || `/shop/${encodeURIComponent(String(product.slug || ""))}`}`,
       );
 
       if (user.email) {
@@ -221,7 +223,9 @@ export async function runWishlistPriceDropJob(): Promise<number> {
           userId,
           title: "Price drop on your wishlist",
           body: `${product.name} is now ₹${currentPrice.toFixed(0)} (${dropPct.toFixed(0)}% off).`,
-          link: `/products/${product.slug}`,
+          link:
+            storefrontProductPaths(product)[0] ||
+            `/shop/${encodeURIComponent(String(product.slug || ""))}`,
         },
         { category: "promotion" },
       ).catch(() => {});
@@ -428,21 +432,49 @@ export async function runSitemapGeneratorJob(): Promise<number> {
     process.env.SITEMAP_OUTPUT_PATH ||
     path.join(process.cwd(), "public", "sitemap.xml");
 
-  const [products, blogs, categories] = await Promise.all([
-    Product.find({ isActive: true }).select("slug updatedAt").lean(),
+  const catalogMatch = {
+    isActive: true,
+    isPremium: { $ne: true },
+    category: { $nin: ["Gifting", "Premium"] as const },
+    ...excludeOfflineManualProductFilter(),
+  };
+  const premiumMatch = {
+    isActive: true,
+    isPremium: true,
+    ...excludeOfflineManualProductFilter(),
+  };
+
+  const [products, premiumProducts, blogs, categories] = await Promise.all([
+    Product.find(catalogMatch)
+      .select("slug premiumSlug isPremium category updatedAt")
+      .lean(),
+    Product.find(premiumMatch)
+      .select("slug premiumSlug isPremium updatedAt")
+      .lean(),
     Blog.find({ isPublished: true }).select("slug updatedAt").lean(),
-    Category.find({ isActive: true }).select("slug updatedAt").lean(),
+    Category.find({
+      isActive: true,
+      isGiftCategory: { $ne: true },
+    })
+      .select("slug updatedAt")
+      .lean(),
   ]);
 
   const urls: string[] = [
     `${frontendUrl}/`,
-    `${frontendUrl}/shop`,
+    `${frontendUrl}/shop/collections`,
+    `${frontendUrl}/premium`,
     `${frontendUrl}/blog`,
   ];
 
   for (const p of products) {
-    if (p.slug) {
-      urls.push(`${frontendUrl}/products/${encodeURIComponent(p.slug)}`);
+    for (const path of storefrontProductPaths(p)) {
+      urls.push(`${frontendUrl}${path}`);
+    }
+  }
+  for (const p of premiumProducts) {
+    for (const path of storefrontProductPaths(p)) {
+      urls.push(`${frontendUrl}${path}`);
     }
   }
   for (const b of blogs) {
@@ -452,13 +484,17 @@ export async function runSitemapGeneratorJob(): Promise<number> {
   }
   for (const c of categories) {
     if (c.slug) {
-      urls.push(`${frontendUrl}/shop?category=${encodeURIComponent(c.slug)}`);
+      urls.push(
+        `${frontendUrl}/shop/collections/${encodeURIComponent(c.slug)}`,
+      );
     }
   }
 
+  const uniqueUrls = [...new Set(urls)];
+
   const body = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${urls.map((loc) => `  <url><loc>${loc}</loc><changefreq>weekly</changefreq></url>`).join("\n")}
+${uniqueUrls.map((loc) => `  <url><loc>${loc}</loc><changefreq>weekly</changefreq></url>`).join("\n")}
 </urlset>`;
 
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
@@ -490,9 +526,9 @@ ${urls.map((loc) => `  <url><loc>${loc}</loc><changefreq>weekly</changefreq></ur
   logger.info({
     msg: "sitemap_generated",
     path: outputPath,
-    urlCount: urls.length,
+    urlCount: uniqueUrls.length,
   });
-  return urls.length;
+  return uniqueUrls.length;
 }
 
 /** Pre-compute yesterday's analytics snapshot. */

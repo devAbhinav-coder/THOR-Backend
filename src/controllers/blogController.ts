@@ -25,6 +25,7 @@ import {
   recordBlogPublishOutbox,
 } from "../services/blogPublishOutboxService";
 import { notifyIndexNowStorefront } from "../services/indexNowService";
+import { notifyStorefrontCatalogStructureChange } from "../services/storefrontRevalidateService";
 import { Types } from "mongoose";
 
 type BlogBroadcastPayload = { _id: unknown; title: string; slug: string };
@@ -355,9 +356,9 @@ export const createBlog = catchAsync(
         logger.error("Blog broadcast failed", { err }),
       );
       if (blog.slug) {
-        notifyIndexNowStorefront(
-          `/blog/${encodeURIComponent(String(blog.slug))}`,
-        );
+        const blogPath = `/blog/${encodeURIComponent(String(blog.slug))}`;
+        notifyIndexNowStorefront(blogPath);
+        notifyStorefrontCatalogStructureChange([blogPath, "/blog"]);
       }
     }
 
@@ -491,9 +492,9 @@ export const updateBlog = catchAsync(
     }
 
     if (updatedBlog?.isPublished && updatedBlog.slug) {
-      notifyIndexNowStorefront(
-        `/blog/${encodeURIComponent(String(updatedBlog.slug))}`,
-      );
+      const blogPath = `/blog/${encodeURIComponent(String(updatedBlog.slug))}`;
+      notifyIndexNowStorefront(blogPath);
+      notifyStorefrontCatalogStructureChange([blogPath, "/blog"]);
     }
 
     sendSuccess(res, { blog: updatedBlog }, "Blog updated");

@@ -32,6 +32,8 @@ import { getActiveSaleCampaigns } from "../services/sale/saleCacheService";
 import { enrichProductsWithSalePricingAsync } from "../services/sale/saleProductEnrichment";
 import { enrichProductWithPromotions } from "../services/promotion/promotionProductEnrichment";
 import { notifyIndexNowStorefront } from "../services/indexNowService";
+import { storefrontProductPaths } from "../services/storefrontPathService";
+import { notifyStorefrontProductCatalogChange } from "../services/storefrontRevalidateService";
 import {
   buildImagesFromMeta,
   countNewImageMetaSlots,
@@ -932,26 +934,14 @@ export const createProduct = catchAsync(
       );
     }
     if (lean.isActive !== false) {
-      const catalogSlug = String(lean.slug || "");
-      const isPremiumProduct = lean.isPremium === true;
-      const premiumRoute = String(lean.premiumSlug || lean.slug || "");
-      const storefrontPath =
-        isPremiumProduct && premiumRoute ?
-          `/premium/${encodeURIComponent(premiumRoute)}`
-        : catalogSlug ? `/shop/${encodeURIComponent(catalogSlug)}`
-        : "";
-      if (storefrontPath) notifyIndexNowStorefront(storefrontPath);
+      const paths = storefrontProductPaths(lean);
+      if (paths[0]) notifyIndexNowStorefront(paths[0]);
+      notifyStorefrontProductCatalogChange(lean);
     }
     if (lean.isActive !== false) {
       const { notifyWhatsAppCatalogAlert } =
         await import("../services/whatsappNotifyService");
-      const catalogSlug = String(lean.slug || "");
-      const isPremiumProduct = lean.isPremium === true;
-      const premiumRoute = String(lean.premiumSlug || lean.slug || "");
-      const storefrontPath =
-        isPremiumProduct && premiumRoute ?
-          `/premium/${encodeURIComponent(premiumRoute)}`
-        : `/shop/${encodeURIComponent(catalogSlug)}`;
+      const storefrontPath = storefrontProductPaths(lean)[0] || "/shop/collections";
       notifyWhatsAppCatalogAlert({
         kind: "product",
         title: String(lean.name || "New arrival"),
@@ -1327,17 +1317,18 @@ export const updateProduct = catchAsync(
     if (premium) invalidatePremiumProductCache();
 
     if (updatedProduct.isActive !== false) {
-      const catalogSlug = String(updatedProduct.slug || currentProduct.slug);
-      const isPremiumProduct =
-        updatedProduct.isPremium === true || currentProduct.isPremium === true;
-      const premiumRoute = String(
-        updatedProduct.premiumSlug || currentProduct.premiumSlug || catalogSlug,
-      );
-      const storefrontPath =
-        isPremiumProduct && premiumRoute ?
-          `/premium/${encodeURIComponent(premiumRoute)}`
-        : `/shop/${encodeURIComponent(catalogSlug)}`;
-      notifyIndexNowStorefront(storefrontPath);
+      const paths = storefrontProductPaths(updatedProduct);
+      if (paths[0]) notifyIndexNowStorefront(paths[0]);
+      notifyStorefrontProductCatalogChange(updatedProduct);
+    } else {
+      notifyStorefrontProductCatalogChange({
+        slug: String(updatedProduct.slug || currentProduct.slug),
+        premiumSlug: String(
+          updatedProduct.premiumSlug || currentProduct.premiumSlug || "",
+        ),
+        isPremium:
+          updatedProduct.isPremium === true || currentProduct.isPremium === true,
+      });
     }
 
     sendSuccess(
@@ -1360,6 +1351,11 @@ export const deleteProduct = catchAsync(
     await Product.findByIdAndDelete(req.params.id);
     enqueueImageDelete(publicIds).catch(() => {});
     await invalidateProductCaches({ slug });
+    notifyStorefrontProductCatalogChange({
+      slug,
+      premiumSlug: product.premiumSlug,
+      isPremium: product.isPremium,
+    });
 
     res.status(204).end();
   },
