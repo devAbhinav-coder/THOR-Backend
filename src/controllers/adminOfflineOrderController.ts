@@ -4,6 +4,7 @@ import Order from "../models/Order";
 import User from "../models/User";
 import Product from "../models/Product";
 import Category from "../models/Category";
+import SubCategory from "../models/SubCategory";
 import AppError from "../types/utils/AppError";
 import catchAsync from "../types/utils/catchAsync";
 import type { AuthRequest, IOrderItem } from "../types";
@@ -98,6 +99,7 @@ type LineIn =
   | {
       type: "manual";
       categoryId?: string;
+      subcategoryId?: string;
       title?: string;
       quantity: number;
       unitPrice: number;
@@ -223,6 +225,18 @@ export const createOfflineOrder = catchAsync(
 
         const catIdRaw =
           typeof line.categoryId === "string" ? line.categoryId.trim() : "";
+        const subIdRaw =
+          typeof line.subcategoryId === "string" ?
+            line.subcategoryId.trim()
+          : "";
+        if (subIdRaw && !catIdRaw) {
+          return next(
+            new AppError(
+              "Select a category before choosing a subcategory on manual line.",
+              400,
+            ),
+          );
+        }
         if (catIdRaw) {
           if (!mongoose.Types.ObjectId.isValid(catIdRaw)) {
             return next(
@@ -241,12 +255,41 @@ export const createOfflineOrder = catchAsync(
               ),
             );
           }
-          lineName = String(cat.name || "")
-            .trim()
-            .slice(0, 200);
-          if (!lineName) {
+          const catName = String(cat.name || "").trim();
+          if (!catName) {
             return next(new AppError("Category has no usable name.", 400));
           }
+
+          let subName = "";
+          if (subIdRaw) {
+            if (!mongoose.Types.ObjectId.isValid(subIdRaw)) {
+              return next(
+                new AppError("Invalid subcategory id on manual line.", 400),
+              );
+            }
+            const sub = await SubCategory.findById(subIdRaw).lean();
+            if (!sub || sub.isActive === false) {
+              return next(
+                new AppError("Subcategory not found or inactive.", 400),
+              );
+            }
+            const subCatId = String(sub.categoryId || "");
+            if (subCatId !== catIdRaw) {
+              return next(
+                new AppError(
+                  "Subcategory does not belong to the selected category.",
+                  400,
+                ),
+              );
+            }
+            subName = String(sub.name || "").trim();
+          }
+
+          lineName = (subName ? `${catName} · ${subName}` : catName).slice(
+            0,
+            200,
+          );
+
           const cimg =
             typeof cat.image === "string" && cat.image.trim() ?
               cat.image.trim()

@@ -82,6 +82,13 @@ export const searchAdminProducts = catchAsync(
         : [String(req.query.categories)]
       : [];
 
+    const subcategories =
+      req.query.subcategory ? [String(req.query.subcategory)]
+      : req.query.subcategories ?
+        Array.isArray(req.query.subcategories) ?
+          (req.query.subcategories as string[])
+        : [String(req.query.subcategories)]
+      : [];
 
     const colors =
       req.query.color ? [String(req.query.color)]
@@ -114,6 +121,12 @@ export const searchAdminProducts = catchAsync(
       if (req.query.isActive === "false") filter.isActive = false;
       if (req.query.isPremium === "true") filter.isPremium = true;
       if (req.query.isPremium === "false") filter.isPremium = false;
+      if (categories.length === 1) filter.category = categories[0];
+      else if (categories.length > 1) filter.category = { $in: categories };
+      if (subcategories.length === 1) filter.subcategory = subcategories[0];
+      else if (subcategories.length > 1) {
+        filter.subcategory = { $in: subcategories };
+      }
       if (escaped) {
         filter.$or = [
           { name: { $regex: escaped, $options: "i" } },
@@ -148,6 +161,7 @@ export const searchAdminProducts = catchAsync(
       page: listParsed.page,
       limit: listParsed.limit,
       categories,
+      subcategories,
       colors,
       minPrice: req.query.minPrice ? Number(req.query.minPrice) : undefined,
       maxPrice: req.query.maxPrice ? Number(req.query.maxPrice) : undefined,

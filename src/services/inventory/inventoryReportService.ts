@@ -36,6 +36,7 @@ export async function getInventoryOverview(params: {
   limit: number;
   search?: string;
   category?: string;
+  subcategory?: string;
   filter?: string;
   sort?: string;
   period?: RevenuePeriod;
@@ -46,6 +47,7 @@ export async function getInventoryOverview(params: {
   const skip = (params.page - 1) * params.limit;
   const search = params.search?.trim() ?? "";
   const category = params.category?.trim() ?? "";
+  const subcategory = params.subcategory?.trim() ?? "";
   const filter = params.filter ?? "all";
   const sortParam = params.sort ?? "-updatedAt";
   const period = params.period ?? "lifetime";
@@ -64,6 +66,7 @@ export async function getInventoryOverview(params: {
     });
   }
   if (category) match.category = category;
+  if (subcategory) match.subcategory = subcategory;
   if (filter === "low") {
     match.totalStock = { $gt: 0, $lt: LOW_STOCK_ALERT_EXCLUSIVE_MAX };
   } else if (filter === "out") {

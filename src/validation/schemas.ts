@@ -1057,6 +1057,10 @@ const offlineManualLineSchema = z
       .string()
       .regex(/^[a-fA-F0-9]{24}$/)
       .optional(),
+    subcategoryId: z
+      .string()
+      .regex(/^[a-fA-F0-9]{24}$/)
+      .optional(),
     /** Free-text line when categoryId is omitted. */
     title: z.string().max(200).optional(),
     quantity: z.coerce.number().int().min(1).max(50),

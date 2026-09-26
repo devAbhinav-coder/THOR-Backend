@@ -14,7 +14,10 @@ export const inventoryOverviewQuerySchema = z.object({
       limit: z.coerce.number().int().min(1).max(100).default(20),
       search: z.string().max(200).optional(),
       category: z.string().max(100).optional(),
-      filter: z.enum(['all', 'low', 'out', 'sold', 'missing_cost']).default('all'),
+      subcategory: z.string().max(100).optional(),
+      filter: z
+        .enum(['all', 'low', 'out', 'sold', 'missing_cost', 'premium'])
+        .default('all'),
       sort: z
         .enum([
           'name',
@@ -38,6 +41,7 @@ export const inventoryOverviewQuerySchema = z.object({
       limit: q.limit,
       search: q.search?.trim(),
       category: q.category?.trim(),
+      subcategory: q.subcategory?.trim(),
       filter: q.filter,
       sort: q.sort,
       period: q.period,

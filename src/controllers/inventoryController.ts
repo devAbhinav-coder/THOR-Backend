@@ -29,6 +29,7 @@ export const getInventoryOverviewHandler = catchAsync(
       limit?: number;
       search?: string;
       category?: string;
+      subcategory?: string;
       filter?: string;
       sort?: string;
       period?: "month" | "year" | "lifetime";
@@ -44,6 +45,7 @@ export const getInventoryOverviewHandler = catchAsync(
       limit,
       search: q.search ?? "",
       category: q.category ?? "",
+      subcategory: q.subcategory ?? "",
       filter: q.filter ?? "all",
       sort: q.sort ?? "-updatedAt",
       period: q.period ?? "lifetime",
