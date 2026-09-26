@@ -3,6 +3,40 @@ import { env } from "../config/env";
 
 export const SEARCH_MAX_LEN = 80;
 
+/** Filler words ignored when every token must match a product field. */
+export const SEARCH_MATCH_STOP_WORDS = new Set([
+  "colour",
+  "color",
+  "coloured",
+  "colored",
+  "colur",
+  "clr",
+  "wale",
+  "wali",
+  "wala",
+  "walaa",
+  "with",
+  "for",
+  "and",
+  "the",
+  "in",
+  "ke",
+  "ki",
+  "ka",
+  "me",
+  "mein",
+  "type",
+  "style",
+]);
+
+/** Tokens used for multi-word AND search (drops noise like "colour"). */
+export function tokenizeSearchForMatching(query: string): string[] {
+  return query
+    .split(/\s+/)
+    .map((w) => w.trim().toLowerCase())
+    .filter((w) => w.length >= 2 && !SEARCH_MATCH_STOP_WORDS.has(w));
+}
+
 /** Unicode-safe search string for storefront/admin. */
 export function normalizeSearchQuery(raw: unknown): string {
   if (typeof raw !== "string") return "";

@@ -228,12 +228,35 @@ const PHRASE_HINTS = [
   "silk saree",
   "cotton saree",
   "banarasi saree",
+  "chanderi saree",
   "red saree",
+  "black saree",
+  "blue saree",
+  "green saree",
+  "lemon yellow",
+  "off white",
+  "royal blue",
   "bridal lehenga",
   "wedding lehenga",
   "salwar suit",
   "salwar suits",
   "new arrival",
+];
+
+/** Multi-word colors — do not strip to a single color token for hard filters. */
+const COMPOUND_COLOR_PHRASES = [
+  "lemon yellow",
+  "mustard yellow",
+  "off white",
+  "royal blue",
+  "navy blue",
+  "sky blue",
+  "bottle green",
+  "olive green",
+  "rose pink",
+  "hot pink",
+  "wine red",
+  "blood red",
 ];
 
 const PRICE_UNDER_RE =
@@ -573,12 +596,29 @@ export function parseSearchQueryIntent(raw: unknown): ParsedSearchIntent {
   }
 
   const fabrics = pickKeywords(correctedWords, FABRIC_KEYWORDS);
-  const colors = pickKeywords(correctedWords, COLOR_KEYWORDS);
+  const compoundColors = pickPhrases(rawQuery, COMPOUND_COLOR_PHRASES);
+  let colors = dedupeStrings([
+    ...compoundColors,
+    ...pickKeywords(correctedWords, COLOR_KEYWORDS),
+  ]);
+  if (compoundColors.length) {
+    const coveredTokens = new Set(
+      compoundColors.join(" ").toLowerCase().split(/\s+/).filter(Boolean),
+    );
+    colors = colors.filter((color) => {
+      if (compoundColors.includes(color)) return true;
+      const words = color.toLowerCase().split(/\s+/).filter(Boolean);
+      if (words.length === 1 && coveredTokens.has(words[0]!)) return false;
+      return true;
+    });
+  }
   const categoryPhrases = pickPhrases(rawQuery, [
     "salwar suit",
     "salwar suits",
     "lehenga choli",
     "red saree",
+    "black saree",
+    "blue saree",
   ]);
   const categories = dedupeStrings([
     ...categoryPhrases,
@@ -730,6 +770,14 @@ export function mergeSearchIntentWithFilters(
   subcategories: string[];
   /** Intent-parsed subcategories (from PHRASE_HINTS). Soft boost only - NOT hard filters. */
   intentSubcategories: string[];
+  /** Colors from URL/filter params only — safe to use as hard MongoDB filters. */
+  filterColors: string[];
+  /** Fabrics from URL/filter params only — safe to use as hard MongoDB filters. */
+  filterFabrics: string[];
+  /** Colors parsed from search text — relevance boost only, not mandatory filters. */
+  intentColors: string[];
+  /** Fabrics parsed from search text — relevance boost only, not mandatory filters. */
+  intentFabrics: string[];
   tags: string[];
 } {
   const colorSet = new Set<string>();
@@ -779,11 +827,35 @@ export function mergeSearchIntentWithFilters(
   // Using these as hard filters via buildShopCollectionFilter produces 0 results.
   const intentSubcategorySet = new Set([...(intent.subcategories || [])]);
 
+  const filterColorSet = new Set<string>();
+  for (const color of filters.colors ?? []) {
+    filterColorSet.add(titleCase(color));
+  }
+
+  const filterFabricSet = new Set<string>();
+  for (const fabric of filters.fabrics ?? []) {
+    filterFabricSet.add(titleCase(fabric));
+  }
+
+  const intentColorSet = new Set<string>();
+  for (const color of intent.colors ?? []) {
+    intentColorSet.add(titleCase(color));
+  }
+
+  const intentFabricSet = new Set<string>();
+  for (const fabric of intent.fabrics ?? []) {
+    intentFabricSet.add(titleCase(fabric));
+  }
+
   return {
     query: intent.textQuery || intent.rawQuery,
     residualQuery: buildResidualTextQuery(intent),
     colors: [...colorSet],
     fabrics: [...fabricSet],
+    filterColors: [...filterColorSet],
+    filterFabrics: [...filterFabricSet],
+    intentColors: [...intentColorSet],
+    intentFabrics: [...intentFabricSet],
     categories: [...explicitCategorySet],
     intentCategories: [...intentCategorySet],
     minPrice: filters.minPrice ?? intent.minPrice,

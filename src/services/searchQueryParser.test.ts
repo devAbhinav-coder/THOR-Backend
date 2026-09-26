@@ -99,6 +99,23 @@ test("builds empty residual query when intent fully covers search", () => {
   assert.equal(merged.residualQuery, "");
 });
 
+test("intent fabrics/colors do not become hard filter params", () => {
+  const intent = parseSearchQueryIntent("chanderi saree");
+  const merged = mergeSearchIntentWithFilters(intent, {});
+  assert.ok(merged.intentFabrics.includes("Chanderi"));
+  assert.equal(merged.filterFabrics.length, 0);
+  assert.ok(merged.intentColors.length === 0);
+});
+
+test("lemon yellow keeps compound color intent without lone yellow token", () => {
+  const intent = parseSearchQueryIntent("lemon yellow saree");
+  assert.ok(intent.colors.includes("lemon yellow"));
+  assert.ok(!intent.colors.includes("yellow"));
+  const merged = mergeSearchIntentWithFilters(intent, {});
+  assert.equal(merged.filterColors.length, 0);
+  assert.ok(merged.intentColors.includes("Lemon yellow"));
+});
+
 if (require.main === module) {
   console.log("searchQueryParser tests passed");
 }

@@ -10,7 +10,10 @@ import { cachedFetch } from "./cache/cachedFetch";
 import crypto from "crypto";
 import { getCachedProductCount } from "./productCountService";
 import { getProductCacheVersion } from "./productCacheService";
-import { normalizeSearchQuery } from "./productQueryParser";
+import {
+  normalizeSearchQuery,
+  tokenizeSearchForMatching,
+} from "./productQueryParser";
 
 function escapeRegExp(string: string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); // $& means the whole matched string
@@ -324,6 +327,9 @@ export class AdvancedSearchService {
         { subcategory: { $regex: pattern } },
         { fabric: { $regex: pattern } },
         { tags: { $regex: pattern } },
+        { "variants.color": { $regex: pattern } },
+        { "variants.sku": { $regex: pattern } },
+        { "images.color": { $regex: pattern } },
       ],
     };
   }
@@ -601,8 +607,11 @@ export class AdvancedSearchService {
       maxPrice,
     });
     const effectiveQuery = merged.query;
-    const effectiveColors = merged.colors;
-    const effectiveFabrics = merged.fabrics;
+    /** Hard filters: URL/query params only. Intent-parsed colors/fabrics are soft boosts. */
+    const effectiveColors = merged.filterColors;
+    const effectiveFabrics = merged.filterFabrics;
+    const intentColors = merged.intentColors;
+    const intentFabrics = merged.intentFabrics;
     // Only EXPLICIT categories (from URL params) become hard MongoDB filters
     const effectiveCategories = merged.categories;
     // Intent categories (from text parsing) are used for soft boosting only
@@ -611,31 +620,11 @@ export class AdvancedSearchService {
     const effectiveSubcategories = merged.subcategories;
     // Intent subcategories (from PHRASE_HINTS) are soft boost only
     const intentSubcategories = merged.intentSubcategories;
-    // Only use residualQuery (strip category words) when there are EXPLICIT categories/colors/fabrics
-    // For intent-only categories, we keep the full query so regex can match subcategories like 'Banarasi Saree'
-    const textSearchQuery =
-      (
-        effectiveColors.length > 0 ||
-        effectiveCategories.length > 0 ||
-        effectiveFabrics.length > 0
-      ) ?
-        merged.residualQuery
-      : effectiveQuery;
+    // Always search the user's full normalized query so intent stripping never yields zero text.
+    const textSearchQuery = safeQuery.trim() || effectiveQuery.trim();
     const effectiveMinPrice = merged.minPrice;
     const effectiveMaxPrice = merged.maxPrice;
     const hasQuery = safeQuery.length > 0;
-    const colorBoost =
-      merged.colors.length > 0 ? ` ${merged.colors.join(" ")}` : "";
-    // Combine explicit + intent subcategories for text search boost
-    const allSubsForBoost = [
-      ...merged.subcategories,
-      ...intentSubcategories,
-    ].filter(Boolean);
-    const subcategoryBoost =
-      allSubsForBoost.length > 0 ? ` ${allSubsForBoost.join(" ")}` : "";
-    const tagBoost = merged.tags.length > 0 ? ` ${merged.tags.join(" ")}` : "";
-    const searchText =
-      `${textSearchQuery}${colorBoost}${subcategoryBoost}${tagBoost}`.trim();
 
     // Generate cache key
     const cacheKey = await this.generateSearchCacheKey({
@@ -651,6 +640,8 @@ export class AdvancedSearchService {
       intentSubcategories,
       colors: effectiveColors,
       fabrics: effectiveFabrics,
+      intentColors,
+      intentFabrics,
       minPrice: effectiveMinPrice,
       maxPrice: effectiveMaxPrice,
       minRating,
@@ -685,7 +676,7 @@ export class AdvancedSearchService {
       if (hasQuery) {
         searchMethod = "advanced";
         result = await this.advancedSearch({
-          query: searchText,
+          query: textSearchQuery,
           filters,
           sortBy,
           sortOrder,
@@ -698,6 +689,8 @@ export class AdvancedSearchService {
           occasions,
           colors: effectiveColors,
           fabrics: effectiveFabrics,
+          intentColors,
+          intentFabrics,
           minPrice: effectiveMinPrice,
           maxPrice: effectiveMaxPrice,
           minRating,
@@ -784,11 +777,37 @@ export class AdvancedSearchService {
   private buildFabricFilter(fabrics: string[]): Record<string, unknown> | null {
     if (!fabrics.length) return null;
     return {
-      $or: fabrics.map((fabric) => {
+      $or: fabrics.flatMap((fabric) => {
         const escaped = fabric.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const re = new RegExp(`^${escaped}$`, "i");
-        return { fabric: re };
+        const re = new RegExp(escaped, "i");
+        return [{ fabric: re }, { name: re }, { tags: re }];
       }),
+    };
+  }
+
+  /** Each token must match at least one searchable field (cross-field AND). */
+  private buildAllWordsMustMatchClause(
+    query: string,
+  ): Record<string, unknown> | null {
+    const words = tokenizeSearchForMatching(query);
+    if (words.length === 0) return null;
+
+    const perWord = words.map((word) => {
+      const escaped = escapeRegExp(word);
+      let pattern: RegExp;
+      if (word.length <= 3) {
+        pattern = new RegExp(escaped, "i");
+      } else {
+        pattern = new RegExp(
+          `(${escaped}|${escapeRegExp(word.slice(0, -1))}|${escaped}s)`,
+          "i",
+        );
+      }
+      return this.buildFieldRegexMatch(pattern);
+    });
+
+    return {
+      $and: perWord.map((match) => ({ $or: match.$or as unknown[] })),
     };
   }
 
@@ -811,6 +830,8 @@ export class AdvancedSearchService {
     occasions?: string[];
     colors?: string[];
     fabrics?: string[];
+    intentColors?: string[];
+    intentFabrics?: string[];
     minPrice?: number;
     maxPrice?: number;
     minRating?: number;
@@ -840,6 +861,8 @@ export class AdvancedSearchService {
       occasions = [],
       colors = [],
       fabrics = [],
+      intentColors = [],
+      intentFabrics = [],
       minPrice,
       maxPrice,
       minRating,
@@ -924,17 +947,11 @@ export class AdvancedSearchService {
       return new RegExp(regexStrings.join(".*"), "i");
     });
 
-    const fuzzyPatternMatches = regexPatterns.map((pattern) =>
+    const phraseMatches = regexPatterns.map((pattern) =>
       this.buildFieldRegexMatch(pattern),
     );
 
-    const wordMatches = safeQuery
-      .split(/\s+/)
-      .filter((w) => w.length >= 2)
-      .map((word) => {
-        const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        return this.buildFieldRegexMatch(new RegExp(escaped, "i"));
-      });
+    const allWordsClause = this.buildAllWordsMustMatchClause(safeQuery);
 
     const andClauses: Record<string, unknown>[] = [{ ...baseFilter }];
     const colorFilter = this.buildColorVariantFilter(colors);
@@ -946,10 +963,11 @@ export class AdvancedSearchService {
       andClauses.push(fabricFilter);
     }
     if (safeQuery.trim()) {
-      const regexMatches = [...fuzzyPatternMatches, ...wordMatches];
-      if (regexMatches.length > 0) {
-        // MongoDB cannot plan $text together with multi-field $regex in $or.
-        andClauses.push({ $or: regexMatches });
+      const textMatchOptions: Record<string, unknown>[] = [];
+      if (allWordsClause) textMatchOptions.push(allWordsClause);
+      textMatchOptions.push(...phraseMatches);
+      if (textMatchOptions.length > 0) {
+        andClauses.push({ $or: textMatchOptions });
       }
     }
 
@@ -972,7 +990,7 @@ export class AdvancedSearchService {
 
     // Calculate keyword similarity scores and sort by relevance
     const scoredProducts = products.map((product) => {
-      const similarityScore = this.calculateKeywordSimilarity(
+      let similarityScore = this.calculateKeywordSimilarity(
         safeQuery,
         {
           name: product.name as string,
@@ -984,12 +1002,36 @@ export class AdvancedSearchService {
           fabric: product.fabric as string,
         },
         {
-          colors: colors.length > 0 ? colors : undefined,
+          colors:
+            [...colors, ...intentColors].length > 0 ?
+              [...colors, ...intentColors]
+            : undefined,
           categories: categories.length > 0 ? categories : undefined,
           intentCategories:
             intentCategories.length > 0 ? intentCategories : undefined,
         },
       );
+
+      const productName = String(product.name ?? "").toLowerCase();
+      const normalizedQuery = safeQuery.trim().toLowerCase();
+      if (normalizedQuery && productName.includes(normalizedQuery)) {
+        similarityScore += 40;
+      }
+
+      for (const fabric of intentFabrics) {
+        const fabricLower = fabric.toLowerCase();
+        const productText = [
+          product.name as string,
+          product.description as string,
+          product.fabric as string,
+          ...(product.tags as string[]),
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (productText.includes(fabricLower)) {
+          similarityScore += 18;
+        }
+      }
 
       return {
         ...product,
@@ -1238,14 +1280,7 @@ export class AdvancedSearchService {
 
     const intent = parseSearchQueryIntent(safeQuery);
     const merged = mergeSearchIntentWithFilters(intent, {});
-    const textSearchQuery =
-      merged.colors.length > 0 || merged.categories.length > 0 ?
-        merged.residualQuery
-      : merged.query;
-    // Keep raw query when intent parsing emptied residual (short tokens / Hindi / typos)
-    const searchText =
-      `${textSearchQuery}${merged.colors.length ? ` ${merged.colors.join(" ")}` : ""}`.trim() ||
-      safeQuery.trim();
+    const searchText = safeQuery.trim() || merged.query.trim();
 
     const v = await getProductCacheVersion();
     const cacheKey = `cache:v${v}:autocomplete:env:${crypto.createHash("md5").update(safeQuery).digest("hex")}`;
@@ -1279,13 +1314,7 @@ export class AdvancedSearchService {
         this.buildFieldRegexMatch(pattern),
       );
 
-      const wordConditions = searchText
-        .split(/\s+/)
-        .filter((w) => w.length >= 2)
-        .map((word) => {
-          const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-          return this.buildFieldRegexMatch(new RegExp(escaped, "i"));
-        });
+      const allWordsClause = this.buildAllWordsMustMatchClause(searchText);
 
       const andClauses: Record<string, unknown>[] = [
         {
@@ -1304,12 +1333,14 @@ export class AdvancedSearchService {
         andClauses.push(collectionFilter);
       }
 
-      const colorFilter = this.buildColorFilter(merged.colors);
+      const colorFilter = this.buildColorFilter(merged.filterColors);
       if (colorFilter) {
         andClauses.push(colorFilter);
       }
 
-      const colorVariantFilter = this.buildColorVariantFilter(merged.colors);
+      const colorVariantFilter = this.buildColorVariantFilter(
+        merged.filterColors,
+      );
       if (colorVariantFilter) {
         andClauses.push(colorVariantFilter);
       }
@@ -1321,7 +1352,8 @@ export class AdvancedSearchService {
         andClauses.push({ price: priceFilter });
       }
 
-      const searchOr = [...conditions, ...wordConditions];
+      const searchOr: Record<string, unknown>[] = [...conditions];
+      if (allWordsClause) searchOr.unshift(allWordsClause);
       if (searchText.trim() && searchOr.length > 0) {
         andClauses.push({ $or: searchOr });
       }
@@ -1365,11 +1397,29 @@ export class AdvancedSearchService {
             fabric: product.fabric,
           },
           {
-            colors: merged.colors.length > 0 ? merged.colors : undefined,
+            colors:
+              merged.intentColors.length > 0 ? merged.intentColors : undefined,
             categories:
               merged.categories.length > 0 ? merged.categories : undefined,
           },
         );
+
+        let relevanceScore = relevance;
+        const nameLower = product.name.toLowerCase();
+        const qLower = searchText.toLowerCase();
+        if (qLower && nameLower.includes(qLower)) {
+          relevanceScore += 40;
+        }
+        for (const fabric of merged.intentFabrics) {
+          if (
+            [product.name, product.fabric, product.description]
+              .join(" ")
+              .toLowerCase()
+              .includes(fabric.toLowerCase())
+          ) {
+            relevanceScore += 18;
+          }
+        }
 
         return {
           id: product._id.toString(),
@@ -1378,7 +1428,7 @@ export class AdvancedSearchService {
           image: product.images.length > 0 ? product.images[0].url : "",
           price: product.price,
           category: product.category,
-          relevance,
+          relevance: relevanceScore,
         };
       });
 
