@@ -188,6 +188,7 @@ const FALLBACK_SETTINGS = {
     instagramUrl: "#",
     twitterUrl: "#",
     youtubeUrl: "#",
+    pinterestUrl: "#",
     quickLinks: [
       { label: "Home", href: "/" },
       { label: "Shop All", href: "/shop/collections" },

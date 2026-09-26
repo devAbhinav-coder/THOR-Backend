@@ -66,6 +66,7 @@ const footerSchema = new Schema(
     instagramUrl: { type: String, trim: true, maxlength: 240 },
     twitterUrl: { type: String, trim: true, maxlength: 240 },
     youtubeUrl: { type: String, trim: true, maxlength: 240 },
+    pinterestUrl: { type: String, trim: true, maxlength: 240 },
     quickLinks: [linkSchema],
     categoryLimit: { type: Number, default: 5, min: 1, max: 20 },
   },
